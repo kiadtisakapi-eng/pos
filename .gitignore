@@ -1,0 +1,11 @@
+# ไฟล์สำรอง/ขยะ ไม่ต้องขึ้น GitHub
+backup/
+__pycache__/
+*.pyc
+refactor.py
+_backup_final_qa_*.js
+
+# local deploy scripts (เก็บไว้ในเครื่อง ไม่ต้องขึ้น repo)
+deploy.bat
+deploy.ps1
+first-setup.bat

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>คู่มือเริ่มใช้งาน — Erotica POS</title>
+<style>
+  :root{ --gold:#b8860b; --teal:#0f766e; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc; --soft:#fffbeb; }
+  *{box-sizing:border-box}
+  body{font-family:"Segoe UI",Tahoma,"Sarabun",system-ui,sans-serif;color:var(--ink);background:var(--bg);margin:0;line-height:1.7}
+  .wrap{max-width:860px;margin:0 auto;padding:32px 20px 80px}
+  header.hero{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;border-radius:18px;padding:30px 28px;margin-bottom:28px;box-shadow:0 12px 30px rgba(15,23,42,.25)}
+  header.hero h1{margin:0 0 6px;font-size:1.7rem}
+  header.hero p{margin:0;color:#94a3b8}
+  .badge{display:inline-block;background:rgba(184,134,11,.18);color:#fcd34d;border:1px solid rgba(184,134,11,.4);padding:3px 10px;border-radius:20px;font-size:.78rem;margin-top:12px}
+  h2{font-size:1.25rem;margin:34px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line);display:flex;align-items:center;gap:10px}
+  h2 .num{background:var(--gold);color:#fff;width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;font-size:.95rem;flex-shrink:0}
+  h3{font-size:1.02rem;margin:20px 0 8px;color:var(--teal)}
+  ol,ul{margin:8px 0 8px;padding-left:22px}
+  li{margin:6px 0}
+  code{background:#eef2f7;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.88em;color:#9f1239;font-family:Consolas,monospace}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0;box-shadow:0 2px 8px rgba(0,0,0,.03)}
+  .note{background:var(--soft);border:1px solid #fde68a;border-radius:12px;padding:12px 16px;margin:14px 0;font-size:.92rem}
+  .note b{color:#92400e}
+  .warn{background:#fff1f2;border:1px solid #fecdd3;border-radius:12px;padding:12px 16px;margin:14px 0;font-size:.92rem}
+  .warn b{color:#9f1239}
+  .flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;margin:18px 0}
+  .step{flex:1;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center}
+  .step .ic{font-size:1.6rem}
+  .step .t{font-weight:700;margin:6px 0 2px;font-size:.95rem}
+  .step .d{font-size:.8rem;color:var(--muted)}
+  .arrow{display:flex;align-items:center;color:var(--gold);font-size:1.4rem}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.9rem}
+  th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f1f5f9}
+  .pill{display:inline-block;background:var(--teal);color:#fff;padding:2px 9px;border-radius:6px;font-size:.8rem;font-weight:600}
+  .kbd{display:inline-block;background:#fff;border:1px solid #cbd5e1;border-bottom-width:2px;border-radius:6px;padding:1px 7px;font-size:.85em}
+  .check li{list-style:none;position:relative;padding-left:6px}
+  .check li::before{content:"☐ ";color:var(--teal);font-weight:700}
+  footer{margin-top:40px;text-align:center;color:var(--muted);font-size:.82rem}
+  /* ปุ่มบันทึก PDF (ลอยมุมขวาบน, ซ่อนตอนพิมพ์) */
+  .pdfbtn{position:fixed;top:16px;right:16px;z-index:50;background:var(--gold);color:#fff;border:none;
+    padding:12px 18px;border-radius:30px;font-size:.95rem;font-weight:700;cursor:pointer;
+    box-shadow:0 6px 18px rgba(184,134,11,.45);font-family:inherit}
+  .pdfbtn:hover{filter:brightness(1.05)}
+  .pdfhint{position:fixed;top:60px;right:16px;z-index:50;background:#1e293b;color:#cbd5e1;
+    font-size:.72rem;padding:6px 10px;border-radius:8px;max-width:210px;line-height:1.4}
+  @page{ size:A4; margin:14mm; }
+  @media print{
+    html,body{background:#fff !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .wrap{max-width:100%;padding:0}
+    .pdfbtn,.pdfhint{display:none !important}
+    header.hero{box-shadow:none}
+    h2{break-before:page;page-break-before:always}
+    h2:first-of-type{break-before:auto;page-break-before:auto}
+    .card,.note,.warn,table,.flow,.step{break-inside:avoid;page-break-inside:avoid}
+    h2,h3{break-after:avoid}
+  }
+</style>
+</head>
+<body>
+<button class="pdfbtn" onclick="window.print()">⬇️ บันทึกเป็น PDF</button>
+<div class="pdfhint">กดปุ่มนี้ → เลือกปลายทางเป็น "บันทึกเป็น PDF / Save as PDF"</div>
+<div class="wrap">
+
+<header class="hero">
+  <h1>📘 คู่มือเริ่มใช้งานระบบ POS</h1>
+  <p>Erotica Barber &amp; Massage — ติดตั้งและใช้งานบน iPad ตั้งแต่ต้นจนพร้อมขายจริง</p>
+  <span class="badge">PWA • ออฟไลน์ได้ • PromptPay สแกนจ่ายจริง • Sync Google Sheets</span>
+</header>
+
+<p>ทำตาม 4 ขั้นตอนนี้ตามลำดับ แล้วระบบจะพร้อมใช้งานจริงบน iPad:</p>
+<div class="flow">
+  <div class="step"><div class="ic">🌐</div><div class="t">1. นำขึ้นเว็บ</div><div class="d">GitHub Pages / Netlify</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="ic">📱</div><div class="t">2. ติดตั้ง iPad</div><div class="d">Safari → Add to Home Screen</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="ic">☁️</div><div class="t">3. ต่อ Backend</div><div class="d">Google Apps Script</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="ic">⚙️</div><div class="t">4. ตั้งค่า</div><div class="d">PIN • พร้อมเพย์ • Sheets</div></div>
+</div>
+
+<!-- ============ STEP 1 ============ -->
+<h2><span class="num">1</span> นำแอปขึ้นเว็บ</h2>
+<p>iPad เปิดไฟล์จากคอมโดยตรงไม่ได้ และระบบ PWA (ติดตั้ง+ออฟไลน์) ต้องการ <b>HTTPS</b> จึงต้องนำไฟล์ขึ้นเว็บก่อน เลือกวิธีใดวิธีหนึ่ง</p>
+
+<div class="card">
+  <h3>วิธี A — Netlify (ง่ายสุด ไม่ต้องมีบัญชี Git) <span class="pill">แนะนำสำหรับเริ่มต้น</span></h3>
+  <ol>
+    <li>บนคอม เปิด <code>https://app.netlify.com/drop</code></li>
+    <li>ลาก <b>ทั้งโฟลเดอร์</b> <code>โปรเจค POS</code> ไปวางในหน้าเว็บ</li>
+    <li>ระบบจะอัปโหลดและให้ลิงก์ HTTPS ทันที เช่น <code>https://ชื่อสุ่ม.netlify.app</code></li>
+    <li>(ทางเลือก) สมัครบัญชีฟรีเพื่อเก็บลิงก์ไว้ถาวรและตั้งชื่อเองได้</li>
+  </ol>
+</div>
+
+<div class="card">
+  <h3>วิธี B — GitHub Pages (ลิงก์ถาวร เหมาะใช้จริงระยะยาว)</h3>
+  <ol>
+    <li>สมัคร/ล็อกอิน <code>github.com</code> → กด <b>New repository</b> ตั้งชื่อ เช่น <code>erotica-pos</code> → Create</li>
+    <li>ในหน้า repo กด <b>Add file → Upload files</b> แล้วลากไฟล์ <b>ทั้งหมด</b> ในโฟลเดอร์นี้ขึ้นไป (รวม <code>.nojekyll</code> ที่ผมเตรียมไว้) → <b>Commit changes</b></li>
+    <li>ไปที่ <b>Settings → Pages</b></li>
+    <li>หัวข้อ <b>Source</b> เลือก <code>Deploy from a branch</code> → Branch = <code>main</code> โฟลเดอร์ <code>/ (root)</code> → <b>Save</b></li>
+    <li>รอ 1–2 นาที จะได้ลิงก์ <code>https://&lt;ชื่อผู้ใช้&gt;.github.io/&lt;ชื่อ repo&gt;/</code></li>
+  </ol>
+  <div class="note"><b>หมายเหตุ:</b> ไฟล์ <code>.nojekyll</code> (ไฟล์ว่าง) สำคัญ — กันไม่ให้ GitHub ประมวลผลแบบ Jekyll อย่าลบทิ้ง</div>
+</div>
+
+<!-- ============ STEP 2 ============ -->
+<h2><span class="num">2</span> ติดตั้งบน iPad (เพิ่มลงหน้าจอ)</h2>
+<div class="card">
+  <ol>
+    <li>บน iPad เปิดลิงก์ที่ได้จากขั้นตอนที่ 1 ด้วย <b>Safari</b>
+      <div class="warn" style="margin-top:8px"><b>สำคัญ:</b> ต้องเป็น <b>Safari</b> เท่านั้น — Chrome บน iPad ติดตั้ง PWA แบบเต็มจอ/ออฟไลน์ไม่ได้</div>
+    </li>
+    <li>แตะปุ่ม <b>แชร์</b> <span class="kbd">⬆️ สี่เหลี่ยมมีลูกศรขึ้น</span> ที่แถบด้านบน/ล่าง</li>
+    <li>เลื่อนหาเมนู <b>"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</b> → แตะ</li>
+    <li>ตั้งชื่อแอป (เช่น "POS ร้าน") → แตะ <b>เพิ่ม</b></li>
+    <li>จะมีไอคอนแอปขึ้นบนหน้าจอ iPad — เปิดจากไอคอนนี้จะได้แบบ <b>เต็มจอเหมือนแอปจริง</b></li>
+  </ol>
+  <div class="note"><b>ครั้งแรกต้องต่ออินเทอร์เน็ต</b> เพื่อโหลดและแคชไฟล์ หลังจากนั้นเปิดใช้แบบ<b>ออฟไลน์</b>ได้</div>
+</div>
+
+<!-- ============ STEP 3 ============ -->
+<h2><span class="num">3</span> Deploy Backend (Google Apps Script)</h2>
+<p>ส่วนนี้ทำให้ระบบ sync ยอดขาย/สรุปขึ้น Google Sheets และสำรองข้อมูลขึ้น Google Drive อัตโนมัติ</p>
+<div class="card">
+  <ol>
+    <li>เปิด <b>Google Sheets</b> สร้างไฟล์ใหม่ 1 ไฟล์ (จะใช้เก็บข้อมูลทั้งหมด)</li>
+    <li>เมนู <b>Extensions → Apps Script</b></li>
+    <li>ลบโค้ดตัวอย่างที่มี แล้ว <b>วางโค้ดทั้งหมด</b> จากไฟล์ <code>google_apps_script.js</code> → กด <b>บันทึก</b> (รูปแผ่นดิสก์)</li>
+    <li>กด <b>Deploy → New deployment</b></li>
+    <li>กดรูปเฟือง ⚙️ ข้าง "Select type" → เลือก <b>Web app</b></li>
+    <li>ตั้งค่าให้ตรงนี้ <b>เป๊ะ ๆ</b>:
+      <table>
+        <tr><th>ช่อง</th><th>ตั้งเป็น</th></tr>
+        <tr><td>Execute as</td><td><b>Me</b> (อีเมลคุณ)</td></tr>
+        <tr><td>Who has access</td><td><b>Anyone</b></td></tr>
+      </table>
+    </li>
+    <li>กด <b>Deploy</b> → อนุญาตสิทธิ์ (Authorize) → เลือกบัญชี → "Advanced" → "Go to (project) (unsafe)" → Allow <span class="pill">ทำครั้งเดียว</span></li>
+    <li>คัดลอก <b>Web app URL</b> (ลงท้าย <code>/exec</code>) เก็บไว้ใช้ในขั้นตอนที่ 4</li>
+  </ol>
+  <div class="warn"><b>เมื่อแก้โค้ด GAS ภายหลัง:</b> ต้องไป <b>Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy</b> ทุกครั้ง ไม่งั้นของเก่าจะยังทำงานอยู่ (URL เดิมใช้ได้ต่อ)</div>
+</div>
+<div class="note">โครงสร้างชีตที่ระบบจะสร้างให้อัตโนมัติ: <code>สรุปรายเดือน</code> (master), <code>MM-yyyy</code> (รายการบิล), <code>สรุป-MM-yyyy</code> และ <code>สรุป-YYYY-MM-DD</code> — ไม่ต้องสร้างเอง</div>
+
+<!-- ============ STEP 4 ============ -->
+<h2><span class="num">4</span> ตั้งค่าครั้งแรกในแอป</h2>
+<div class="card">
+  <p>เปิดแอปบน iPad → เข้าหน้า <b>ตั้งค่า</b> (ต้องใส่ PIN เจ้าของ ค่าเริ่มต้น <code>123456</code>) แล้วตั้งค่าตามนี้:</p>
+  <table>
+    <tr><th>รายการ</th><th>ทำอะไร</th></tr>
+    <tr><td>🔑 PIN เจ้าของร้าน</td><td>เปลี่ยนจาก <code>123456</code> เป็นรหัส 6 หลักของคุณ <b>(สำคัญมาก)</b></td></tr>
+    <tr><td>💸 เลขพร้อมเพย์</td><td>ใส่เบอร์มือถือ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก → QR จะสแกนจ่ายเข้าบัญชีร้านจริง</td></tr>
+    <tr><td>☁️ Google Sheets URL</td><td>วาง Web App URL จากขั้นตอนที่ 3 → กดทดสอบ/บันทึก</td></tr>
+    <tr><td>🔔 Telegram (ถ้าต้องการ)</td><td>ใส่ Bot Token + Chat ID เพื่อรับรายงานสรุปตอนปิดกะ</td></tr>
+  </table>
+</div>
+
+<!-- ============ USAGE ============ -->
+<h2><span class="num">▶</span> การใช้งานประจำวัน</h2>
+<div class="flow">
+  <div class="step"><div class="ic">🔓</div><div class="t">เปิดร้าน</div><div class="d">นับเงินสดเปิดกะ</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="ic">🛒</div><div class="t">ขาย</div><div class="d">เลือกบริการ→พนักงาน→ชำระเงิน</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="ic">⏳</div><div class="t">คิวงาน</div><div class="d">รอ→กำลังบริการ→เสร็จ</div></div>
+  <div class="arrow">→</div>
+  <div class="step"><div class="ic">🔒</div><div class="t">ปิดร้าน</div><div class="d">นับเงิน→สรุป→ส่ง Sheets/Telegram</div></div>
+</div>
+<ul>
+  <li><b>รับชำระด้วย QR:</b> เลือกชำระเงิน → <b>Scan (QR)</b> ระบบจะสร้าง QR PromptPay ตามยอด → ให้ลูกค้าสแกนด้วยแอปธนาคารจากมือถือ (จอ iPad ไม่ต้องเปิดกล้อง)</li>
+  <li><b>รายงาน/แก้ไขบิล/ลบบิล:</b> อยู่ในหน้า "รายงาน" (เข้าได้เฉพาะเจ้าของร้านด้วย PIN)</li>
+</ul>
+
+<!-- ============ BACKUP/TIPS ============ -->
+<h2><span class="num">✓</span> สำรองข้อมูล &amp; แก้ปัญหาบน iPad</h2>
+<div class="warn"><b>ข้อมูลเก็บในเครื่อง iPad (ต่อเครื่อง):</b> iOS อาจล้างข้อมูลเว็บถ้าไม่ได้เปิดแอปนานหลายสัปดาห์ หรือพื้นที่เต็ม จึงควรป้องกันไว้ดังนี้</div>
+<ul>
+  <li>ตั้ง <b>Google Sheets URL</b> ให้ครบ → ทุกบิลจะ sync ขึ้นคลาวด์อัตโนมัติ</li>
+  <li>กด <b>ส่งออกข้อมูล (Export JSON)</b> ในหน้าตั้งค่าเก็บไว้เป็นระยะ (เช่น สัปดาห์ละครั้ง)</li>
+  <li>ตอนปิดกะ ระบบสำรองขึ้น Google Drive ให้อัตโนมัติ (ถ้าตั้ง Sheets URL ไว้)</li>
+  <li>เปิดแอปจาก<b>ไอคอนหน้าจอโฮม</b>เป็นประจำ (ไม่ใช่เปิดผ่าน Safari ทุกครั้ง) เพื่อให้ iOS ถือว่าเป็นแอปที่ใช้งานอยู่</li>
+</ul>
+<table>
+  <tr><th>ปัญหา</th><th>วิธีแก้</th></tr>
+  <tr><td>อัปเดตโค้ดแล้วแอปยังเป็นของเก่า</td><td>ปิดแอปบน iPad (ปัดขึ้นออกจากมัลติทาสก์) แล้วเปิดใหม่ — Service Worker จะโหลดเวอร์ชันใหม่ (sw.js ปัจจุบัน <code>v16</code>)</td></tr>
+  <tr><td>QR สแกนแล้วขึ้น error</td><td>ตรวจ "เลขพร้อมเพย์" ในหน้าตั้งค่า ว่าเป็นเบอร์ 10 หลัก หรือเลขบัตร 13 หลักที่ถูกต้อง</td></tr>
+  <tr><td>กดส่งสรุป/ซิงก์แล้วไม่ขึ้น Sheets</td><td>ตรวจว่า GAS deploy แบบ "Anyone" และวาง URL ที่ลงท้าย <code>/exec</code> ถูกต้อง; ถ้าเพิ่งแก้โค้ดให้ deploy เวอร์ชันใหม่</td></tr>
+  <tr><td>เพิ่มลงหน้าจอโฮมไม่ได้</td><td>ตรวจว่าเปิดด้วย Safari และลิงก์เป็น <code>https://</code></td></tr>
+</table>
+
+<!-- ============ CHECKLIST ============ -->
+<h2><span class="num">☑</span> เช็กลิสต์ก่อนเปิดใช้จริง</h2>
+<div class="card">
+  <ul class="check">
+    <li>นำไฟล์ขึ้นเว็บแล้ว เปิดลิงก์ HTTPS ได้</li>
+    <li>เพิ่มแอปลงหน้าจอ iPad ผ่าน Safari แล้ว</li>
+    <li>Deploy Google Apps Script (Execute as Me / Anyone) และคัดลอก URL แล้ว</li>
+    <li>เปลี่ยน PIN เจ้าของร้านจาก 123456 แล้ว</li>
+    <li>ใส่เลขพร้อมเพย์ และทดสอบสแกน QR ด้วยแอปธนาคารแล้ว</li>
+    <li>วาง Google Sheets URL และทดสอบ sync ขึ้น Sheets แล้ว</li>
+    <li>ตรวจรายการบริการ/พนักงาน/ค่าคอมมิชชั่นให้ตรงกับร้านจริง</li>
+    <li>ทดลองขาย 1 บิล → เปิดคิว → ปิดกะ ดูว่าครบถ้วน</li>
+  </ul>
+</div>
+
+<footer>
+  Erotica Barber &amp; Massage POS — คู่มือเริ่มใช้งาน · พิมพ์เป็น PDF ได้ด้วย <span class="kbd">Ctrl/⌘ + P</span>
+</footer>
+
+</div>
+</body>
+</html>
