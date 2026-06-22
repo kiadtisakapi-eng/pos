@@ -1620,28 +1620,45 @@ class PosApp {
       const payload = window.PromptPayQR.buildPayload(shopPP, total > 0 ? total : null);
       this.lastPromptPayPayload = payload; // เก็บไว้เผื่อดีบัก/คัดลอก
 
-      // เรนเดอร์เป็น canvas ความละเอียดสูงแล้วย่อลง — คมชัด สแกนติดบนจอ retina/iPad
-      // (เลี่ยง SVG สเกลขึ้นแบบเศษส่วนที่ทำให้ขอบ module เบลอ) + quiet zone 4 ตามมาตรฐาน + ดำสนิท
-      const m = window.PromptPayQR.generateMatrix(payload, 'M'); // EC ระดับ M = กู้คืนได้มากขึ้น สแกนง่ายขึ้นบนจอ
-      const quiet = 4, scale = 8;
-      const dimModules = m.size + quiet * 2;
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = dimModules * scale;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#000000';
-      for (let r = 0; r < m.size; r++) {
-        for (let c = 0; c < m.size; c++) {
-          if (m.modules[r][c]) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
+      // สร้าง matrix (ลอง EC M ก่อน — กู้คืนดีกว่า; ถ้ามีปัญหา fallback เป็น L)
+      let m;
+      try { m = window.PromptPayQR.generateMatrix(payload, 'M'); }
+      catch (eM) { m = window.PromptPayQR.generateMatrix(payload, 'L'); }
+
+      // วิธีหลัก: วาดลง canvas ความละเอียดสูงแล้วย่อ (smooth) — คมชัด สแกนติดบนจอ retina/iPad
+      let drawn = false;
+      try {
+        const quiet = 4, scale = 8;
+        const dimModules = m.size + quiet * 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = dimModules * scale;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('no 2d context');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#000000';
+        for (let r = 0; r < m.size; r++) {
+          for (let c = 0; c < m.size; c++) {
+            if (m.modules[r][c]) ctx.fillRect((c + quiet) * scale, (r + quiet) * scale, scale, scale);
+          }
         }
+        qrBox.innerHTML = '';
+        canvas.style.cssText = 'display:block;width:100%;height:100%;';
+        qrBox.appendChild(canvas);
+        drawn = true;
+      } catch (canvasErr) {
+        console.warn('canvas QR failed -> fallback to SVG:', canvasErr);
       }
-      qrBox.innerHTML = '';
-      canvas.style.cssText = 'display:block;width:100%;height:100%;';
-      qrBox.appendChild(canvas);
+
+      // สำรอง: ถ้า canvas ใช้ไม่ได้ (บางอุปกรณ์/เบราว์เซอร์) วาดเป็น SVG แทน
+      if (!drawn) {
+        qrBox.innerHTML = window.PromptPayQR.svg(payload, { ecLevel: 'M', quiet: 4, dark: '#000000', light: '#ffffff' });
+        const svgEl = qrBox.querySelector('svg');
+        if (svgEl) { svgEl.style.display = 'block'; svgEl.style.width = '100%'; svgEl.style.height = '100%'; }
+      }
     } catch (err) {
       console.error('PromptPay QR generation failed:', err);
-      qrBox.innerHTML = `<div style="padding:24px 12px;text-align:center;color:#b91c1c;font-size:0.8rem;line-height:1.5;">⚠️ สร้าง QR ไม่สำเร็จ<br>${err.message}<br><span style="color:#64748b;">ตรวจสอบเลขพร้อมเพย์ในหน้าตั้งค่า</span></div>`;
+      qrBox.innerHTML = `<div style="padding:24px 12px;text-align:center;color:#b91c1c;font-size:0.8rem;line-height:1.5;">⚠️ สร้าง QR ไม่สำเร็จ<br>${err.message}<br><span style="color:#64748b;">ลองรีเฟรชแอป หรือเช็คเลขพร้อมเพย์ในตั้งค่า</span></div>`;
     }
   }
 
