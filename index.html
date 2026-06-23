@@ -541,7 +541,7 @@
                 <label class="form-label">รหัส PIN เจ้าของร้าน (6 หลัก) *</label>
                 <input type="password" class="form-input" id="shop-owner-pin" maxlength="6" placeholder="เช่น 123456" onchange="app.saveShopSettings()" oninput="this.value = this.value.replace(/[^0-9]/g, '')" style="letter-spacing: 4px; font-weight: bold;">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
-                  รหัสผ่านสำหรับการปลดล็อกเข้าใช้งานรายงานยอดขายรวมและหน้าตั้งค่าระบบ
+                  PIN สำหรับเข้าสู่ระบบในฐานะ "เจ้าของร้าน" (เข้าได้ทุกหน้า) — ⚠️ ถ้าลืม PIN นี้จะกู้คืนไม่ได้ กรุณาจดเก็บไว้ และควรตั้งบัญชีเจ้าของสำรองไว้อีกอย่างน้อย 1 คน
                 </p>
               </div>
             </div>
@@ -833,23 +833,24 @@
   <!-- ==================== MODALS ==================== -->
 
   <!-- Modal: PIN Lock Verification -->
-  <div class="modal-overlay" id="modal-pin-lock">
-    <div class="modal-card" style="max-width: 320px; text-align: center; padding: 2rem 1.5rem;">
-      <div style="font-size: 2.5rem; color: var(--accent-barber); margin-bottom: 12px;">
-        <i class="fa-solid fa-user-shield"></i>
+  <!-- (โมดัลยืนยัน PIN เจ้าของแบบเก่าถูกถอดออก — ใช้ระบบล็อกอินแทน) -->
+
+  <!-- Modal: Login (เลือกผู้ใช้ + PIN) — แสดงตอนเปิดแอป -->
+  <div class="modal-overlay" id="modal-login">
+    <div class="modal-card" style="max-width: 360px; text-align: center; padding: 1.75rem 1.5rem;">
+      <div style="font-size: 2.2rem; color: var(--accent-barber); margin-bottom: 8px;">
+        <i class="fa-solid fa-user-lock"></i>
       </div>
-      <h2 class="modal-title" style="margin-bottom: 8px; font-size: 1.15rem; color: var(--text-primary);">ยืนยันสิทธิ์เจ้าของร้าน</h2>
-      <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
-        กรุณากรอกรหัส PIN 6 หลักเพื่อเข้าใช้งานส่วนข้อมูลนี้
-      </p>
-      <div class="form-group" style="margin-bottom: 1.25rem;">
-        <input type="password" id="owner-pin-input" maxlength="6" class="form-input" 
-               style="font-size: 2.2rem; text-align: center; letter-spacing: 12px; height: 52px; background: rgba(255, 255, 255, 0.03); border-color: var(--border-color); font-weight: bold; width: 100%;" 
-               placeholder="••••••" autocomplete="off" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
-      </div>
-      <div class="modal-footer" style="justify-content: center; gap: 10px; margin-top: 1.5rem; border-top: none; padding-top: 0;">
-        <button type="button" class="btn-small secondary" style="width: 100px;" onclick="app.closeModal('modal-pin-lock')">ยกเลิก</button>
-        <button type="button" class="btn-small primary" style="width: 100px;" onclick="app.verifyOwnerPin()">ยืนยัน PIN</button>
+      <h2 class="modal-title" style="margin-bottom: 4px; font-size: 1.2rem;">เข้าสู่ระบบ</h2>
+      <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 14px;">เลือกผู้ใช้ แล้วกรอก PIN เพื่อเข้าใช้งาน</p>
+      <div id="login-user-list" style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto; margin-bottom:14px;"></div>
+      <input type="password" id="login-pin-input" maxlength="6" inputmode="numeric" class="form-input"
+             style="font-size: 1.8rem; text-align: center; letter-spacing: 10px; height: 50px; width: 100%; font-weight: bold;"
+             placeholder="******" autocomplete="off"
+             oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+             onkeydown="if(event.key==='Enter'){app.doLogin();}">
+      <div style="margin-top: 14px;">
+        <button type="button" class="btn-small primary" style="width: 100%;" onclick="app.doLogin()"><i class="fa-solid fa-right-to-bracket"></i> เข้าสู่ระบบ</button>
       </div>
     </div>
   </div>
@@ -1038,6 +1039,21 @@
             <option value="ผู้นวดผ่อนคลาย">ผู้นวดผ่อนคลาย (Masseur)</option>
             <option value="เชี่ยวชาญทุกด้าน">เชี่ยวชาญทุกด้าน (All-Rounder)</option>
           </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ระดับสิทธิ์การเข้าระบบ *</label>
+          <select class="form-input" id="staff-access-level" required>
+            <option value="staff">พนักงาน (ขาย + คิว)</option>
+            <option value="manager">ผู้จัดการ (+ รายงาน, ยกเลิกบิล, ปิดร้าน)</option>
+            <option value="owner">เจ้าของร้าน (เข้าได้ทุกอย่าง)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">PIN เข้าระบบ (4-6 หลัก)</label>
+          <input type="password" class="form-input" id="staff-pin" maxlength="6" inputmode="numeric"
+                 placeholder="ตั้ง PIN 4-6 หลัก (เว้นว่าง = เข้าระบบไม่ได้)" autocomplete="off"
+                 oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+          <span style="font-size:0.7rem; color: var(--text-muted);">ถ้าไม่ตั้ง PIN พนักงานคนนี้จะยังเข้าสู่ระบบไม่ได้ (ขายผ่านบัญชีคนอื่นได้ตามปกติ)</span>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-staff')">ยกเลิก</button>
@@ -1255,11 +1271,11 @@
           <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 10px;">
             เมื่อลบรายการแล้ว ยอดขายจะหายไปและประวัติเงินสดในลิ้นชักของกะปัจจุบันจะถูกปรับลดลงทันที
           </p>
-          <div style="display: flex; gap: 8px;">
-            <input type="password" id="edit-tx-pin" maxlength="6" class="form-input" placeholder="กรอกรหัส PIN เจ้าของร้านเพื่อยืนยัน" style="max-width: 220px; font-size: 0.85rem; height: 36px; padding: 4px 10px;">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <button type="button" class="btn-small danger" onclick="app.voidTransaction()" style="height: 36px; font-size: 0.85rem; padding: 0 12px;">
               <i class="fa-solid fa-trash-can"></i> ลบรายการนี้
             </button>
+            <span style="font-size: 0.72rem; color: var(--text-muted);">* ทำได้เฉพาะผู้จัดการ/เจ้าของร้านที่ล็อกอินอยู่</span>
           </div>
         </div>
       </div>

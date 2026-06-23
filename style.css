@@ -1726,3 +1726,24 @@ html[data-theme="light"] .discount-input { background: #ffffff; }
 }
 .theme-toggle-side:hover { background: var(--gold-glow); border-color: var(--gold); color: var(--gold); }
 .theme-toggle-side:active { transform: scale(.97); }
+
+
+/* ===== LOGIN SCREEN (owner/manager/staff) ===== */
+.login-user-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 12px 14px; cursor: pointer;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);
+  border-radius: var(--r-md); color: var(--text-primary);
+  font-family: var(--font); font-size: 0.95rem; font-weight: 600;
+  transition: background-color .15s ease, border-color .15s ease, transform .1s ease;
+}
+.login-user-btn:hover { background: rgba(255,255,255,0.06); border-color: var(--border-strong); }
+.login-user-btn:active { transform: scale(.98); }
+.login-user-btn.selected { border-color: var(--gold); background: var(--gold-glow); }
+.login-role-badge {
+  font-size: 0.65rem; font-weight: 800; padding: 3px 9px; border-radius: 99px;
+  letter-spacing: .3px; white-space: nowrap;
+}
+.login-role-badge.owner   { background: var(--rose-glow); color: var(--rose); }
+.login-role-badge.manager { background: var(--gold-glow); color: var(--gold); }
+.login-role-badge.staff   { background: var(--teal-glow); color: var(--teal); }

@@ -47,6 +47,7 @@ function escapeHtml(str) {
 }
 
 // เริ่มต้นฐานข้อมูล IndexedDB ด้วย Dexie.js
+const SESSION_TTL_HOURS = 12; // จำการล็อกอินไว้กี่ชั่วโมงก่อนต้องใส่ PIN ใหม่
 const db = new Dexie('EroticaPosDatabase');
 db.version(1).stores({
   state: 'key, value'
@@ -61,6 +62,7 @@ class PosApp {
       customers: [],
       queue: [],
       transactions: [],
+      voidLog: [],
       cart: [],
       selectedCategory: 'all',
       serviceSearch: '',
@@ -81,6 +83,9 @@ class PosApp {
     
     this.timerInterval = null;
     this.isSyncing = false;
+    this.currentRole = null;      // 'owner' | 'manager' | 'staff' | null (ยังไม่ล็อกอิน)
+    this.currentUser = null;      // { id, name } ของผู้ที่ล็อกอินอยู่
+    this.loginSelectedId = null;  // ผู้ใช้ที่เลือกในหน้าล็อกอิน
   }
 
   // ==================== TOAST NOTIFICATION ====================
@@ -221,6 +226,7 @@ class PosApp {
     await this.loadState();
     // แปลง PIN plain text → hash ถ้ายังไม่ได้ทำ (รันครั้งเดียวตอนเริ่ม)
     await this.migratePinIfNeeded();
+    await this.migrateStaffAccountsIfNeeded(); // เติมฟิลด์ accessLevel/pin ให้พนักงานเดิม
     this.initEventListeners();
     this.requestPersistentStorage(); // ขอให้เบราว์เซอร์ไม่ลบ IndexedDB ทิ้งเอง (สำคัญบน iOS)
     this.showAppVersion();           // แสดงเวอร์ชันแอปในหน้าตั้งค่า
@@ -243,9 +249,11 @@ class PosApp {
     // ตั้งเวลาสำหรับอัปเดตแถบเวลาของคิวงาน (คิวที่กำลังรับบริการอยู่)
     this.timerInterval = setInterval(() => this.updateQueueProgress(), 1000);
     
-    // บล็อกระบบและแสดงผลกล่องนับเงินหากยังไม่เริ่มกะ
-    if (!this.state.shift || !this.state.shift.active) {
-      this.openCashCounter('open');
+    // จำการล็อกอินเดิมถ้ายังไม่หมดอายุ ไม่งั้นแสดงหน้าเข้าสู่ระบบ
+    if (await this.tryRestoreSession()) {
+      this.afterLogin();
+    } else {
+      this.requireLogin();
     }
 
     // ลงทะเบียน Service Worker สำหรับ PWA
@@ -330,6 +338,7 @@ class PosApp {
       const customersVal = await db.state.get('customers');
       const queueVal = await db.state.get('queue');
       const transactionsVal = await db.state.get('transactions');
+      const voidLogVal = await db.state.get('voidLog');
       const shiftVal = await db.state.get('shift');
       const promptPayVal = await db.state.get('shopPromptPayId');
       const shopNameVal = await db.state.get('shopName');
@@ -347,6 +356,7 @@ class PosApp {
       this.state.customers = customersVal ? customersVal.value : [...DEFAULT_CUSTOMERS];
       this.state.queue = queueVal ? queueVal.value : [...DEFAULT_QUEUE];
       this.state.transactions = transactionsVal ? transactionsVal.value : [...DEFAULT_TRANSACTIONS];
+      this.state.voidLog = (voidLogVal && Array.isArray(voidLogVal.value)) ? voidLogVal.value : [];
       this.state.shift = shiftVal ? shiftVal.value : {
         active: false,
         startTime: null,
@@ -484,6 +494,11 @@ class PosApp {
     if (this.state.transactions.length < beforeTx) {
       console.log(`[Archive] ลบ transactions ${beforeTx - this.state.transactions.length} รายการ (synced + เก่ากว่า 365 วัน)`);
     }
+
+    // ลบประวัติการยกเลิกบิล (voidLog) ที่เก่ากว่า 1 ปี
+    if (Array.isArray(this.state.voidLog)) {
+      this.state.voidLog = this.state.voidLog.filter(v => (now - (v.date || 0)) < oneYearMs);
+    }
   }
 
   // เซฟข้อมูลลงใน IndexedDB
@@ -498,6 +513,7 @@ class PosApp {
         { key: 'customers', value: this.state.customers },
         { key: 'queue', value: this.state.queue },
         { key: 'transactions', value: this.state.transactions },
+        { key: 'voidLog', value: this.state.voidLog },
         { key: 'shift', value: this.state.shift },
         { key: 'shopPromptPayId', value: this.shopPromptPayId },
         { key: 'shopName', value: this.shopName || 'Erotica Barber & Massage' },
@@ -684,15 +700,7 @@ class PosApp {
     // Cash received inputs
     document.getElementById('cash-received').addEventListener('input', () => this.recalcCashChange());
 
-    // ตรวจจับปุ่ม Enter ในช่องรหัส PIN
-    const pinInput = document.getElementById('owner-pin-input');
-    if (pinInput) {
-      pinInput.addEventListener('keyup', (e) => {
-        if (e.key === 'Enter') {
-          this.verifyOwnerPin();
-        }
-      });
-    }
+    // (ช่องรหัส owner-pin-input เดิมถูกถอดออกแล้ว — ใช้ระบบล็อกอินแทน)
   }
 
   // สลับหน้าจอทำงานหลัก
@@ -703,15 +711,13 @@ class PosApp {
       return;
     }
 
-    // ดักสิทธิ์เข้าถึงหน้ารายงานและตั้งค่า (ต้องการสิทธิ์ owner)
-    if ((screenName === 'reports' || screenName === 'settings') && this.currentRole !== 'owner') {
-      this.pendingScreen = screenName;
-      const pinInput = document.getElementById('owner-pin-input');
-      if (pinInput) pinInput.value = '';
-      this.openModal('modal-pin-lock');
-      setTimeout(() => {
-        if (pinInput) pinInput.focus();
-      }, 250);
+    // ดักสิทธิ์เข้าถึงหน้าจอตามระดับผู้ใช้
+    if (screenName === 'settings' && this.currentRole !== 'owner') {
+      this.showToast('หน้าตั้งค่าเข้าถึงได้เฉพาะเจ้าของร้าน', 'warning');
+      return;
+    }
+    if (screenName === 'reports' && !(this.currentRole === 'owner' || this.currentRole === 'manager')) {
+      this.showToast('รายงานยอดขายเข้าถึงได้เฉพาะผู้จัดการขึ้นไป', 'warning');
       return;
     }
 
@@ -1325,7 +1331,7 @@ class PosApp {
       <div class="settings-list-item">
         <div class="settings-list-item-info">
           <span class="title">${escapeHtml(s.name)}</span>
-          <span class="desc">${escapeHtml(s.role)} • สถานะ: ${s.active ? 'พร้อมทำงาน' : 'พักร้อน'}</span>
+          <span class="desc">${escapeHtml(s.role)} • ${this.roleLabel(s.accessLevel || 'staff')}${s.pin ? '' : ' (ยังไม่ตั้ง PIN)'} • ${s.active ? 'พร้อมทำงาน' : 'พักร้อน'}</span>
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="btn-small secondary" onclick="app.editStaff('${s.id}')">แก้ไข</button>
@@ -2025,6 +2031,8 @@ class PosApp {
   async addStaff() {
     const nameInput = document.getElementById('staff-name');
     const roleSelect = document.getElementById('staff-role');
+    const accessSelect = document.getElementById('staff-access-level');
+    const pinInput = document.getElementById('staff-pin');
     const name = nameInput.value.trim();
 
     if (!name) {
@@ -2033,11 +2041,25 @@ class PosApp {
       return;
     }
 
+    const accessLevel = accessSelect ? accessSelect.value : 'staff';
+    const pinRaw = pinInput ? pinInput.value.trim() : '';
+    let pinHash = null;
+    if (pinRaw) {
+      if (!/^[0-9]{4,6}$/.test(pinRaw)) {
+        this.showToast('PIN ต้องเป็นตัวเลข 4-6 หลัก', 'warning');
+        if (pinInput) pinInput.focus();
+        return;
+      }
+      pinHash = await this.hashPin(pinRaw);
+    }
+
     if (this.state.editingStaffId) {
       const staffMember = this.state.staff.find(s => s.id === this.state.editingStaffId);
       if (staffMember) {
         staffMember.name = name;
         staffMember.role = roleSelect.value;
+        staffMember.accessLevel = accessLevel;
+        if (pinRaw) staffMember.pin = pinHash; // เปลี่ยน PIN เฉพาะเมื่อกรอกใหม่
       }
       this.state.editingStaffId = null;
     } else {
@@ -2046,7 +2068,9 @@ class PosApp {
         id: `st-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         name: name,
         role: roleSelect.value,
-        active: true
+        active: true,
+        accessLevel: accessLevel,
+        pin: pinHash
       };
       this.state.staff.push(newStaff);
     }
@@ -2065,6 +2089,13 @@ class PosApp {
       if (titleEl) titleEl.innerText = 'แก้ไขข้อมูลพนักงาน';
       document.getElementById('staff-name').value = staffMember.name;
       document.getElementById('staff-role').value = staffMember.role;
+      const accessSelect = document.getElementById('staff-access-level');
+      if (accessSelect) accessSelect.value = staffMember.accessLevel || 'staff';
+      const pinInput = document.getElementById('staff-pin');
+      if (pinInput) {
+        pinInput.value = '';
+        pinInput.placeholder = staffMember.pin ? 'มี PIN อยู่แล้ว (เว้นว่าง = ไม่เปลี่ยน)' : 'ตั้ง PIN 4-6 หลัก (เว้นว่าง = เข้าระบบไม่ได้)';
+      }
       this.openModal('modal-staff');
     }
   }
@@ -2329,8 +2360,7 @@ class PosApp {
       staffNames: tx.staffNames
     };
 
-    // ส่งแบบ CORS ปกติ (ต้องอัปเดต GAS ให้คืน CORS headers ด้วย)
-    // ถ้า GAS เวอร์ชันเก่า (ที่ยังไม่รองรับ) จะ fallback เป็น no-cors โดยอัตโนมัติ
+    // ส่งแบบ simple request (text/plain) เพื่อข้าม CORS preflight แล้วอ่าน JSON ที่ตอบกลับมา
     let response;
     try {
       response = await fetch(this.googleSheetsUrl, {
@@ -2485,6 +2515,10 @@ class PosApp {
   // ==================== CASH SHIFT MANAGEMENT ====================
 
   openCashCounter(mode) {
+    if (mode === 'close' && this.currentRole === 'staff') {
+      this.showToast('การปิดร้าน/สรุปยอดวัน ทำได้เฉพาะผู้จัดการขึ้นไป', 'warning');
+      return;
+    }
     this.cashCounterMode = mode; // 'open' or 'close'
     
     // รีเซ็ตค่าฟอร์มกลับเป็น 0
@@ -2696,7 +2730,8 @@ class PosApp {
           cashSales: cashSales,
           expenses: this.state.shift.expenses || [],
           expensesTotal: expensesTotal,
-          difference: diff
+          difference: diff,
+          closedBy: this.currentUser ? this.currentUser.name : ''
         };
         
         if (!this.state.shift.history) {
@@ -3433,7 +3468,7 @@ class PosApp {
           return `
             <tr>
               <td>${openTimeStr}</td>
-              <td>${closeTimeStr}</td>
+              <td>${closeTimeStr}${sh.closedBy ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">โดย ${escapeHtml(sh.closedBy)}</span>` : ''}</td>
               <td>฿${sh.startCash.toLocaleString('th-TH')}</td>
               <td>฿${(sh.cashSales || 0).toLocaleString('th-TH')}</td>
               <td style="color: var(--accent-premium);">฿${(expensesTotal || 0).toLocaleString('th-TH')}</td>
@@ -3542,7 +3577,6 @@ class PosApp {
     document.getElementById('edit-tx-payment').value = tx.paymentMethod;
     document.getElementById('edit-tx-discount').value = tx.discount || 0;
     document.getElementById('edit-tx-total').value = `฿${tx.total.toLocaleString('th-TH')}`;
-    document.getElementById('edit-tx-pin').value = ''; // เคลียร์ช่อง PIN
 
     // แปลงรายการบริการให้มีรายละเอียดหากเป็นบิลเก่าหรือบิลที่ต้องการจัดโครงสร้างใหม่
     if (!tx.details || !Array.isArray(tx.details)) {
@@ -3608,6 +3642,10 @@ class PosApp {
 
   // บันทึกการแก้ไขธุรกรรมย้อนหลัง
   async saveTransactionEdit() {
+    if (this.currentRole !== 'owner') {
+      this.showToast('การแก้ไขบิลทำได้เฉพาะเจ้าของร้าน', 'warning');
+      return;
+    }
     const txId = document.getElementById('edit-tx-id').value;
     const tx = this.state.transactions.find(t => t.id === txId);
     if (!tx) return;
@@ -3667,10 +3705,8 @@ class PosApp {
     const tx = this.state.transactions.find(t => t.id === txId);
     if (!tx) return;
 
-    const pin = document.getElementById('edit-tx-pin').value;
-    const pinHash = await this.hashPin(pin);
-    if (pinHash !== this.ownerPin) {
-      this.showToast('รหัส PIN ของเจ้าของร้านไม่ถูกต้อง ไม่สามารถลบรายการได้!', 'info');
+    if (this.currentRole !== 'owner' && this.currentRole !== 'manager') {
+      this.showToast('เฉพาะผู้จัดการหรือเจ้าของร้านเท่านั้นที่ยกเลิกบิลได้', 'warning');
       return;
     }
 
@@ -3682,7 +3718,8 @@ class PosApp {
             secret: API_SECRET,
             action: 'void_transaction',
             id: tx.id,
-            date: tx.date
+            date: tx.date,
+            voidedBy: this.currentUser ? this.currentUser.name : ''
           };
           fetch(this.googleSheetsUrl, {
             method: 'POST',
@@ -3714,7 +3751,19 @@ class PosApp {
       // ลบจากรายการในเครื่อง
       this.state.transactions = this.state.transactions.filter(t => t.id !== txId);
 
+      // บันทึกประวัติการยกเลิกบิล (ใครยกเลิก / เมื่อไหร่ / ยอดเท่าไร)
+      const voidRecord = {
+        billId: tx.id, date: Date.now(),
+        by: this.currentUser ? this.currentUser.name : '',
+        amount: tx.total, customer: tx.customerName || '', services: tx.services || []
+      };
+      if (!Array.isArray(this.state.voidLog)) this.state.voidLog = [];
+      this.state.voidLog.push(voidRecord);
+
       await this.saveState();
+
+      // แจ้งเตือนการยกเลิกบิลผ่าน Telegram
+      this.sendVoidAlert(voidRecord);
 
       // รีเฟรชชีตสรุปวัน/เดือนบนคลาวด์ให้ตรงกับยอดหลังลบบิล (กัน KPI ค้างเป็นยอดเดิม)
       if (this.googleSheetsUrl) {
@@ -3840,82 +3889,196 @@ class PosApp {
     this.applyShopName();
   }
 
-  async verifyOwnerPin() {
-    const pinInput = document.getElementById('owner-pin-input');
-    if (!pinInput) return;
+  // ==================== LOGIN / ROLES ====================
+  // เติมฟิลด์บัญชีให้พนักงานเดิมที่ยังไม่มี accessLevel/pin (รันครั้งเดียวตอนเริ่ม)
+  async migrateStaffAccountsIfNeeded() {
+    let changed = false;
+    (this.state.staff || []).forEach(s => {
+      if (s.accessLevel === undefined) { s.accessLevel = 'staff'; changed = true; }
+      if (s.pin === undefined) { s.pin = null; changed = true; }
+    });
+    if (changed) await this.saveState();
+  }
 
-    const inputHash = await this.hashPin(pinInput.value);
-    if (inputHash === this.ownerPin) {
-      this.currentRole = 'owner';
-      this.closeModal('modal-pin-lock');
-      this.updateUserRoleUI();
+  roleLabel(lvl) {
+    return lvl === 'owner' ? 'เจ้าของร้าน' : (lvl === 'manager' ? 'ผู้จัดการ' : 'พนักงาน');
+  }
 
-      if (this.pendingScreen) {
-        this.switchTab(this.pendingScreen);
-        this.pendingScreen = null;
+  // แสดงหน้าเข้าสู่ระบบ (ล็อกเอาต์สถานะปัจจุบัน)
+  requireLogin() {
+    this.currentRole = null;
+    this.currentUser = null;
+    this.loginSelectedId = null;
+    this.updateUserRoleUI();
+    this.renderLoginOptions();
+    const pinEl = document.getElementById('login-pin-input');
+    if (pinEl) pinEl.value = '';
+    this.openModal('modal-login');
+  }
+
+  // สร้างรายชื่อผู้ใช้ให้เลือก (เจ้าของร้าน + พนักงานที่ตั้ง PIN ไว้)
+  renderLoginOptions() {
+    const container = document.getElementById('login-user-list');
+    if (!container) return;
+    const badge = (lvl) => `<span class="login-role-badge ${lvl}">${this.roleLabel(lvl)}</span>`;
+    let html = `<button type="button" class="login-user-btn" data-uid="__owner__" onclick="app.selectLoginUser('__owner__')">
+        <span><i class="fa-solid fa-crown"></i> เจ้าของร้าน</span> ${badge('owner')}
+      </button>`;
+    (this.state.staff || []).filter(s => s.pin).forEach(s => {
+      html += `<button type="button" class="login-user-btn" data-uid="${s.id}" onclick="app.selectLoginUser('${s.id}')">
+        <span><i class="fa-solid fa-user"></i> ${escapeHtml(s.name)}</span>
+      </button>`;
+    });
+    container.innerHTML = html;
+  }
+
+  // เลือกผู้ใช้ในหน้าล็อกอิน
+  selectLoginUser(uid) {
+    this.loginSelectedId = uid;
+    document.querySelectorAll('#login-user-list .login-user-btn').forEach(b => {
+      b.classList.toggle('selected', b.getAttribute('data-uid') === uid);
+    });
+    const pinEl = document.getElementById('login-pin-input');
+    if (pinEl) { pinEl.value = ''; pinEl.focus(); }
+  }
+
+  // ตรวจ PIN แล้วเข้าสู่ระบบ
+  async doLogin() {
+    const uid = this.loginSelectedId;
+    const pinEl = document.getElementById('login-pin-input');
+    const pin = pinEl ? pinEl.value : '';
+    if (!uid) { this.showToast('กรุณาเลือกผู้ใช้ก่อน', 'warning'); return; }
+    if (!pin) { this.showToast('กรุณากรอก PIN', 'warning'); if (pinEl) pinEl.focus(); return; }
+    const hash = await this.hashPin(pin);
+    if (uid === '__owner__') {
+      if (hash === this.ownerPin) {
+        this.currentUser = { id: '__owner__', name: 'เจ้าของร้าน' };
+        this.currentRole = 'owner';
+        return this.completeLogin();
       }
-      this.vibrateDevice(80);
     } else {
-      this.vibrateDevice(200);
-      this.showToast('รหัส PIN ของเจ้าของร้านไม่ถูกต้อง!', 'info');
-      pinInput.value = '';
-      pinInput.focus();
+      const st = (this.state.staff || []).find(s => s.id === uid);
+      if (st && st.pin && hash === st.pin) {
+        this.currentUser = { id: st.id, name: st.name };
+        this.currentRole = st.accessLevel || 'staff';
+        return this.completeLogin();
+      }
     }
+    this.vibrateDevice(200);
+    this.showToast('PIN ไม่ถูกต้อง', 'error');
+    if (pinEl) { pinEl.value = ''; pinEl.focus(); }
+  }
+
+  completeLogin() {
+    this.loginSelectedId = null;
+    const pinEl = document.getElementById('login-pin-input');
+    if (pinEl) pinEl.value = '';
+    this.saveSession();
+    this.closeModal('modal-login');
+    this.updateUserRoleUI();
+    this.vibrateDevice(80);
+    this.showToast('ยินดีต้อนรับ ' + (this.currentUser ? this.currentUser.name : ''), 'success');
+    this.afterLogin();
+  }
+
+  // จำการล็อกอินไว้ (กันใส่ PIN ใหม่ทุกครั้งที่รีเฟรช) หมดอายุใน SESSION_TTL_HOURS ชม.
+  saveSession() {
+    try {
+      if (!this.currentUser || !this.currentRole) return;
+      db.state.put({ key: 'session', value: { uid: this.currentUser.id, name: this.currentUser.name, role: this.currentRole, ts: Date.now() } });
+    } catch (e) { console.warn('saveSession failed', e); }
+  }
+
+  async tryRestoreSession() {
+    try {
+      const rec = await db.state.get('session');
+      const sess = rec ? rec.value : null;
+      if (!sess || !sess.ts) return false;
+      if (Date.now() - sess.ts > SESSION_TTL_HOURS * 3600 * 1000) { await db.state.delete('session'); return false; }
+      if (sess.uid === '__owner__') {
+        this.currentUser = { id: '__owner__', name: 'เจ้าของร้าน' };
+        this.currentRole = 'owner';
+      } else {
+        const st = (this.state.staff || []).find(s => s.id === sess.uid);
+        if (!st || !st.pin) { await db.state.delete('session'); return false; }
+        this.currentUser = { id: st.id, name: st.name };
+        this.currentRole = st.accessLevel || 'staff';
+      }
+      this.updateUserRoleUI();
+      return true;
+    } catch (e) { console.warn('restore session failed', e); return false; }
+  }
+
+  afterLogin() {
+    // บังคับไปหน้าขายเสมอหลังล็อกอิน (กันหน้าจอสิทธิ์สูงค้างให้คนสิทธิ์ต่ำเห็น)
+    if (this.state.shift && this.state.shift.active) {
+      this.switchTab('pos');
+      return;
+    }
+    // ยังไม่เปิดกะ: ตั้งหน้าขายเป็นหน้าหลังโมดัล แล้วเปิดกล่องนับเงินเริ่มต้น
+    this.state.activeScreen = 'pos';
+    document.querySelectorAll('.screen').forEach(el => el.classList.toggle('active', el.id === 'screen-pos'));
+    document.querySelectorAll('.nav-item, .bottom-nav-item').forEach(el => el.classList.toggle('active', el.getAttribute('data-screen') === 'pos'));
+    this.openCashCounter('open');
+  }
+
+  // ออกจากระบบ / สลับผู้ใช้
+  logout() {
+    try { db.state.delete('session'); } catch (e) {}
+    this.requireLogin();
+    this.vibrateDevice(50);
+    this.showToast('ออกจากระบบแล้ว กรุณาเข้าสู่ระบบใหม่', 'info');
   }
 
   lockOwnerAccess() {
-    this.currentRole = 'staff';
-    this.updateUserRoleUI();
-    
-    // ย้ายหน้ากลับไปที่หน้าขาย POS เพื่อความปลอดภัย
-    this.switchTab('pos');
-    this.vibrateDevice(50);
-    this.showToast('ล็อกระบบเรียบร้อยแล้ว สลับเป็นสิทธิ์พนักงานทั่วไป', 'info');
+    // ปุ่มเดิม "ล็อก" → ตอนนี้ทำหน้าที่ออกจากระบบ/สลับผู้ใช้
+    this.logout();
   }
 
   updateUserRoleUI() {
-    const isOwner = this.currentRole === 'owner';
-    
-    // 1. จัดการป้ายแสดงสถานะสิทธิ์บน Mobile Header
-    const globalLabel = document.getElementById('global-role-label');
-    const lockGlobalBtn = document.getElementById('btn-lock-global');
-    if (globalLabel) {
-      globalLabel.innerText = isOwner ? 'เจ้าของร้าน 🔓' : 'พนักงานทั่วไป 🔒';
-      globalLabel.style.color = isOwner ? 'var(--accent-massage)' : 'var(--accent-barber)';
-    }
-    if (lockGlobalBtn) {
-      lockGlobalBtn.style.display = isOwner ? 'inline-flex' : 'none';
-    }
+    const role = this.currentRole; // 'owner'|'manager'|'staff'|null
+    const isOwner = role === 'owner';
+    const canReports = role === 'owner' || role === 'manager';
+    const uname = this.currentUser ? this.currentUser.name : '';
+    const labelText = role ? ((uname ? uname + ' • ' : '') + this.roleLabel(role)) : 'ยังไม่เข้าสู่ระบบ';
+    const labelColor = isOwner ? 'var(--accent-massage)' : (role === 'manager' ? 'var(--accent-barber)' : 'var(--text-secondary)');
 
-    // 2. จัดการป้ายแสดงสถานะสิทธิ์บน Desktop Sidebar Footer
-    const sidebarLabel = document.getElementById('sidebar-role-label');
-    const lockSidebarBtn = document.getElementById('btn-lock-sidebar');
-    if (sidebarLabel) {
-      sidebarLabel.innerText = isOwner ? 'เจ้าของร้าน 🔓' : 'พนักงาน 🔒';
-      sidebarLabel.style.color = isOwner ? 'var(--accent-massage)' : 'var(--accent-barber)';
-    }
-    if (lockSidebarBtn) {
-      lockSidebarBtn.style.display = isOwner ? 'inline-flex' : 'none';
-    }
+    // 1. ป้ายแสดงสิทธิ์ (มือถือ + sidebar)
+    ['global-role-label', 'sidebar-role-label'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.innerText = labelText; el.style.color = labelColor; }
+    });
 
-    // 3. จัดการฟิลด์รหัส PIN ในหน้าตั้งค่า (ล้างช่องเสมอ — ไม่แสดง hash ให้เห็น)
+    // 2. ปุ่มออกจากระบบ/สลับผู้ใช้ (โชว์เมื่อล็อกอินอยู่)
+    ['btn-lock-global', 'btn-lock-sidebar'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = role ? 'inline-flex' : 'none';
+    });
+
+    // 3. ล้างช่อง PIN ในหน้าตั้งค่าเสมอ
     const shopPinInput = document.getElementById('shop-owner-pin');
     if (shopPinInput) {
       shopPinInput.value = '';
       shopPinInput.placeholder = 'กรอก PIN ใหม่ 6 หลักเพื่อเปลี่ยน';
     }
 
-    // 4. จัดการปุ่มการทำงานแบบแอดมิน (ส่งออก/นำเข้า ข้อมูล) เพื่อให้เข้าถึงได้เฉพาะ Owner
+    // 4. การ์ดส่งออก/นำเข้าข้อมูล — เฉพาะ owner
     const dataOptionsCard = document.querySelector('button[onclick="app.exportData()"]')?.closest('.glass-card');
-    if (dataOptionsCard) {
-      dataOptionsCard.style.display = isOwner ? 'block' : 'none';
-    }
+    if (dataOptionsCard) dataOptionsCard.style.display = isOwner ? 'block' : 'none';
 
-    // 5. จัดการแสดงผลการเชื่อมต่อ Google Sheets ให้เฉพาะ Owner
+    // 5. การ์ดเชื่อมต่อ Google Sheets — เฉพาะ owner
     const syncSettingsCard = document.getElementById('settings-sheets-sync-card');
-    if (syncSettingsCard) {
-      syncSettingsCard.style.display = isOwner ? 'block' : 'none';
-    }
+    if (syncSettingsCard) syncSettingsCard.style.display = isOwner ? 'block' : 'none';
+
+    // 6. ซ่อนเมนูตามสิทธิ์: ตั้งค่า=owner เท่านั้น, รายงาน=manager ขึ้นไป
+    document.querySelectorAll('.nav-item[data-screen="settings"], .bottom-nav-item[data-screen="settings"]')
+      .forEach(el => el.style.display = isOwner ? '' : 'none');
+    document.querySelectorAll('.nav-item[data-screen="reports"], .bottom-nav-item[data-screen="reports"]')
+      .forEach(el => el.style.display = canReports ? '' : 'none');
+
+    // 7. ปุ่มปิดร้าน/สรุปยอด — เฉพาะ manager ขึ้นไป (staff เปิดร้านได้ แต่ปิดไม่ได้)
+    const closeStoreBtn = document.getElementById('btn-close-store');
+    if (closeStoreBtn) closeStoreBtn.style.display = (role === 'owner' || role === 'manager') ? 'flex' : 'none';
   }
 
   // ส่งออกข้อมูลเป็น JSON
@@ -4015,7 +4178,8 @@ class PosApp {
     const message = `🔔 <b>รายงานสรุปปิดกะ / ปิดร้าน</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `📅 <b>เวลาเริ่มกะ:</b> ${timeStartStr}\n` +
-      `📅 <b>เวลาปิดกะ:</b> ${timeEndStr}\n\n` +
+      `📅 <b>เวลาปิดกะ:</b> ${timeEndStr}\n` +
+      `🛠️ <b>ปิดโดย:</b> ${shiftLog.closedBy ? escapeHtml(shiftLog.closedBy) : '-'}\n\n` +
       `📈 <b>ยอดขายและการบริการ:</b>\n` +
       `• จำนวนบริการทั้งหมด: ${totalCourses} รายการ\n` +
       `• ยอดขายรวม (สุทธิ): ฿${totalSales.toLocaleString('th-TH')}\n` +
@@ -4042,6 +4206,30 @@ class PosApp {
         else console.error('Telegram error:', d.description);
       })
       .catch(err => console.error('Telegram failed:', err));
+  }
+
+  // ส่งข้อความ Telegram ทั่วไป (ใช้ซ้ำได้)
+  sendTelegramText(message) {
+    if (!this.telegramToken || !this.telegramChatId) return;
+    const url = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' }) })
+      .then(r => r.json())
+      .then(d => { if (!d.ok) console.error('Telegram error:', d.description); })
+      .catch(err => console.error('Telegram failed:', err));
+  }
+
+  // แจ้งเตือนการยกเลิกบิลผ่าน Telegram
+  sendVoidAlert(v) {
+    const when = new Date(v.date).toLocaleString('th-TH');
+    const msg = `⚠️ <b>มีการยกเลิกบิล (Void)</b>\n` +
+      `━━━━━━━━━━━━━━━━\n` +
+      `🧾 เลขที่บิล: ${v.billId}\n` +
+      `💰 ยอด: ฿${(v.amount || 0).toLocaleString('th-TH')}\n` +
+      `👤 ลูกค้า: ${escapeHtml(v.customer || '-')}\n` +
+      `🛠️ ยกเลิกโดย: ${escapeHtml(v.by || '-')}\n` +
+      `🕒 เวลา: ${when}\n` +
+      `━━━━━━━━━━━━━━━━`;
+    this.sendTelegramText(msg);
   }
 
   // ทดสอบ Telegram

@@ -22,6 +22,14 @@
 // ─────────────────────────────────────────────
 var API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
 
+// ──────────────────────────────
+//  จำนวนวันที่เก็บแท็บ "สรุปรายวัน" (สรุป-YYYY-MM-DD) ไว้บน Sheets
+//  แท็บที่เก่ากว่านี้จะถูกลบอัตโนมัติตอนปิดร้าน เพื่อไม่ให้จำนวนแท็บบวมจนไฟล์อืด
+//  ข้อมูลถาวรยังอยู่ครบใน: แท็บรายการรายเดือน "MM-yyyy" + แท็บสรุปเดือน "สรุป-MM-yyyy" + แท็บ "สรุปรายเดือน"
+//  ตั้งเป็น 0 เพื่อปิดการลบอัตโนมัติ (เก็บแท็บรายวันทุกวันถาวร)
+// ──────────────────────────────
+var DAILY_SHEET_RETENTION_DAYS = 62;
+
 // ─────────────────────────────────────────────
 //  ROUTER
 // ─────────────────────────────────────────────
@@ -111,7 +119,7 @@ function handleTransaction(data, ss) {
     safeCell(data.customerName),
     safeCell((data.services||[]).join(", ")),
     payText,
-    data.subtotal || data.total,
+    (data.subtotal != null ? data.subtotal : data.total),
     data.discount || 0,
     data.total,
     safeCell((data.staffNames||[]).join(", "))
@@ -190,6 +198,7 @@ function handleDailySummary(data, ss) {
 
   writeSummarySheet(sheet, data, "รายวัน: " + dateKey);
   updateMasterSummarySheet(ss, data, "day", dateKey);
+  pruneOldDailySheets(ss, DAILY_SHEET_RETENTION_DAYS);
 
   return json("success", "บันทึกสรุปรายวันแล้ว", { sheet: sheetName });
 }
@@ -462,4 +471,22 @@ function json(status, message, details) {
   if (details) r.details = details;
   return ContentService.createTextOutput(JSON.stringify(r))
                        .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ลบแท็บสรุปรายวันที่เก่า (กันแท็บบวม)
+function pruneOldDailySheets(ss, keepDays) {
+  if (!keepDays || keepDays <= 0) return;
+  var cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - keepDays);
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName();
+    var m = name.match(/^สรุป-(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) continue;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (d < cutoff) {
+      try { ss.deleteSheet(sheets[i]); } catch (e) {}
+    }
+  }
 }
