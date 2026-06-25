@@ -18,7 +18,7 @@
 
   <!-- Icon & Font Libraries -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="style_v2.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -27,10 +27,10 @@
     <!-- Sidebar (Desktop & Tablet) -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-logo">E</div>
+        <div class="brand-logo" style="background: linear-gradient(135deg, var(--accent-premium), var(--accent-barber)); color: white;">E</div>
         <div class="brand-info">
           <h2>Erotica</h2>
-          <p>BARBER & MASSAGE</p>
+          <p style="color: var(--accent-premium);">BARBER & MASSAGE</p>
         </div>
       </div>
       
@@ -72,14 +72,14 @@
       </nav>
       
       <div class="sidebar-footer">
-        <div id="sidebar-sync-status" class="sync-badge-container" onclick="app.syncPendingTransactions()" title="กดปุ่มนี้เพื่อซิงก์ข้อมูลค้างส่งขึ้นระบบคลาวด์">
+        <div id="sidebar-sync-status" class="sync-badge-container" onclick="app.syncPendingTransactions()" style="cursor: pointer; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.75rem; background: rgba(255, 255, 255, 0.03); padding: 8px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); color: var(--text-secondary);" title="กดปุ่มนี้เพื่อซิงก์ข้อมูลค้างส่งขึ้นระบบคลาวด์">
           <i class="fa-solid fa-cloud" id="sidebar-sync-icon"></i>
           <span id="sidebar-sync-text">คลาวด์ออฟไลน์</span>
         </div>
-        <div id="sidebar-role-status">
+        <div id="sidebar-role-status" style="margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.8rem; background: rgba(255, 255, 255, 0.03); padding: 8px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color);">
           <span style="color: var(--text-secondary);">สิทธิ์:</span>
-          <span id="sidebar-role-label">พนักงาน 🔒</span>
-          <button id="btn-lock-sidebar" onclick="app.lockOwnerAccess()" title="ล็อกระบบเพื่อจำกัดสิทธิ์">
+          <span id="sidebar-role-label" style="font-weight: 600; color: var(--accent-barber);">พนักงาน 🔒</span>
+          <button id="btn-lock-sidebar" onclick="app.lockOwnerAccess()" style="display: none; background: none; border: none; color: var(--accent-premium); cursor: pointer; padding: 2px;" title="ล็อกระบบเพื่อจำกัดสิทธิ์">
             <i class="fa-solid fa-lock"></i>
           </button>
         </div>
@@ -126,18 +126,18 @@
     <main class="main-content">
       
       <!-- Top header bar for role status (Mobile & Tablet) -->
-      <div class="mobile-role-header">
-        <div id="mobile-sync-status" class="sync-badge-container" onclick="app.syncPendingTransactions()" title="กดปุ่มนี้เพื่อซิงก์ข้อมูลค้างส่งขึ้นระบบคลาวด์">
+      <div class="mobile-role-header" style="display: flex; justify-content: space-between; padding: 0 0 10px; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; align-items: center; gap: 8px;">
+        <div id="mobile-sync-status" class="sync-badge-container" onclick="app.syncPendingTransactions()" style="cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.75rem; background: rgba(255, 255, 255, 0.03); padding: 4px 10px; border-radius: 50px; border: 1px solid var(--border-color); color: var(--text-secondary);" title="กดปุ่มนี้เพื่อซิงก์ข้อมูลค้างส่งขึ้นระบบคลาวด์">
           <i class="fa-solid fa-cloud" id="mobile-sync-icon"></i>
           <span id="mobile-sync-text">คลาวด์ออฟไลน์</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <button type="button" id="btn-theme-toggle-mobile" onclick="app.toggleTheme()" title="สลับโหมดสว่าง/มืด"><i class="fa-solid fa-moon"></i></button>
+          <button type="button" id="btn-theme-toggle-mobile" onclick="app.toggleTheme()" title="สลับโหมดสว่าง/มืด" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); color: var(--text-secondary); border-radius: 50px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;"><i class="fa-solid fa-moon"></i></button>
           <div style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.03); padding: 4px 10px; border-radius: 50px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 6px;">
             <span style="color: var(--text-secondary);">สิทธิ์ใช้งาน:</span>
-            <span id="global-role-label">พนักงานทั่วไป 🔒</span>
+            <span id="global-role-label" style="font-weight: 600; color: var(--accent-barber);">พนักงานทั่วไป 🔒</span>
           </div>
-          <button id="btn-lock-global" onclick="app.lockOwnerAccess()">
+          <button id="btn-lock-global" onclick="app.lockOwnerAccess()" style="display: none; background: var(--accent-premium-glow); border: 1px solid rgba(244, 63, 94, 0.3); color: var(--accent-premium); border-radius: var(--border-radius-sm); padding: 4px 8px; font-size: 0.7rem; font-weight: 600; cursor: pointer; align-items: center; gap: 4px;">
             <i class="fa-solid fa-lock"></i> ล็อกสิทธิ์
           </button>
         </div>
@@ -155,7 +155,7 @@
               <p class="hero-subtitle" id="dashboard-date">พฤหัสบดีที่ 4 มิถุนายน 2569</p>
             </div>
             <div class="hero-actions">
-              <button class="btn-small danger" id="btn-close-store" onclick="app.openCashCounter('close')">
+              <button class="btn-small danger" id="btn-close-store" onclick="app.openCashCounter('close')" style="padding: 12px 24px; font-weight: bold; border-radius: var(--border-radius-md); box-shadow: 0 4px 15px rgba(244, 63, 94, 0.25); display: flex; align-items: center; gap: 8px; border: 1px solid rgba(244, 63, 94, 0.3); background: linear-gradient(135deg, var(--accent-premium), #be123c); color: #fff; cursor: pointer; transition: all 0.25s ease;">
                 <i class="fa-solid fa-store-slash"></i> ปิดร้าน / สรุปยอดวัน
               </button>
             </div>

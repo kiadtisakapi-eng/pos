@@ -1,9 +1,9 @@
-const CACHE_NAME = 'jahn-pos-v32';
+const CACHE_NAME = 'jahn-pos-v34-redesign';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
   './index.html',
-  './style.css',
+  './style_v2.css',
   './app.js',
   './dexie.min.js',
   './promptpay-qr.js',
