@@ -63,6 +63,7 @@ class PosApp {
       queue: [],
       transactions: [],
       voidLog: [],
+      cloudOutbox: [],
       cart: [],
       selectedCategory: 'all',
       serviceSearch: '',
@@ -245,6 +246,7 @@ class PosApp {
     this.applyTheme();         // ใช้ธีมสว่าง/มืดตามที่บันทึกไว้
     this.updateUserRoleUI();
     this.checkSyncStatus(); // ตรวจเช็คสถานะการซิงก์ข้อมูลเมื่อเปิดแอปพลิเคชัน
+    this.flushCloudOutbox(); // ส่งสรุป/Telegram ที่ค้างจากการปิดกะตอนออฟไลน์ (กรณีเปิดแอปใหม่ตอนเน็ตมาแล้ว)
     
     // ตั้งเวลาสำหรับอัปเดตแถบเวลาของคิวงาน (คิวที่กำลังรับบริการอยู่)
     this.timerInterval = setInterval(() => this.updateQueueProgress(), 1000);
@@ -260,9 +262,9 @@ class PosApp {
     this.registerServiceWorker();
 
     // เน็ตกลับมา / สลับกลับมาที่แอป → ดันบิลที่ค้าง sync ขึ้นทันที (กันบิลที่ขายตอนออฟไลน์ค้าง)
-    window.addEventListener('online', () => this.syncPendingTransactions(true));
+    window.addEventListener('online', () => { this.syncPendingTransactions(true); this.flushCloudOutbox(); });
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && navigator.onLine) this.syncPendingTransactions(true);
+      if (!document.hidden && navigator.onLine) { this.syncPendingTransactions(true); this.flushCloudOutbox(); }
     });
   }
 
@@ -339,6 +341,7 @@ class PosApp {
       const queueVal = await db.state.get('queue');
       const transactionsVal = await db.state.get('transactions');
       const voidLogVal = await db.state.get('voidLog');
+      const cloudOutboxVal = await db.state.get('cloudOutbox');
       const shiftVal = await db.state.get('shift');
       const promptPayVal = await db.state.get('shopPromptPayId');
       const shopNameVal = await db.state.get('shopName');
@@ -357,6 +360,7 @@ class PosApp {
       this.state.queue = queueVal ? queueVal.value : [...DEFAULT_QUEUE];
       this.state.transactions = transactionsVal ? transactionsVal.value : [...DEFAULT_TRANSACTIONS];
       this.state.voidLog = (voidLogVal && Array.isArray(voidLogVal.value)) ? voidLogVal.value : [];
+      this.state.cloudOutbox = (cloudOutboxVal && Array.isArray(cloudOutboxVal.value)) ? cloudOutboxVal.value : [];
       this.state.shift = shiftVal ? shiftVal.value : {
         active: false,
         startTime: null,
@@ -514,6 +518,7 @@ class PosApp {
         { key: 'queue', value: this.state.queue },
         { key: 'transactions', value: this.state.transactions },
         { key: 'voidLog', value: this.state.voidLog },
+        { key: 'cloudOutbox', value: this.state.cloudOutbox },
         { key: 'shift', value: this.state.shift },
         { key: 'shopPromptPayId', value: this.shopPromptPayId },
         { key: 'shopName', value: this.shopName || 'Erotica Barber & Massage' },
@@ -2268,7 +2273,7 @@ class PosApp {
   async syncDailySummary(dateStr, transactions, expenses, isSilent = true) {
     if (!this.googleSheetsUrl) {
       if (!isSilent) this.showToast('กรุณากรอก URL ของ Google Sheets Web App ในหน้าตั้งค่าก่อน', 'warning');
-      return;
+      return false;
     }
     try {
       const payload = this.buildSummaryPayload(transactions, expenses, 'day', dateStr);
@@ -2278,16 +2283,18 @@ class PosApp {
         body: JSON.stringify(payload)
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
+
       const result = await response.json();
       if (result.status === 'success') {
         if (!isSilent) this.showToast('ส่งสรุปรายวันขึ้น Sheets สำเร็จ', 'success');
+        return true;
       } else {
         throw new Error(result.message || 'เซิร์ฟเวอร์รายงานข้อผิดพลาด');
       }
     } catch (err) {
       console.error('Daily summary sync error:', err);
       if (!isSilent) this.showToast('ส่งสรุปรายวันล้มเหลว: ' + err.message, 'error');
+      return false;
     }
   }
 
@@ -2295,7 +2302,7 @@ class PosApp {
   async syncMonthlySummary(monthStr, isSilent = true) {
     if (!this.googleSheetsUrl) {
       if (!isSilent) this.showToast('กรุณากรอก URL ของ Google Sheets Web App ในหน้าตั้งค่าก่อน', 'warning');
-      return;
+      return false;
     }
     try {
       // กรองธุรกรรมของเดือนนั้น
@@ -2322,12 +2329,14 @@ class PosApp {
       const result = await response.json();
       if (result.status === 'success') {
         if (!isSilent) this.showToast('ส่งสรุปรายเดือนขึ้น Sheets สำเร็จ', 'success');
+        return true;
       } else {
         throw new Error(result.message || 'เซิร์ฟเวอร์รายงานข้อผิดพลาด');
       }
     } catch (err) {
       console.error('Monthly summary sync error:', err);
       if (!isSilent) this.showToast('ส่งสรุปรายเดือนล้มเหลว: ' + err.message, 'error');
+      return false;
     }
   }
 
@@ -2739,31 +2748,12 @@ class PosApp {
         }
         this.state.shift.history.push(shiftLog);
         
-        // ส่งรายงานไปยัง Telegram (ถ้ามีการตั้งค่าไว้)
-        this.sendTelegramReport(shiftLog);
+        // เก็บงานคลาวด์ (สรุปวัน/เดือน + Telegram) ลง outbox ที่ persist ไว้ก่อน
+        // → "การันตีส่ง" แม้ปิดกะตอนออฟไลน์ แล้ว retry เองเมื่อเน็ตกลับ/เปิดแอปใหม่
+        this.enqueueShiftCloseCloudOps(shiftLog);
 
-        // ส่งสำรองข้อมูลอัตโนมัติขึ้น Google Drive ตอนปิดกะ
+        // ส่งสำรองข้อมูลอัตโนมัติขึ้น Google Drive ตอนปิดกะ (best-effort ครั้งเดียว)
         await this.autoBackupToGoogleDrive();
-
-        // ─── ส่งสรุปรายวัน + รายเดือนไป Google Sheets ───────────────────────
-        if (this.googleSheetsUrl) {
-          const closeDate   = new Date(shiftLog.endTime);
-          const todayKey    = this.getLocalISODate(closeDate); // "2026-06-06"
-          const monthKey    = `${String(closeDate.getMonth()+1).padStart(2,'0')}-${closeDate.getFullYear()}`; // "06-2026"
-
-          // สรุปรายวัน: รวมบิล "ทั้งวัน" (กันกรณีเปิด-ปิดหลายกะใน 1 วัน ไม่ให้สรุปถูกเขียนทับเหลือเฉพาะกะหลัง)
-          // หมายเหตุ: shiftLog ปัจจุบันถูก push เข้า history ไปแล้วด้านบน จึงรวม expenses ของกะนี้ด้วย
-          const dayTxs = this.state.transactions.filter(tx => this.getLocalISODate(tx.date) === todayKey);
-          const dayExpenses = (this.state.shift.history || [])
-            .filter(sh => this.getLocalISODate(sh.endTime || sh.startTime) === todayKey)
-            .flatMap(sh => sh.expenses || []);
-
-          // ส่งสรุปรายวัน (background, silent)
-          this.syncDailySummary(todayKey, dayTxs, dayExpenses, true);
-
-          // ส่งสรุปรายเดือน (รวมบิลทั้งเดือน + expenses ทุกกะในเดือน)
-          this.syncMonthlySummary(monthKey, true);
-        }
 
         // สลับสถานะเป็นไม่ได้ทำงาน
         this.state.shift.active = false;
@@ -2777,6 +2767,10 @@ class PosApp {
         this.state.queue = [];
         
         await this.saveState();
+
+        // ออนไลน์อยู่แล้วก็ส่ง outbox ทันที (ถ้าออฟไลน์ จะค้างไว้ retry เองตอนเน็ตกลับ/เปิดแอป)
+        this.flushCloudOutbox();
+
         this.closeModal('modal-cash-counter');
         this.renderAll();
         this.vibrateDevice(150);
@@ -3147,7 +3141,8 @@ class PosApp {
             customerName: tx.customerName,
             paymentMethod: tx.paymentMethod,
             name: item.name,
-            price: item.price,
+            price: item.price,                                            // ราคาเต็มต่อหน่วย (แสดงคอลัมน์ "ราคา")
+            netPrice: (item.netPrice != null ? item.netPrice : item.price), // ยอดหลังหักส่วนลด (ใช้รวมรายได้ให้ตรงกับ KPI/ชีต)
             staffId: item.staffId,
             staffName: item.staffName,
             commissionAmount: item.commissionAmount || 0
@@ -3172,6 +3167,8 @@ class PosApp {
             paymentMethod: tx.paymentMethod,
             name: sName,
             price: price,
+            // บิลเก่าไม่มี netPrice ต่อรายการ — เกลี่ยส่วนลดตามสัดส่วน (tx.total/tx.subtotal) ให้กระทบยอดได้
+            netPrice: (tx.subtotal > 0 ? Math.round(price * (tx.total / tx.subtotal) * 100) / 100 : price),
             staffId: sId,
             staffName: fallbackStaffName,
             commissionAmount: commAmt
@@ -3232,7 +3229,7 @@ class PosApp {
       document.getElementById('report-kpi-popular').innerText = popularService;
     } else {
       // โหมดพนักงานเฉพาะบุคคล: สรุปผลงานและคอมมิชชั่นสะสม
-      totalSales = displayItems.reduce((sum, item) => sum + item.price, 0);
+      totalSales = displayItems.reduce((sum, item) => sum + item.netPrice, 0); // ยอดหลังหักส่วนลด
       billCount = displayItems.length;
       commissionSum = displayItems.reduce((sum, item) => sum + item.commissionAmount, 0);
 
@@ -3281,7 +3278,7 @@ class PosApp {
         };
       }
       staffCommissions[sId].count += 1;
-      staffCommissions[sId].salesSum += item.price;
+      staffCommissions[sId].salesSum += item.netPrice; // ยอดขายหลังหักส่วนลด (ตรงกับชีต Google)
       staffCommissions[sId].commissionSum += item.commissionAmount;
     });
 
@@ -3330,7 +3327,7 @@ class PosApp {
         };
       }
       serviceSales[sName].count += 1;
-      serviceSales[sName].totalRevenue += item.price;
+      serviceSales[sName].totalRevenue += item.netPrice; // รายได้หลังหักส่วนลด ให้รวมแล้วตรงกับ KPI ยอดรวม
     });
 
     const catMap = {
@@ -3388,7 +3385,7 @@ class PosApp {
           if (tx.details && Array.isArray(tx.details)) {
             const staffDetails = tx.details.filter(d => d.staffId === selectedStaffId);
             displayedServices = staffDetails.map(d => d.name);
-            const staffTotal = staffDetails.reduce((sum, d) => sum + d.price, 0);
+            const staffTotal = staffDetails.reduce((sum, d) => sum + (d.netPrice != null ? d.netPrice : d.price), 0);
             displayTotalHTML = `฿${staffTotal.toLocaleString('th-TH')}<br><span style="font-size:0.7rem; color:var(--text-muted); font-weight:normal;">เต็มบิล: ฿${tx.total.toLocaleString('th-TH')}</span>`;
           } else {
             displayTotalHTML = `฿${tx.total.toLocaleString('th-TH')}`;
@@ -3711,31 +3708,7 @@ class PosApp {
     }
 
     this.showConfirm('คุณแน่ใจหรือไม่ที่จะทำการลบรายการขายนี้? การกระทำนี้ไม่สามารถย้อนกลับได้', async () => {
-      // ส่งคำขอลบไปยัง Google Sheets ทันที
-      if (this.googleSheetsUrl) {
-        try {
-          const payload = {
-            secret: API_SECRET,
-            action: 'void_transaction',
-            id: tx.id,
-            date: tx.date,
-            voidedBy: this.currentUser ? this.currentUser.name : ''
-          };
-          fetch(this.googleSheetsUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify(payload)
-          }).then(response => {
-            if (response.ok) {
-              console.log('Voided transaction on Google Sheets successfully');
-            }
-          }).catch(err => {
-            console.error('Failed to void transaction on Google Sheets:', err);
-          });
-        } catch (e) {
-          console.error(e);
-        }
-      }
+      // (การลบแถวบิลในชีต Google ย้ายไปทำผ่าน outbox ด้านล่าง เพื่อ retry ได้เมื่อ void ตอนออฟไลน์)
 
       // คืนค่าจำนวนครั้งที่มาใช้บริการของลูกค้า (ถ้าบิลผูกกับลูกค้าที่ลงทะเบียนไว้)
       if (tx.customerId) {
@@ -3760,23 +3733,14 @@ class PosApp {
       if (!Array.isArray(this.state.voidLog)) this.state.voidLog = [];
       this.state.voidLog.push(voidRecord);
 
+      // คิวงานคลาวด์ของการ void (ลบแถวในชีต + รีเฟรชสรุป + Telegram) ลง outbox "ก่อน" save
+      // → การันตีส่งแม้ void ตอนออฟไลน์ แล้ว retry เองเมื่อเน็ตกลับ (กันบิลที่ยกเลิกค้างในชีต)
+      this.enqueueVoidCloudOps(tx, voidRecord);
+
       await this.saveState();
 
-      // แจ้งเตือนการยกเลิกบิลผ่าน Telegram
-      this.sendVoidAlert(voidRecord);
-
-      // รีเฟรชชีตสรุปวัน/เดือนบนคลาวด์ให้ตรงกับยอดหลังลบบิล (กัน KPI ค้างเป็นยอดเดิม)
-      if (this.googleSheetsUrl) {
-        const dKey = this.getLocalISODate(tx.date);
-        const mDate = new Date(tx.date);
-        const mKey = `${String(mDate.getMonth() + 1).padStart(2, '0')}-${mDate.getFullYear()}`;
-        const dayTxs = this.state.transactions.filter(t => this.getLocalISODate(t.date) === dKey);
-        const dayExp = (this.state.shift.history || [])
-          .filter(sh => this.getLocalISODate(sh.endTime || sh.startTime) === dKey)
-          .flatMap(sh => sh.expenses || []);
-        this.syncDailySummary(dKey, dayTxs, dayExp, true);
-        this.syncMonthlySummary(mKey, true);
-      }
+      // ออนไลน์อยู่แล้วก็ส่ง outbox ทันที (ออฟไลน์จะค้างไว้ retry เอง)
+      this.flushCloudOutbox();
 
       this.closeModal('modal-edit-transaction');
       this.filterReports(); // โหลดตารางใหม่
@@ -4151,12 +4115,8 @@ class PosApp {
     if (event.target.files[0]) fileReader.readAsText(event.target.files[0]);
   }
 
-  // ส่งข้อความรายงานสรุปปิดกะไปที่ Telegram
-  sendTelegramReport(shiftLog) {
-    if (!this.telegramToken || !this.telegramChatId) {
-      console.log('Telegram notifications not configured.');
-      return;
-    }
+  // สร้างข้อความรายงานสรุปปิดกะ (แยกจากการส่ง เพื่อ snapshot เก็บลง outbox ได้)
+  buildShiftReportMessage(shiftLog) {
     const startTime = shiftLog.startTime;
     const endTime   = shiftLog.endTime;
     const shiftTxs  = this.state.transactions.filter(tx => {
@@ -4175,7 +4135,7 @@ class PosApp {
     const timeStartStr  = new Date(startTime).toLocaleString('th-TH');
     const timeEndStr    = new Date(endTime).toLocaleString('th-TH');
 
-    const message = `🔔 <b>รายงานสรุปปิดกะ / ปิดร้าน</b>\n` +
+    return `🔔 <b>รายงานสรุปปิดกะ / ปิดร้าน</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `📅 <b>เวลาเริ่มกะ:</b> ${timeStartStr}\n` +
       `📅 <b>เวลาปิดกะ:</b> ${timeEndStr}\n` +
@@ -4195,17 +4155,105 @@ class PosApp {
       `• เงินสดที่นับได้จริง: ฿${countedCash.toLocaleString('th-TH')}\n` +
       `• ส่วนต่าง (ขาด/เกิน): ${diff >= 0 ? '+' : ''}฿${diff.toLocaleString('th-TH')}\n` +
       `━━━━━━━━━━━━━━━━`;
+  }
 
-    const url     = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
-    const payload = { chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' };
+  // ส่งข้อความ Telegram แล้วคืน true/false ว่าส่งถึงไหม (ใช้กับ outbox retry)
+  async postTelegram(message) {
+    if (!this.telegramToken || !this.telegramChatId) return false;
+    try {
+      const url = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' })
+      });
+      const d = await r.json();
+      return !!(d && d.ok);
+    } catch (err) {
+      console.error('Telegram post failed:', err);
+      return false;
+    }
+  }
 
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      .then(r => r.json())
-      .then(d => {
-        if (d.ok) { console.log('Telegram sent!'); this.showToast('ส่งรายงาน Telegram สำเร็จ', 'success'); }
-        else console.error('Telegram error:', d.description);
-      })
-      .catch(err => console.error('Telegram failed:', err));
+  // ส่งรายงานปิดกะทันที (คงไว้เพื่อความเข้ากันได้ — best-effort ครั้งเดียว)
+  sendTelegramReport(shiftLog) {
+    if (!this.telegramToken || !this.telegramChatId) { console.log('Telegram notifications not configured.'); return; }
+    this.postTelegram(this.buildShiftReportMessage(shiftLog));
+  }
+
+  // เก็บงานคลาวด์ตอนปิดกะลง outbox (persist) — สรุปวัน/เดือน + Telegram
+  // เพื่อ "การันตีส่ง" แม้ปิดกะตอนออฟไลน์ แล้ว retry เองเมื่อเน็ตกลับ
+  enqueueShiftCloseCloudOps(shiftLog) {
+    const closeDate = new Date(shiftLog.endTime);
+    const dateKey  = this.getLocalISODate(closeDate);
+    const monthKey = `${String(closeDate.getMonth() + 1).padStart(2, '0')}-${closeDate.getFullYear()}`;
+    const needSummary  = !!this.googleSheetsUrl;
+    const needTelegram = !!(this.telegramToken && this.telegramChatId);
+    if (!needSummary && !needTelegram) return; // ไม่ได้ตั้งค่าอะไรเลย ไม่ต้องคิว
+    if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
+    this.state.cloudOutbox.push({
+      id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      createdAt: Date.now(),
+      dateKey, monthKey,
+      needSummary, needTelegram,
+      telegramMessage: needTelegram ? this.buildShiftReportMessage(shiftLog) : '',
+      tries: 0
+    });
+  }
+
+  // ส่ง outbox ที่ค้าง (เรียกตอนปิดกะ / เน็ตกลับ / เปิดแอป) — idempotent + กันยิงซ้อน
+  async flushCloudOutbox() {
+    if (this._flushingOutbox) return;
+    if (!Array.isArray(this.state.cloudOutbox) || this.state.cloudOutbox.length === 0) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return; // ออฟไลน์ — ไว้ค่อยส่ง
+    this._flushingOutbox = true;
+    let delivered = 0;
+    try {
+      for (const item of this.state.cloudOutbox.slice()) {
+        item.tries = (item.tries || 0) + 1;
+
+        // 0) ลบแถวบิลที่ void ในชีต (ทำก่อนรีเฟรชสรุป) — idempotent: ไม่พบแถว = ถือว่าลบแล้ว
+        if (item.needVoidDelete) {
+          if (!this.googleSheetsUrl) {
+            item.needVoidDelete = false;
+          } else {
+            const okDel = await this.postVoidDelete(item.voidDelete);
+            if (okDel) { item.needVoidDelete = false; delivered++; }
+          }
+        }
+
+        // 1) สรุปวัน + เดือน — recompute จาก state ปัจจุบัน (ครบ + idempotent: GAS เขียนทับชีต)
+        if (item.needSummary) {
+          if (!this.googleSheetsUrl) {
+            item.needSummary = false; // ไม่มี URL แล้ว เลิกพยายาม
+          } else {
+            const dayTxs = this.state.transactions.filter(tx => this.getLocalISODate(tx.date) === item.dateKey);
+            const dayExp = (this.state.shift.history || [])
+              .filter(sh => this.getLocalISODate(sh.endTime || sh.startTime) === item.dateKey)
+              .flatMap(sh => sh.expenses || []);
+            const okDay   = await this.syncDailySummary(item.dateKey, dayTxs, dayExp, true);
+            const okMonth = await this.syncMonthlySummary(item.monthKey, true);
+            if (okDay && okMonth) { item.needSummary = false; delivered++; }
+          }
+        }
+
+        // 2) Telegram — ส่งข้อความที่ snapshot ไว้ตอนปิดกะ
+        if (item.needTelegram) {
+          const ok = await this.postTelegram(item.telegramMessage);
+          if (ok) { item.needTelegram = false; delivered++; }
+        }
+      }
+
+      // เก็บเฉพาะรายการที่ยังค้าง ที่เสร็จแล้วทิ้งออก
+      const before = this.state.cloudOutbox.length;
+      this.state.cloudOutbox = this.state.cloudOutbox.filter(it => it.needVoidDelete || it.needSummary || it.needTelegram);
+      if (delivered > 0 || this.state.cloudOutbox.length !== before) {
+        await this.saveState();
+        if (delivered > 0) this.showToast(`ส่งสรุป/แจ้งเตือนที่ค้างไว้สำเร็จแล้ว (${delivered} รายการ)`, 'success');
+      }
+    } finally {
+      this._flushingOutbox = false;
+    }
   }
 
   // ส่งข้อความ Telegram ทั่วไป (ใช้ซ้ำได้)
@@ -4218,10 +4266,10 @@ class PosApp {
       .catch(err => console.error('Telegram failed:', err));
   }
 
-  // แจ้งเตือนการยกเลิกบิลผ่าน Telegram
-  sendVoidAlert(v) {
+  // สร้างข้อความแจ้งเตือนการยกเลิกบิล (แยกเพื่อ snapshot เก็บลง outbox)
+  buildVoidAlertMessage(v) {
     const when = new Date(v.date).toLocaleString('th-TH');
-    const msg = `⚠️ <b>มีการยกเลิกบิล (Void)</b>\n` +
+    return `⚠️ <b>มีการยกเลิกบิล (Void)</b>\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `🧾 เลขที่บิล: ${v.billId}\n` +
       `💰 ยอด: ฿${(v.amount || 0).toLocaleString('th-TH')}\n` +
@@ -4229,7 +4277,52 @@ class PosApp {
       `🛠️ ยกเลิกโดย: ${escapeHtml(v.by || '-')}\n` +
       `🕒 เวลา: ${when}\n` +
       `━━━━━━━━━━━━━━━━`;
-    this.sendTelegramText(msg);
+  }
+
+  // แจ้งเตือนการยกเลิกบิลผ่าน Telegram (best-effort ครั้งเดียว — คงไว้เพื่อความเข้ากันได้)
+  sendVoidAlert(v) {
+    this.sendTelegramText(this.buildVoidAlertMessage(v));
+  }
+
+  // ส่งคำขอลบแถวบิลใน Sheets แล้วคืน true/false — idempotent: "ไม่พบแถว" = ถือว่าลบแล้ว
+  async postVoidDelete(v) {
+    if (!this.googleSheetsUrl) return false;
+    try {
+      const r = await fetch(this.googleSheetsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ secret: API_SECRET, action: 'void_transaction', id: v.id, date: v.date, voidedBy: v.voidedBy || '' })
+      });
+      const d = await r.json();
+      if (d && (d.status === 'success' || (d.status === 'error' && /ไม่พบ/.test(d.message || '')))) return true;
+      return false; // error อื่น (เช่น unauthorized) → retry รอบหน้า
+    } catch (err) {
+      console.error('Void delete failed:', err);
+      return false;
+    }
+  }
+
+  // เก็บงานคลาวด์ของการ void ลง outbox: ลบแถวในชีต + รีเฟรชสรุป + Telegram
+  enqueueVoidCloudOps(tx, voidRecord) {
+    const dateKey  = this.getLocalISODate(tx.date);
+    const mDate    = new Date(tx.date);
+    const monthKey = `${String(mDate.getMonth() + 1).padStart(2, '0')}-${mDate.getFullYear()}`;
+    const hasUrl       = !!this.googleSheetsUrl;
+    const wasOnSheet   = tx.syncStatus !== 'pending'; // บิล pending ยังไม่เคยขึ้นชีต ไม่ต้องลบ
+    const needTelegram = !!(this.telegramToken && this.telegramChatId);
+    if (!hasUrl && !needTelegram) return;
+    if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
+    this.state.cloudOutbox.push({
+      id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      createdAt: Date.now(),
+      dateKey, monthKey,
+      needVoidDelete: hasUrl && wasOnSheet,
+      voidDelete: (hasUrl && wasOnSheet) ? { id: tx.id, date: tx.date, voidedBy: voidRecord.by || '' } : null,
+      needSummary: hasUrl,
+      needTelegram,
+      telegramMessage: needTelegram ? this.buildVoidAlertMessage(voidRecord) : '',
+      tries: 0
+    });
   }
 
   // ทดสอบ Telegram

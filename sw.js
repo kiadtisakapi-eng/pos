@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v34-redesign';
+const CACHE_NAME = 'jahn-pos-v39-void-outbox';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',

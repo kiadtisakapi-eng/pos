@@ -316,14 +316,16 @@
     }
     var merchant = tlv('29', tlv('00', 'A000000677010111') + acc);
     var hasAmt = amount != null && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0;
-    // ลำดับฟิลด์ตามที่ผู้ให้บริการ/ไลบรารีมาตรฐานใช้กัน: 53 (สกุลเงิน) → 54 (จำนวนเงิน) → 58 (ประเทศ)
+    // ลำดับฟิลด์ canonical ที่แอปธนาคารไทยทุกเจ้าเทสต์มาแล้ว (อ้างอิง dtinth/promptpay-qr):
+    //   58 (ประเทศ) → 53 (สกุลเงิน) → 54 (จำนวนเงิน) → 63 (CRC)
+    // หมายเหตุ: EMVCo อ่านที่ tag ID ไม่อิงลำดับ แต่ใช้ลำดับนี้เพื่อความเข้ากันได้สูงสุด
     var payload =
       tlv('00', '01') +
       tlv('01', hasAmt ? '12' : '11') +
       merchant +
+      tlv('58', 'TH') +
       tlv('53', '764') +
-      (hasAmt ? tlv('54', parseFloat(amount).toFixed(2)) : '') +
-      tlv('58', 'TH');
+      (hasAmt ? tlv('54', parseFloat(amount).toFixed(2)) : '');
     payload += '6304';
     return payload + crc16(payload);
   }
@@ -332,4 +334,4 @@
 })(typeof window !== 'undefined' ? window : this);
 
 if (typeof module !== 'undefined' && module.exports) module.exports = (typeof window !== 'undefined' ? window : this).PromptPayQR;
-// end of promptpay-qr.js
+// end of promptpay-qr.js (PromptPay field order: 58 -> 53 -> 54, canonical)
