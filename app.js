@@ -36,7 +36,7 @@ const DEFAULT_CATEGORIES = [
 const API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.0.0 (2026-06-15)';
+const APP_VERSION = '1.1.0 (2026-07-03)';
 
 // กัน XSS — แปลงอักขระพิเศษก่อนนำข้อความของผู้ใช้ไปแสดงผลด้วย innerHTML
 function escapeHtml(str) {
@@ -346,6 +346,8 @@ class PosApp {
       const promptPayVal = await db.state.get('shopPromptPayId');
       const shopNameVal = await db.state.get('shopName');
       const taglineVal = await db.state.get('shopTagline');
+      const addressVal = await db.state.get('shopAddress');
+      const phoneVal = await db.state.get('shopPhone');
       const logoVal = await db.state.get('shopLogo');
       const themeVal = await db.state.get('theme');
       const pinVal = await db.state.get('ownerPin');
@@ -431,6 +433,8 @@ class PosApp {
       this.shopPromptPayId = promptPayVal ? promptPayVal.value : '';
       this.shopName = shopNameVal ? shopNameVal.value : 'Erotica Barber & Massage';
       this.shopTagline = taglineVal ? taglineVal.value : 'BARBER & MASSAGE';
+      this.shopAddress = addressVal ? addressVal.value : '';
+      this.shopPhone = phoneVal ? phoneVal.value : '';
       this.shopLogo = logoVal ? logoVal.value : '';
       this.theme = themeVal ? themeVal.value : 'dark';
       this.ownerPin = pinVal ? pinVal.value : '';
@@ -460,6 +464,8 @@ class PosApp {
       this.shopPromptPayId = '';
       this.shopName = 'Erotica Barber & Massage';
       this.shopTagline = 'BARBER & MASSAGE';
+      this.shopAddress = '';
+      this.shopPhone = '';
       this.shopLogo = '';
       this.theme = 'dark';
       this.ownerPin = await this.hashPin('123456');
@@ -523,6 +529,8 @@ class PosApp {
         { key: 'shopPromptPayId', value: this.shopPromptPayId },
         { key: 'shopName', value: this.shopName || 'Erotica Barber & Massage' },
         { key: 'shopTagline', value: this.shopTagline || 'BARBER & MASSAGE' },
+        { key: 'shopAddress', value: this.shopAddress || '' },
+        { key: 'shopPhone', value: this.shopPhone || '' },
         { key: 'shopLogo', value: this.shopLogo || '' },
         { key: 'theme', value: this.theme || 'dark' },
         { key: 'ownerPin', value: this.ownerPin },
@@ -551,6 +559,8 @@ class PosApp {
       shopPromptPayId: this.shopPromptPayId || '',
       shopName: this.shopName || 'Erotica Barber & Massage',
       shopTagline: this.shopTagline || 'BARBER & MASSAGE',
+      shopAddress: this.shopAddress || '',
+      shopPhone: this.shopPhone || '',
       shopLogo: this.shopLogo || '',
       theme: this.theme || 'dark',
       // ownerPin is omitted for security since sending it over the network to Apps Script is vulnerable
@@ -1386,6 +1396,14 @@ class PosApp {
     if (shopTaglineInput) {
       shopTaglineInput.value = this.shopTagline || 'BARBER & MASSAGE';
     }
+    const shopAddressInput = document.getElementById('shop-address-input');
+    if (shopAddressInput) {
+      shopAddressInput.value = this.shopAddress || '';
+    }
+    const shopPhoneInput = document.getElementById('shop-phone-input');
+    if (shopPhoneInput) {
+      shopPhoneInput.value = this.shopPhone || '';
+    }
     this.updateLogoPreview();
 
     // 4. แสดง URL Google Sheets ปัจจุบัน
@@ -1414,8 +1432,14 @@ class PosApp {
     const service = this.state.services.find(s => s.id === serviceId);
     if (!service) return;
 
+    // ยังไม่มีพนักงานในระบบ = ออกบิลไม่ได้ (บิลจะไม่มีผู้ให้บริการ/ค่าคอมผูกไม่ได้) — บังคับตั้งค่าก่อน
+    if (this.state.staff.length === 0) {
+      this.showToast('ยังไม่มีพนักงานในระบบ — ไปที่ ตั้งค่า → เพิ่มพนักงาน ก่อนเริ่มขาย', 'warning', 4500);
+      return;
+    }
+
     // หาพนักงานคนแรกที่มีอยู่เป็นพนักงานตั้งต้นให้ในตะกร้า
-    const defaultStaff = this.state.staff.length > 0 ? this.state.staff[0] : { id: 'none', name: 'ไม่ได้ระบุ' };
+    const defaultStaff = this.state.staff[0];
 
     this.state.cart.push({
       uniqueCartId: Date.now() + Math.random().toString(36).substr(2, 5), // รหัสจำลองไอเท็มในคาร์ท
@@ -1507,11 +1531,35 @@ class PosApp {
     return this.state.cart.reduce((sum, item) => sum + item.price, 0);
   }
 
+  // อ่านส่วนลดจากช่องกรอกแบบปลอดภัย — clamp ให้อยู่ใน [0, subtotal]
+  // (input min="0" กันแค่ปุ่ม spinner — พิมพ์ค่าติดลบเองได้ ถ้าไม่ clamp ยอดจะบวมเกินจริง)
+  getCartDiscount(subtotal) {
+    const discountInput = document.getElementById('cart-discount');
+    const raw = parseFloat(discountInput ? discountInput.value : 0) || 0;
+    return Math.min(Math.max(0, raw), subtotal);
+  }
+
   getCartTotal() {
     const subtotal = this.getCartSubtotal();
-    const discountInput = document.getElementById('cart-discount');
-    const discount = parseFloat(discountInput.value) || 0;
-    return Math.max(0, subtotal - discount);
+    return Math.max(0, subtotal - this.getCartDiscount(subtotal));
+  }
+
+  // กระจายส่วนลดตามสัดส่วนราคา + เกลี่ยเศษสตางค์ (largest remainder)
+  // การันตี: ผลรวม netPrice = subtotal - discount เป๊ะ (ไม่มีเศษ ±0.01 หลุดไปรายงาน/ค่าคอม)
+  distributeDiscount(prices, subtotal, discount) {
+    const total = Math.round(Math.max(0, subtotal - discount) * 100) / 100;
+    const nets = prices.map(p => subtotal > 0
+      ? Math.round(Math.max(0, p - discount * (p / subtotal)) * 100) / 100
+      : p);
+    const sum = Math.round(nets.reduce((s, n) => s + n, 0) * 100) / 100;
+    const diff = Math.round((total - sum) * 100) / 100;
+    if (diff !== 0 && nets.length > 0) {
+      // ปรับเศษที่รายการราคาสูงสุด (มีที่ว่างพอ ไม่ทำให้ติดลบ)
+      let idx = 0;
+      for (let i = 1; i < nets.length; i++) if (nets[i] > nets[idx]) idx = i;
+      nets[idx] = Math.round(Math.max(0, nets[idx] + diff) * 100) / 100;
+    }
+    return nets;
   }
 
   updateCartTotals() {
@@ -1526,7 +1574,11 @@ class PosApp {
 
   openCheckoutModal() {
     if (this.state.cart.length === 0) return;
-    
+    if (this.state.staff.length === 0) {
+      this.showToast('ยังไม่มีพนักงานในระบบ — เพิ่มพนักงานในหน้าตั้งค่าก่อนออกบิล', 'warning', 4500);
+      return;
+    }
+
     // ตั้งค่าบิลเริ่มต้นในป๊อปอัป
     const total = this.getCartTotal();
     this.selectPaymentMethod(null); // ยกเลิกการเลือกช่องทางจ่ายเงินเดิมก่อน
@@ -1712,9 +1764,8 @@ class PosApp {
     if (btn) btn.disabled = true;
 
     try {
-      const discountInput = document.getElementById('cart-discount');
-      const discount = parseFloat(discountInput.value) || 0;
       const subtotal = this.getCartSubtotal();
+      const discount = this.getCartDiscount(subtotal); // clamp [0, subtotal] แล้ว
       const total = this.getCartTotal();
 
       // เงินรับ-เงินทอน (เฉพาะจ่ายเงินสด) เก็บลงบิลเพื่อตรวจสอบย้อนหลังได้
@@ -1756,10 +1807,11 @@ class PosApp {
         customerName: customerName,
         customerId: (selectedCustId && selectedCustId !== 'google' && selectedCustId !== 'returning') ? selectedCustId : null,
         services: this.state.cart.map(item => item.name),
-        details: this.state.cart.map(item => {
-          // กระจายส่วนลดตามสัดส่วนราคาของแต่ละรายการ แล้วคิดค่าคอมจาก "ราคาหลังหักส่วนลด"
-          const share = subtotal > 0 ? discount * (item.price / subtotal) : 0;
-          const netPrice = Math.round(Math.max(0, item.price - share) * 100) / 100;
+        details: (() => {
+          // กระจายส่วนลดตามสัดส่วน + เกลี่ยเศษสตางค์ให้ผลรวม netPrice = total เป๊ะ
+          const netPrices = this.distributeDiscount(this.state.cart.map(i => i.price), subtotal, discount);
+          return this.state.cart.map((item, i) => {
+          const netPrice = netPrices[i];
           const commType = item.commissionType || 'percent';
           const commVal = item.commission || 0;
           // ค่าคอมแบบ % คิดบน netPrice; แบบ fixed เป็นจำนวนคงที่ไม่ขึ้นกับส่วนลด
@@ -1774,7 +1826,8 @@ class PosApp {
             commissionType: commType,
             commissionAmount: commissionAmount
           };
-        }),
+          });
+        })(),
         subtotal: subtotal,
         discount: discount,
         total: total,
@@ -1844,8 +1897,8 @@ class PosApp {
         <div class="receipt-header">
           ${this.shopLogo ? `<img src="${this.shopLogo}" alt="logo" style="max-width:90px;max-height:90px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
           <div class="receipt-shop-name">${escapeHtml(this.shopName || 'Erotica Barber & Massage')}</div>
-          <div style="font-size: 0.7rem; color: #555;">เลขที่ 88/8 ถ.สุขุมวิท กรุงเทพมหานคร</div>
-          <div style="font-size: 0.7rem; color: #555;">โทร. 02-123-4567</div>
+          ${this.shopAddress ? `<div style="font-size: 0.7rem; color: #555;">${escapeHtml(this.shopAddress)}</div>` : ''}
+          ${this.shopPhone ? `<div style="font-size: 0.7rem; color: #555;">โทร. ${escapeHtml(this.shopPhone)}</div>` : ''}
         </div>
         
         <div class="receipt-row">
@@ -2431,8 +2484,12 @@ class PosApp {
       let failCount = 0;
 
       for (let tx of pendingTxs) {
+        // กัน race: ถ้าบิลถูก void ระหว่างรอคิว sync (ไม่อยู่ใน state แล้ว) ห้ามส่งขึ้นชีต — ไม่งั้นเกิดแถวผีหลังลบ
+        if (!this.state.transactions.includes(tx)) continue;
         try {
           await this.syncSingleTransaction(tx);
+          // เช็คซ้ำหลัง await: บิลอาจถูก void ระหว่าง fetch — ถ้าหายไปแล้วไม่ต้อง mark (outbox ของ void จะลบแถวให้เอง)
+          if (!this.state.transactions.includes(tx)) continue;
           tx.syncStatus = 'synced';
           successCount++;
           await this.saveState(); // บันทึกทีละรายการเพื่อป้องกันข้อมูลขัดข้อง
@@ -3150,9 +3207,9 @@ class PosApp {
         });
       } else {
         // Fallback สำหรับบิลเก่าหรือตัวอย่างระบบที่ไม่มีฟิลด์ details
-        const fallbackStaffName = tx.staffNames && tx.staffNames[0] ? tx.staffNames[0] : 'ช่างบอย';
+        const fallbackStaffName = tx.staffNames && tx.staffNames[0] ? tx.staffNames[0] : 'ไม่ระบุ';
         let matchedStaff = this.state.staff.find(st => st.name === fallbackStaffName);
-        let sId = matchedStaff ? matchedStaff.id : 'st1';
+        let sId = matchedStaff ? matchedStaff.id : 'unknown';
         
         tx.services.forEach(sName => {
           const matchedService = this.state.services.find(s => s.name === sName);
@@ -3584,9 +3641,9 @@ class PosApp {
         const commType = matchedService ? (matchedService.commissionType || 'percent') : 'percent';
         const commAmt = commType === 'fixed' ? commissionPercent : (price * commissionPercent) / 100;
         
-        const fallbackStaffName = tx.staffNames && tx.staffNames[0] ? tx.staffNames[0] : 'ช่างบอย';
+        const fallbackStaffName = tx.staffNames && tx.staffNames[0] ? tx.staffNames[0] : 'ไม่ระบุ';
         const matchedStaff = this.state.staff.find(st => st.name === fallbackStaffName);
-        const staffId = matchedStaff ? matchedStaff.id : 'st1';
+        const staffId = matchedStaff ? matchedStaff.id : 'unknown';
 
         return {
           name: sName,
@@ -3631,7 +3688,8 @@ class PosApp {
       subtotal += item.price;
     });
 
-    const discount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
+    const rawDiscount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
+    const discount = Math.min(Math.max(0, rawDiscount), subtotal); // clamp เหมือนตอนบันทึกจริง
     const total = Math.max(0, subtotal - discount);
 
     document.getElementById('edit-tx-total').value = `฿${total.toLocaleString('th-TH')}`;
@@ -3671,17 +3729,17 @@ class PosApp {
     tx.details.forEach(item => {
       subtotal += item.price;
     });
-    const discount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
+    const rawDiscount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
+    const discount = Math.min(Math.max(0, rawDiscount), subtotal); // clamp — กันพิมพ์ค่าติดลบ/เกินยอด
     const total = Math.max(0, subtotal - discount);
 
-    // คำนวณราคาหลังหักส่วนลด + ค่าคอมใหม่ต่อรายการ (ค่าคอม % คิดบนยอดสุทธิ ให้ตรงกับตอนขาย)
-    tx.details.forEach(item => {
-      const share = subtotal > 0 ? discount * (item.price / subtotal) : 0;
-      const netPrice = Math.round(Math.max(0, item.price - share) * 100) / 100;
-      item.netPrice = netPrice;
+    // คำนวณราคาหลังหักส่วนลด + ค่าคอมใหม่ต่อรายการ (สูตรเดียวกับตอนขาย รวมเกลี่ยเศษสตางค์)
+    const netPrices = this.distributeDiscount(tx.details.map(d => d.price), subtotal, discount);
+    tx.details.forEach((item, i) => {
+      item.netPrice = netPrices[i];
       const commType = item.commissionType || 'percent';
       const commVal = item.commission || 0;
-      item.commissionAmount = commType === 'fixed' ? commVal : Math.round(netPrice * commVal) / 100;
+      item.commissionAmount = commType === 'fixed' ? commVal : Math.round(item.netPrice * commVal) / 100;
     });
 
     tx.subtotal = subtotal;
@@ -3689,10 +3747,14 @@ class PosApp {
     tx.total = total;
     tx.syncStatus = 'pending'; // ตั้งค่าเป็น pending เพื่อให้ระบบซิงก์ใหม่
 
+    // รีเฟรชชีตสรุปวัน/เดือนของวันที่บิลนั้น (ผ่าน outbox — retry เองถ้าออฟไลน์) ให้ KPI บนชีตตรงกับบิลที่แก้
+    this.enqueueSummaryRefresh(tx.date);
+
     await this.saveState();
     this.closeModal('modal-edit-transaction');
     this.filterReports(); // โหลดตารางใหม่
     this.syncPendingTransactions(true); // ซิงก์ขึ้น Google Sheets อัตโนมัติ (เบื้องหลัง)
+    this.flushCloudOutbox(); // ส่งสรุปที่คิวไว้ทันทีถ้าออนไลน์
     this.showToast('แก้ไขข้อมูลธุรกรรมเรียบร้อยแล้ว', 'info');
   }
 
@@ -3815,6 +3877,14 @@ class PosApp {
     if (shopTaglineInput) {
       this.shopTagline = shopTaglineInput.value.trim() || 'BARBER & MASSAGE';
     }
+    const shopAddressInput = document.getElementById('shop-address-input');
+    if (shopAddressInput) {
+      this.shopAddress = shopAddressInput.value.trim();
+    }
+    const shopPhoneInput = document.getElementById('shop-phone-input');
+    if (shopPhoneInput) {
+      this.shopPhone = shopPhoneInput.value.trim();
+    }
     if (promptPayInput) {
       const ppVal = promptPayInput.value.trim().replace(/[-\s]/g, '');
       if (ppVal === '') {
@@ -3913,6 +3983,12 @@ class PosApp {
     const pin = pinEl ? pinEl.value : '';
     if (!uid) { this.showToast('กรุณาเลือกผู้ใช้ก่อน', 'warning'); return; }
     if (!pin) { this.showToast('กรุณากรอก PIN', 'warning'); if (pinEl) pinEl.focus(); return; }
+    // Rate limit: ผิดติดกัน 5 ครั้ง → ล็อก 30 วินาที (ชะลอการเดา PIN หน้าเครื่อง)
+    if (this._loginLockUntil && Date.now() < this._loginLockUntil) {
+      const waitSec = Math.ceil((this._loginLockUntil - Date.now()) / 1000);
+      this.showToast(`ใส่ PIN ผิดหลายครั้ง — รออีก ${waitSec} วินาทีแล้วลองใหม่`, 'error');
+      return;
+    }
     const hash = await this.hashPin(pin);
     if (uid === '__owner__') {
       if (hash === this.ownerPin) {
@@ -3929,11 +4005,20 @@ class PosApp {
       }
     }
     this.vibrateDevice(200);
-    this.showToast('PIN ไม่ถูกต้อง', 'error');
+    this._loginFails = (this._loginFails || 0) + 1;
+    if (this._loginFails >= 5) {
+      this._loginLockUntil = Date.now() + 30 * 1000;
+      this._loginFails = 0;
+      this.showToast('ใส่ PIN ผิดครบ 5 ครั้ง — ล็อกชั่วคราว 30 วินาที', 'error', 5000);
+    } else {
+      this.showToast('PIN ไม่ถูกต้อง', 'error');
+    }
     if (pinEl) { pinEl.value = ''; pinEl.focus(); }
   }
 
   completeLogin() {
+    this._loginFails = 0;
+    this._loginLockUntil = 0;
     this.loginSelectedId = null;
     const pinEl = document.getElementById('login-pin-input');
     if (pinEl) pinEl.value = '';
@@ -4058,6 +4143,8 @@ class PosApp {
       shopPromptPayId: this.shopPromptPayId || '',
       shopName: this.shopName || 'Erotica Barber & Massage',
       shopTagline: this.shopTagline || 'BARBER & MASSAGE',
+      shopAddress: this.shopAddress || '',
+      shopPhone: this.shopPhone || '',
       shopLogo: this.shopLogo || '',
       theme: this.theme || 'dark',
       googleSheetsUrl: this.googleSheetsUrl || '',
@@ -4091,7 +4178,12 @@ class PosApp {
             if (parsed.shopPromptPayId) this.shopPromptPayId = parsed.shopPromptPayId;
             if (parsed.shopName) this.shopName = parsed.shopName;
             if (parsed.shopTagline) this.shopTagline = parsed.shopTagline;
-            if (typeof parsed.shopLogo === 'string') this.shopLogo = parsed.shopLogo;
+            if (typeof parsed.shopAddress === 'string') this.shopAddress = parsed.shopAddress;
+            if (typeof parsed.shopPhone === 'string') this.shopPhone = parsed.shopPhone;
+            // รับเฉพาะ data URL รูปภาพ — กันไฟล์ JSON แปลกปลอมฝังสคริปต์ผ่าน img src
+            if (typeof parsed.shopLogo === 'string' && (parsed.shopLogo === '' || parsed.shopLogo.startsWith('data:image/'))) {
+              this.shopLogo = parsed.shopLogo;
+            }
             if (parsed.theme) this.theme = parsed.theme;
             if (parsed.ownerPin) this.ownerPin = parsed.ownerPin;
             if (parsed.googleSheetsUrl) this.googleSheetsUrl = parsed.googleSheetsUrl;
@@ -4184,9 +4276,15 @@ class PosApp {
   // เก็บงานคลาวด์ตอนปิดกะลง outbox (persist) — สรุปวัน/เดือน + Telegram
   // เพื่อ "การันตีส่ง" แม้ปิดกะตอนออฟไลน์ แล้ว retry เองเมื่อเน็ตกลับ
   enqueueShiftCloseCloudOps(shiftLog) {
+    // กะข้ามเที่ยงคืน/ข้ามเดือน: บิลก่อนเที่ยงคืนอยู่ dateKey ของวันเปิดกะ
+    // → ต้องรีเฟรชสรุปทั้ง "วันเปิดกะ" และ "วันปิดกะ" (และทั้งสองเดือนถ้าคร่อมเดือน) ไม่งั้นยอดวันก่อนหน้าตกหล่น
+    const openDate  = new Date(shiftLog.startTime || shiftLog.endTime);
     const closeDate = new Date(shiftLog.endTime);
-    const dateKey  = this.getLocalISODate(closeDate);
-    const monthKey = `${String(closeDate.getMonth() + 1).padStart(2, '0')}-${closeDate.getFullYear()}`;
+    const dateKeys  = [...new Set([this.getLocalISODate(openDate), this.getLocalISODate(closeDate)])];
+    const monthKeys = [...new Set([
+      `${String(openDate.getMonth() + 1).padStart(2, '0')}-${openDate.getFullYear()}`,
+      `${String(closeDate.getMonth() + 1).padStart(2, '0')}-${closeDate.getFullYear()}`
+    ])];
     const needSummary  = !!this.googleSheetsUrl;
     const needTelegram = !!(this.telegramToken && this.telegramChatId);
     if (!needSummary && !needTelegram) return; // ไม่ได้ตั้งค่าอะไรเลย ไม่ต้องคิว
@@ -4194,9 +4292,30 @@ class PosApp {
     this.state.cloudOutbox.push({
       id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       createdAt: Date.now(),
-      dateKey, monthKey,
+      dateKeys, monthKeys,
       needSummary, needTelegram,
       telegramMessage: needTelegram ? this.buildShiftReportMessage(shiftLog) : '',
+      tries: 0
+    });
+  }
+
+  // คิวรีเฟรชสรุปวัน/เดือนอย่างเดียว (ใช้หลังแก้ไขบิลย้อนหลัง — ให้ KPI บนชีตตรงกับบิลที่แก้)
+  enqueueSummaryRefresh(dateVal) {
+    if (!this.googleSheetsUrl) return;
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return;
+    const dateKey  = this.getLocalISODate(d);
+    const monthKey = `${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+    if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
+    // ถ้ามีงานสรุปของวันเดียวกันค้างอยู่แล้ว ไม่ต้องคิวซ้ำ (flush จะ recompute จาก state ล่าสุดอยู่แล้ว)
+    const dup = this.state.cloudOutbox.some(it => it.needSummary &&
+      (it.dateKeys || [it.dateKey]).includes(dateKey));
+    if (dup) return;
+    this.state.cloudOutbox.push({
+      id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      createdAt: Date.now(),
+      dateKeys: [dateKey], monthKeys: [monthKey],
+      needSummary: true, needTelegram: false, telegramMessage: '',
       tries: 0
     });
   }
@@ -4210,7 +4329,14 @@ class PosApp {
     let delivered = 0;
     try {
       for (const item of this.state.cloudOutbox.slice()) {
+        // Backoff: ล้มเหลวติดกัน 3 ครั้งขึ้นไป → เว้นระยะ 5 นาทีก่อนลองใหม่ (กันยิงรัวตอน URL ผิด/GAS ล่ม)
+        if ((item.tries || 0) >= 3 && item.lastTry && (Date.now() - item.lastTry) < 5 * 60 * 1000) continue;
         item.tries = (item.tries || 0) + 1;
+        item.lastTry = Date.now();
+
+        // รองรับทั้งรูปแบบใหม่ (dateKeys/monthKeys เป็น array) และรายการเก่าที่ค้างใน outbox (dateKey เดี่ยว)
+        const dateKeys  = Array.isArray(item.dateKeys)  ? item.dateKeys  : (item.dateKey  ? [item.dateKey]  : []);
+        const monthKeys = Array.isArray(item.monthKeys) ? item.monthKeys : (item.monthKey ? [item.monthKey] : []);
 
         // 0) ลบแถวบิลที่ void ในชีต (ทำก่อนรีเฟรชสรุป) — idempotent: ไม่พบแถว = ถือว่าลบแล้ว
         if (item.needVoidDelete) {
@@ -4227,13 +4353,20 @@ class PosApp {
           if (!this.googleSheetsUrl) {
             item.needSummary = false; // ไม่มี URL แล้ว เลิกพยายาม
           } else {
-            const dayTxs = this.state.transactions.filter(tx => this.getLocalISODate(tx.date) === item.dateKey);
-            const dayExp = (this.state.shift.history || [])
-              .filter(sh => this.getLocalISODate(sh.endTime || sh.startTime) === item.dateKey)
-              .flatMap(sh => sh.expenses || []);
-            const okDay   = await this.syncDailySummary(item.dateKey, dayTxs, dayExp, true);
-            const okMonth = await this.syncMonthlySummary(item.monthKey, true);
-            if (okDay && okMonth) { item.needSummary = false; delivered++; }
+            let allOk = true;
+            for (const dk of dateKeys) {
+              const dayTxs = this.state.transactions.filter(tx => this.getLocalISODate(tx.date) === dk);
+              const dayExp = (this.state.shift.history || [])
+                .filter(sh => this.getLocalISODate(sh.endTime || sh.startTime) === dk)
+                .flatMap(sh => sh.expenses || []);
+              const okDay = await this.syncDailySummary(dk, dayTxs, dayExp, true);
+              if (!okDay) allOk = false;
+            }
+            for (const mk of monthKeys) {
+              const okMonth = await this.syncMonthlySummary(mk, true);
+              if (!okMonth) allOk = false;
+            }
+            if (allOk) { item.needSummary = false; delivered++; }
           }
         }
 
@@ -4308,16 +4441,17 @@ class PosApp {
     const mDate    = new Date(tx.date);
     const monthKey = `${String(mDate.getMonth() + 1).padStart(2, '0')}-${mDate.getFullYear()}`;
     const hasUrl       = !!this.googleSheetsUrl;
-    const wasOnSheet   = tx.syncStatus !== 'pending'; // บิล pending ยังไม่เคยขึ้นชีต ไม่ต้องลบ
     const needTelegram = !!(this.telegramToken && this.telegramChatId);
     if (!hasUrl && !needTelegram) return;
     if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
+    // ส่งคำสั่งลบแถว "เสมอ" เมื่อมี URL — แม้บิลจะดูเป็น pending อยู่ (เช่นเพิ่งถูกแก้ไข)
+    // เพราะแถวอาจขึ้นชีตไปแล้วก่อนหน้า; postVoidDelete เป็น idempotent (ไม่พบแถว = สำเร็จ) จึงส่งเกินได้ ไม่มีผลเสีย
     this.state.cloudOutbox.push({
       id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       createdAt: Date.now(),
-      dateKey, monthKey,
-      needVoidDelete: hasUrl && wasOnSheet,
-      voidDelete: (hasUrl && wasOnSheet) ? { id: tx.id, date: tx.date, voidedBy: voidRecord.by || '' } : null,
+      dateKeys: [dateKey], monthKeys: [monthKey],
+      needVoidDelete: hasUrl,
+      voidDelete: hasUrl ? { id: tx.id, date: tx.date, voidedBy: voidRecord.by || '' } : null,
       needSummary: hasUrl,
       needTelegram,
       telegramMessage: needTelegram ? this.buildVoidAlertMessage(voidRecord) : '',

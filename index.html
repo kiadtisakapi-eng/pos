@@ -10,6 +10,9 @@
   <meta name="theme-color" content="#0f172a">
   <link rel="manifest" href="manifest.json">
 
+  <!-- PWA capable (มาตรฐานสำหรับ Chrome/Android — กัน deprecation warning) -->
+  <meta name="mobile-web-app-capable" content="yes">
+
   <!-- iOS PWA (เพิ่มไปยังหน้าจอโฮมบน iPhone/iPad ให้ไอคอนแสดงถูกต้อง) -->
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -200,7 +203,7 @@
               <i class="fa-solid fa-circle-check"></i>
             </div>
             <div class="kpi-info">
-              <p>บริการเสร็จแล้ว</p>
+              <p>บริการที่ขายวันนี้</p>
               <h3 id="kpi-completed">0 งาน</h3>
             </div>
           </div>
@@ -515,6 +518,20 @@
                 <input type="text" class="form-input" id="shop-tagline-input" placeholder="เช่น BARBER & MASSAGE" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   ข้อความสั้นๆ ใต้ชื่อร้านบนแถบข้าง (บันทึกอัตโนมัติเมื่อแก้ไข)
+                </p>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label">ที่อยู่ร้าน (แสดงบนใบเสร็จ)</label>
+                <input type="text" class="form-input" id="shop-address-input" placeholder="เช่น 88/8 ถ.สุขุมวิท กรุงเทพฯ" onchange="app.saveShopSettings()">
+                <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
+                  เว้นว่างได้ — ถ้าไม่กรอก ใบเสร็จจะไม่พิมพ์บรรทัดที่อยู่
+                </p>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label">เบอร์โทรร้าน (แสดงบนใบเสร็จ)</label>
+                <input type="text" class="form-input" id="shop-phone-input" placeholder="เช่น 02-123-4567" onchange="app.saveShopSettings()">
+                <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
+                  เว้นว่างได้ — ถ้าไม่กรอก ใบเสร็จจะไม่พิมพ์บรรทัดเบอร์โทร
                 </p>
               </div>
               <div class="form-group" style="margin: 0;">

@@ -30,6 +30,13 @@ var API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
 // ──────────────────────────────
 var DAILY_SHEET_RETENTION_DAYS = 62;
 
+// ──────────────────────────────
+//  จำนวนวันที่เก็บไฟล์สำรอง (pos_backup_*.json) ใน Google Drive
+//  ระบบสร้างไฟล์ใหม่ทุกครั้งที่ปิดกะ — ถ้าไม่ลบเก่า ไฟล์จะสะสมไม่จำกัด
+//  ตั้งเป็น 0 เพื่อปิดการลบอัตโนมัติ
+// ──────────────────────────────
+var BACKUP_RETENTION_DAYS = 30;
+
 // ─────────────────────────────────────────────
 //  ROUTER
 // ─────────────────────────────────────────────
@@ -87,6 +94,18 @@ function handleBackup(data, ss) {
     var fileName = "pos_backup_" + timeStamp + ".json";
     var fileContent = JSON.stringify(data.backupData, null, 2);
     var file = folder.createFile(fileName, fileContent, MimeType.PLAIN_TEXT);
+
+    // ลบไฟล์สำรองที่เก่ากว่า BACKUP_RETENTION_DAYS วัน (กันไฟล์สะสมไม่จำกัดใน Drive)
+    if (BACKUP_RETENTION_DAYS > 0) {
+      var cutoffMs = Date.now() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      var files = folder.getFilesByType(MimeType.PLAIN_TEXT);
+      while (files.hasNext()) {
+        var f = files.next();
+        if (f.getName().indexOf("pos_backup_") === 0 && f.getDateCreated().getTime() < cutoffMs) {
+          try { f.setTrashed(true); } catch (e2) {}
+        }
+      }
+    }
 
     return json("success", "สำรองข้อมูลเรียบร้อยแล้วที่ Google Drive", {
       fileId: file.getId(),
@@ -400,11 +419,15 @@ function updateMasterSummarySheet(ss, data, periodType, periodKey) {
   }
   var lastRow = master.getLastRow();
   var found   = false;
-  for (var i = 2; i <= lastRow; i++) {
-    if (String(master.getRange(i, 2).getDisplayValue()) === String(periodKey)) {
-      writeToMaster(master, i, periodType, periodKey, data);
-      found = true;
-      break;
+  // อ่านคอลัมน์ "ช่วงเวลา" ทั้งหมดครั้งเดียว (เดิมอ่านทีละเซลล์ใน loop — ช้าลงเรื่อยๆ เมื่อแถวสะสมเป็นร้อย)
+  if (lastRow > 1) {
+    var keys = master.getRange(2, 2, lastRow - 1, 1).getDisplayValues();
+    for (var i = 0; i < keys.length; i++) {
+      if (String(keys[i][0]) === String(periodKey)) {
+        writeToMaster(master, i + 2, periodType, periodKey, data);
+        found = true;
+        break;
+      }
     }
   }
   if (!found) writeToMaster(master, lastRow + 1, periodType, periodKey, data);

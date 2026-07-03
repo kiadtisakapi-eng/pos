@@ -46,7 +46,7 @@
 |------|--------|
 | `index.html` | หน้าจอทั้งหมด (SPA) |
 | `app.js` | ลอจิกระบบทั้งหมด |
-| `style.css` | ดีไซน์ |
+| `style_v2.css` | ดีไซน์ |
 | `promptpay-qr.js` | สร้าง QR PromptPay มาตรฐาน EMVCo (สแกนจ่ายจริง) |
 | `dexie.min.js` | ไลบรารี IndexedDB |
 | `sw.js` | Service Worker (ออฟไลน์) |
