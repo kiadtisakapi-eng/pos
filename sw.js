@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v41-audit-fixes';
+const CACHE_NAME = 'jahn-pos-v42-audit-fixes';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
@@ -64,7 +64,10 @@ self.addEventListener('fetch', (e) => {
         const isCdn = e.request.url.includes('fonts.googleapis.com') ||
                       e.request.url.includes('fonts.gstatic.com') ||
                       e.request.url.includes('cdnjs.cloudflare.com');
-        if (isCdn && networkResponse.status === 200) {
+        // รับทั้ง response ปกติ (200) และ opaque (no-cors — status เป็น 0 เสมอ เช่น stylesheet/webfont จาก CDN)
+        // เดิมเช็คแค่ 200 ทำให้ Font Awesome ไม่เคยถูกแคชจริง → ออฟไลน์แล้วไอคอนทั้งแอปกลายเป็นสี่เหลี่ยม
+        // ข้อแลก: opaque ตรวจไม่ได้ว่าเป็น error หรือไม่ — ยอมรับได้เพราะเป็นไฟล์ static จาก CDN ที่เสถียร
+        if (isCdn && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(e.request, responseToCache);

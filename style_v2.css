@@ -1804,6 +1804,12 @@ html[data-theme="light"] .tab-count {
     color: #000; background: #fff;
     font-size: 13px;
   }
+
+  /* ยกเลิกลิมิตความสูงของกล่องพรีวิวตอนพิมพ์ — inline style จำกัดไว้ 65vh ทำให้บิลที่มีหลายรายการโดนตัดท้าย */
+  #thermal-receipt-preview {
+    max-height: none !important;
+    overflow: visible !important;
+  }
 }
 
 /* ============================================================

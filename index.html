@@ -86,7 +86,7 @@
             <i class="fa-solid fa-lock"></i>
           </button>
         </div>
-        <p>Erotica POS v1.0.0</p>
+        <p id="sidebar-version-label">เวอร์ชัน —</p>
         <p>ระบบทำงานแบบออฟไลน์</p>
       </div>
     </aside>
@@ -999,7 +999,8 @@
       </div>
       <form id="form-prompt" onsubmit="event.preventDefault();">
         <div class="form-group">
-          <input type="text" class="form-input" id="prompt-modal-input" required>
+          <!-- ไม่ใส่ required — ช่องนี้ใช้แก้โน้ตลูกค้าด้วย ต้องยอมให้บันทึกค่าว่าง (ลบโน้ตทิ้ง) ได้ -->
+          <input type="text" class="form-input" id="prompt-modal-input">
         </div>
         <div class="modal-footer">
           <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-prompt')">ยกเลิก</button>

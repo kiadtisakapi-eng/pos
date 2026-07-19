@@ -120,7 +120,11 @@
     var pos = ALIGN[ver - 1];
     for (var a = 0; a < pos.length; a++) for (var bb = 0; bb < pos.length; bb++) {
       var ar = pos[a], ac = pos[bb];
-      if (resv[ar][ac]) continue; // skip overlap with finders
+      // ข้ามเฉพาะ alignment ที่ทับ finder 3 มุม (ตามสเปก ISO 18004) — เช็คพิกัดตรงๆ
+      // เดิมเช็คผ่าน resv ซึ่งรวม timing pattern ด้วย ทำให้ alignment บนแถว/คอลัมน์ 6 ของ v7+ ถูกข้าม → QR v7+ เสีย
+      // (PromptPay ยาวสุด ~v6 จึงยังไม่เคยโดน — แก้กันไว้เผื่อ payload ยาวขึ้นในอนาคต; ผลลัพธ์ v1-v6 ไม่เปลี่ยน)
+      var nearFinder = (ar <= 8 && ac <= 8) || (ar <= 8 && ac >= size - 9) || (ar >= size - 9 && ac <= 8);
+      if (nearFinder) continue;
       for (var dr = -2; dr <= 2; dr++) for (var dc = -2; dc <= 2; dc++) {
         var rr = ar + dr, cc = ac + dc;
         var on = (Math.max(Math.abs(dr), Math.abs(dc)) !== 1);

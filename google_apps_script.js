@@ -7,6 +7,9 @@
  *    - Execute as: Me
  *    - Who has access: Anyone
  * 3. คัดลอก Web App URL ไปใส่ในหน้าตั้งค่า POS
+ * 4. ⚠️ สำคัญ: Project Settings (ไอคอนเฟือง) > Time zone ต้องตั้งเป็น "(GMT+07:00) Bangkok"
+ *    — แอปส่ง monthKey จากเวลาหน้าร้านมาให้แล้ว (บิลลงแท็บถูกเดือนแม้ timezone ผิด)
+ *    แต่ timestamp "สร้างเมื่อ" ในชีตสรุป และการลบแท็บรายวันเก่า ยังอิง timezone ของโปรเจกต์นี้
  *
  * Sheet structure:
  *   "สรุปรายเดือน"  — master monthly summary (sheet แรก)
@@ -125,7 +128,9 @@ function handleTransaction(data, ss) {
   if (isNaN(txDate.getTime())) {
     txDate = new Date();
   }
-  var monthYear = fmt(txDate, "MM-yyyy");
+  // ใช้ monthKey ที่ client คำนวณจากเวลาท้องถิ่นหน้าร้านเป็นหลัก — กันบิลช่วงเที่ยงคืน/ปลายเดือน
+  // ลงแท็บผิดเดือนเมื่อ timezone ของโปรเจกต์ Apps Script ไม่ตรงกับหน้าร้าน (fallback: timezone ฝั่งสคริปต์)
+  var monthYear = /^(0[1-9]|1[0-2])-\d{4}$/.test(data.monthKey || "") ? data.monthKey : fmt(txDate, "MM-yyyy");
   var sheet     = getOrCreateSheet(ss, monthYear, [
     "เลขที่บิล","วันที่-เวลา","ลูกค้า","รายการบริการ",
     "ช่องทางชำระเงิน","ราคารวม (฿)","ส่วนลด (฿)","ยอดสุทธิ (฿)","พนักงาน"
@@ -134,7 +139,8 @@ function handleTransaction(data, ss) {
   var payText = payLabel(data.paymentMethod);
   var row = [
     safeCell(data.id),
-    fmt(txDate, "yyyy-MM-dd HH:mm:ss"),
+    // เวลาบนบิลใช้ค่าจากเครื่องหน้าร้านถ้าส่งมา (รูปแบบถูกต้อง) — ตรงกับเวลาที่ลูกค้าเห็นบนใบเสร็จจริง
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(data.dateTimeStr || "") ? data.dateTimeStr : fmt(txDate, "yyyy-MM-dd HH:mm:ss"),
     safeCell(data.customerName),
     safeCell((data.services||[]).join(", ")),
     payText,
@@ -179,7 +185,8 @@ function handleVoidTransaction(data, ss) {
   if (isNaN(txDate.getTime())) {
     txDate = new Date();
   }
-  var monthYear = fmt(txDate, "MM-yyyy");
+  // ใช้ monthKey จาก client เป็นหลัก (เหตุผลเดียวกับ handleTransaction) — ต้องชี้แท็บเดือนเดียวกับตอนบันทึกบิล
+  var monthYear = /^(0[1-9]|1[0-2])-\d{4}$/.test(data.monthKey || "") ? data.monthKey : fmt(txDate, "MM-yyyy");
   var sheet = ss.getSheetByName(monthYear);
   if (!sheet) {
     return json("error", "ไม่พบแผ่นงานของเดือนนี้");
