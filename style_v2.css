@@ -1359,6 +1359,15 @@ body {
 
 .form-input::placeholder { color: var(--text-muted); }
 
+/* กัน iOS ซูมหน้าจอเองตอนแตะช่องกรอก — Safari auto-zoom เมื่อ input font-size < 16px
+   จำกัดเฉพาะจอสัมผัส (pointer: coarse) เดสก์ท็อปยังได้ขนาดกะทัดรัดเดิม
+   หมายเหตุ: ช่องที่ตั้ง font-size แบบ inline เฉพาะจุด (เช่น select ใน modal แก้บิล) inline ชนะ — ยอมรับได้ */
+@media (pointer: coarse) {
+  .form-input, .customer-select, .discount-input, .search-input {
+    font-size: 16px;
+  }
+}
+
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 /* ============================================================

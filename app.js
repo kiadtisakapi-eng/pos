@@ -36,7 +36,7 @@ const DEFAULT_CATEGORIES = [
 const API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.3.0 (2026-07-19)';
+const APP_VERSION = '1.3.2 (2026-07-19)';
 
 // ─────────────────────────────────────────────
 //  วันทำการ (Business Date) — ร้านเปิด 11:00 น. ถึงตี 3 ของวันถัดไป
@@ -55,7 +55,9 @@ function escapeHtml(str) {
 }
 
 // เริ่มต้นฐานข้อมูล IndexedDB ด้วย Dexie.js
-const SESSION_TTL_HOURS = 12; // จำการล็อกอินไว้กี่ชั่วโมงก่อนต้องใส่ PIN ใหม่
+const SESSION_TTL_HOURS = 20; // จำการล็อกอินไว้กี่ชั่วโมงก่อนต้องใส่ PIN ใหม่
+// (20 ชม. ครอบคลุมกะเต็ม 11:00 → ตี 3 + เผื่อเปิดเครื่องก่อนเปิดร้าน — เดิม 12 ชม. หมดอายุ 23:00 กลางกะ
+//  ถ้า iPad รีเฟรช/อัปเดตแอปหลังจากนั้นจะเด้งหน้า login ทั้งที่กำลังขายอยู่)
 const db = new Dexie('EroticaPosDatabase');
 db.version(1).stores({
   state: 'key, value'
@@ -241,6 +243,25 @@ class PosApp {
     if (isNaN(t)) return '';
     const d = new Date(t);
     return `${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+  }
+
+  // ==================== NETWORK HELPER ====================
+
+  // fetch พร้อม timeout — บน wifi ที่ "ต่อติดแต่ไม่วิ่ง" fetch เปล่าค้างได้เป็นนาที
+  // ระหว่างนั้น isSyncing/_flushingOutbox ค้างเป็น true → การซิงก์ทั้งระบบถูกบล็อกจนกว่าจะปิดแอป
+  async fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: ctrl.signal });
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error(`หมดเวลารอ ${Math.round(timeoutMs / 1000)} วินาที (เครือข่ายช้าหรือค้าง)`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // ==================== SECURITY HELPERS ====================
@@ -606,6 +627,7 @@ class PosApp {
       customers: this.state.customers,
       queue: this.state.queue,
       transactions: this.state.transactions,
+      voidLog: this.state.voidLog || [], // ประวัติการยกเลิกบิล — audit trail ต้องติดไปกับไฟล์สำรองด้วย
       shift: this.state.shift,
       shopPromptPayId: this.shopPromptPayId || '',
       shopName: this.shopName || 'Erotica Barber & Massage',
@@ -629,12 +651,13 @@ class PosApp {
     this.showToast('กำลังสำรองข้อมูลไป Google Drive...', 'info');
 
     try {
-      const response = await fetch(this.googleSheetsUrl, {
+      // backup payload ก้อนใหญ่ (ข้อมูลทั้งร้าน) — ให้เวลา 30 วิ มากกว่างานปกติ
+      const response = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
-      });
-      
+      }, 30000);
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -1264,9 +1287,12 @@ class PosApp {
   // ตารางจัดเก็บข้อมูลลูกค้า
   renderCustomerTable(filterText = '') {
     const tableBody = document.getElementById('customer-table-body');
+    // Guard ทุก field — ลูกค้าจากไฟล์ backup ที่ field หาย (เช่นไม่มีเบอร์) เคยทำ TypeError
+    // แล้วตารางพังว่างเปล่าทั้งหน้า ไม่ใช่แค่แถวเดียว
+    const q = (filterText || '').toLowerCase();
     const filtered = this.state.customers.filter(c => {
-      return c.name.toLowerCase().includes(filterText.toLowerCase()) || 
-             c.phone.includes(filterText);
+      return String(c.name || '').toLowerCase().includes(q) ||
+             String(c.phone || '').includes(filterText || '');
     });
 
     if (filtered.length === 0) {
@@ -1279,11 +1305,11 @@ class PosApp {
     } else {
       tableBody.innerHTML = filtered.map(c => `
         <tr>
-          <td><strong>${c.id.toUpperCase()}</strong></td>
-          <td>${escapeHtml(c.name)}</td>
-          <td>${escapeHtml(c.phone)}</td>
-          <td>${c.visitCount} ครั้ง</td>
-          <td><span style="color: var(--accent-barber); font-weight:600;">${escapeHtml(c.tier)}</span></td>
+          <td><strong>${String(c.id || '-').toUpperCase()}</strong></td>
+          <td>${escapeHtml(c.name || '-')}</td>
+          <td>${escapeHtml(c.phone || '-')}</td>
+          <td>${c.visitCount || 0} ครั้ง</td>
+          <td><span style="color: var(--accent-barber); font-weight:600;">${escapeHtml(c.tier || 'ทั่วไป (General)')}</span></td>
           <td>
             <div class="customer-actions">
               <button class="btn-small secondary" onclick="app.editCustomerNote('${c.id}')"><i class="fa-solid fa-edit"></i> โน้ตย่อ</button>
@@ -1526,6 +1552,9 @@ class PosApp {
 
   clearCart() {
     this.state.cart = [];
+    // รีเซ็ตช่องส่วนลดพร้อมตะกร้า — เดิมค่าค้างใน DOM แล้วถูกอ่านไปคิดบิลถัดไป (โดนลดซ้ำโดยไม่มีใครสั่ง)
+    const discountInput = document.getElementById('cart-discount');
+    if (discountInput) discountInput.value = 0;
     this.renderCart();
   }
 
@@ -1937,7 +1966,13 @@ class PosApp {
       
       // ล้างตะกร้าสินค้า
       this.clearCart();
-      
+
+      // รีเซ็ตลูกค้ากลับเป็น Walk-in — กันบิลถัดไปผูกลูกค้าคนเดิมโดยไม่ตั้งใจ
+      // (visitCount เฟ้อ → เลื่อนขั้น Gold/Platinum เร็วผิด + ชื่อผิดขึ้นชีต)
+      // ต้องรีเซ็ตก่อน renderPos ด้านล่าง เพราะ renderPos จะจำค่าที่เลือกอยู่ไว้
+      const custSel = document.getElementById('cart-customer-select');
+      if (custSel) custSel.value = '';
+
       // แสดงบิลใบเสร็จรับเงิน
       this.showThermalReceipt(transaction);
 
@@ -2104,7 +2139,7 @@ class PosApp {
       phoneInput.focus(); return;
     }
     // ── Duplicate check ─────────────────────────
-    const dup = this.state.customers.find(c => c.phone.replace(/[-\s]/g,'') === phone);
+    const dup = this.state.customers.find(c => String(c.phone || '').replace(/[-\s]/g,'') === phone);
     if (dup) {
       this.showToast(`เบอร์นี้มีอยู่แล้ว: ${dup.name}`, 'warning'); return;
     }
@@ -2411,7 +2446,7 @@ class PosApp {
     }
     try {
       const payload = this.buildSummaryPayload(transactions, expenses, 'day', dateStr);
-      const response = await fetch(this.googleSheetsUrl, {
+      const response = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
@@ -2455,7 +2490,7 @@ class PosApp {
       }
 
       const payload = this.buildSummaryPayload(txs, expenses, 'month', monthStr);
-      const response = await fetch(this.googleSheetsUrl, {
+      const response = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
@@ -2519,7 +2554,7 @@ class PosApp {
     // ส่งแบบ simple request (text/plain) เพื่อข้าม CORS preflight แล้วอ่าน JSON ที่ตอบกลับมา
     let response;
     try {
-      response = await fetch(this.googleSheetsUrl, {
+      response = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' }, // GAS ต้องการ text/plain เพื่อข้าม preflight
         body: JSON.stringify(payload)
@@ -2590,13 +2625,16 @@ class PosApp {
           if ((tx.rev || 0) !== revBeforeSend) continue;
           tx.syncStatus = 'synced';
           successCount++;
-          await this.saveState(); // บันทึกทีละรายการเพื่อป้องกันข้อมูลขัดข้อง
         } catch (err) {
           console.error(`Failed to sync transaction ${tx.id}:`, err);
           tx.syncStatus = 'pending';
           failCount++;
         }
       }
+
+      // เซฟครั้งเดียวหลังจบทั้งคิว — เดิมเซฟต่อบิล (เขียน state ทั้งก้อน × จำนวนบิลค้าง) แอปค้างเมื่อ backlog เยอะ
+      // ถ้าแอปถูกปิดกลางคัน บิลที่ส่งแล้วแต่ยังไม่ทันเซฟจะถูกส่งซ้ำรอบหน้า — ไม่เกิดแถวซ้ำเพราะชีต upsert ตาม ID
+      if (successCount > 0) await this.saveState();
 
       this.checkSyncStatus();
       
@@ -2684,6 +2722,12 @@ class PosApp {
   // ==================== CASH SHIFT MANAGEMENT ====================
 
   openCashCounter(mode) {
+    // กันเปิดหน้าปิดกะตอนไม่มีกะเปิดอยู่ — startTime เป็น null จะกลายเป็น 0 ในตัวกรองเวลา
+    // ทำให้ "เงินที่ควรมี" นับยอดเงินสดทุกบิลตั้งแต่เปิดร้านมา (มีหน้าต่างกดโดนช่วง 500ms หลังปิดกะ)
+    if (mode === 'close' && (!this.state.shift || !this.state.shift.active)) {
+      this.showToast('ยังไม่มีกะที่เปิดอยู่ — ต้องเปิดกะก่อนจึงจะปิดร้าน/สรุปยอดได้', 'warning');
+      return;
+    }
     if (mode === 'close' && this.currentRole === 'staff') {
       this.showToast('การปิดร้าน/สรุปยอดวัน ทำได้เฉพาะผู้จัดการขึ้นไป', 'warning');
       return;
@@ -2889,6 +2933,12 @@ class PosApp {
       } else {
         // ปิดกะ
         const startTime = this.state.shift.startTime;
+        // Guard ชั้นสุดท้าย — ถ้าหลุดมาถึงตรงนี้โดยไม่มีกะเปิดอยู่ ห้ามบันทึกประวัติกะปลอมเด็ดขาด
+        if (!this.state.shift.active || !startTime) {
+          this.showToast('ไม่พบข้อมูลกะที่เปิดอยู่ — ยกเลิกการปิดกะ', 'error');
+          this.closeModal('modal-cash-counter');
+          return;
+        }
         const startCash = this.state.shift.startCash || 0;
         
         const cashSales = this.state.transactions
@@ -4279,6 +4329,7 @@ class PosApp {
       customers: this.state.customers,
       queue: this.state.queue,
       transactions: this.state.transactions,
+      voidLog: this.state.voidLog || [], // ประวัติการยกเลิกบิล — audit trail ต้องติดไปกับไฟล์สำรองด้วย
       shift: this.state.shift,
       shopPromptPayId: this.shopPromptPayId || '',
       shopName: this.shopName || 'Erotica Barber & Massage',
@@ -4305,16 +4356,27 @@ class PosApp {
     fileReader.onload = (e) => {
       try {
         const parsed = JSON.parse(e.target.result);
-        if (parsed.services && parsed.staff && parsed.transactions) {
+        // ตรวจชนิดข้อมูลจริง ไม่ใช่แค่ truthy — ไฟล์เพี้ยน (field เป็น string/object) เคยทำให้
+        // state พังตอน .map() แล้วพังค้างถาวรเพราะถูกบันทึกลง DB ไปแล้ว
+        if (Array.isArray(parsed.services) && Array.isArray(parsed.staff) && Array.isArray(parsed.transactions)) {
           this.showConfirm('คุณแน่ใจหรือไม่ว่าต้องการนำเข้าข้อมูลและเขียนทับข้อมูลในเครื่องปัจจุบันทั้งหมด?', async () => {
             this.state.services = parsed.services;
             this.state.staff = parsed.staff;
             if (Array.isArray(parsed.categories) && parsed.categories.length) this.state.categories = parsed.categories;
-            this.state.customers = parsed.customers || [];
-            this.state.queue = parsed.queue || [];
-            this.state.transactions = parsed.transactions || [];
-            
-            this.state.shift = parsed.shift || { active: false, startTime: null, startCash: 0, startDetails: {}, expenses: [], history: [] };
+            this.state.customers = Array.isArray(parsed.customers) ? parsed.customers : [];
+            this.state.queue = Array.isArray(parsed.queue) ? parsed.queue : [];
+            this.state.transactions = parsed.transactions;
+            this.state.voidLog = Array.isArray(parsed.voidLog) ? parsed.voidLog : [];
+            // ล้างงานคลาวด์ค้างของข้อมูลชุดเก่า — กัน outbox เดิม flush สรุปที่คำนวณจากข้อมูลชุดใหม่ไปทับชีตผิดๆ
+            this.state.cloudOutbox = [];
+
+            this.state.shift = (parsed.shift && typeof parsed.shift === 'object' && !Array.isArray(parsed.shift))
+              ? parsed.shift
+              : { active: false, startTime: null, startCash: 0, startDetails: {}, expenses: [], history: [] };
+            // ซ่อมโครงสร้างกะจากไฟล์เก่า/ไฟล์ที่ field หาย
+            if (!Array.isArray(this.state.shift.history)) this.state.shift.history = [];
+            if (!Array.isArray(this.state.shift.expenses)) this.state.shift.expenses = [];
+            if (typeof this.state.shift.active !== 'boolean') this.state.shift.active = false;
             if (parsed.shopPromptPayId) this.shopPromptPayId = parsed.shopPromptPayId;
             if (parsed.shopName) this.shopName = parsed.shopName;
             if (parsed.shopTagline) this.shopTagline = parsed.shopTagline;
@@ -4394,11 +4456,11 @@ class PosApp {
     if (!this.telegramToken || !this.telegramChatId) return false;
     try {
       const url = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
-      const r = await fetch(url, {
+      const r = await this.fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' })
-      });
+      }, 15000);
       const d = await r.json();
       return !!(d && d.ok);
     } catch (err) {
@@ -4529,7 +4591,7 @@ class PosApp {
   sendTelegramText(message) {
     if (!this.telegramToken || !this.telegramChatId) return;
     const url = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' }) })
+    this.fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' }) }, 15000)
       .then(r => r.json())
       .then(d => { if (!d.ok) console.error('Telegram error:', d.description); })
       .catch(err => console.error('Telegram failed:', err));
@@ -4557,7 +4619,7 @@ class PosApp {
   async postVoidDelete(v) {
     if (!this.googleSheetsUrl) return false;
     try {
-      const r = await fetch(this.googleSheetsUrl, {
+      const r = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({
@@ -4609,7 +4671,7 @@ class PosApp {
 
     const msg = `🧪 <b>ข้อความทดสอบจากระบบ POS</b>\n━━━━━━━━━━━━━━━━\nการเชื่อมต่อ Telegram สำเร็จ!`;
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: msg, parse_mode: 'HTML' }) })
+    this.fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, text: msg, parse_mode: 'HTML' }) }, 15000)
       .then(r => r.json())
       .then(d => { if (d.ok) this.showToast('ส่งข้อความทดสอบสำเร็จ!','success'); else this.showToast('Telegram API error: ' + d.description,'error'); })
       .catch(err => this.showToast('ไม่สามารถเชื่อมต่อ Telegram: ' + err.message,'error'));
