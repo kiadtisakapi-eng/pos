@@ -9,6 +9,8 @@ _backup_final_qa_*.js
 deploy.bat
 deploy.ps1
 first-setup.bat
+fix-push.bat
+fix-push.ps1
 
 # ไฟล์ขยะจาก Windows/macOS (deploy.ps1 ใช้ git add -A จะกวาดติดไปด้วยถ้าไม่กัน)
 desktop.ini
