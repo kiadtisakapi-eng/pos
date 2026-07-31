@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v46-audit-fixes';
+const CACHE_NAME = 'jahn-pos-v50-drive-restore';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
@@ -17,10 +17,19 @@ const OPTIONAL_ASSETS = [
 // ติดตั้ง Service Worker และแคชไฟล์
 // หมายเหตุ: ไม่เรียก skipWaiting() ที่นี่ — ให้ SW ใหม่ "รอ" จนกว่าผู้ใช้กดปุ่ม "อัปเดตเลย" (ผ่าน message)
 self.addEventListener('install', (e) => {
+  // ⚠️ ต้องใช้ cache:'reload' บังคับโหลดจากเซิร์ฟเวอร์จริง ห้ามหยิบจาก HTTP cache ของเบราว์เซอร์
+  // GitHub Pages ส่ง Cache-Control: max-age=600 มาด้วย ถ้าไม่บังคับ SW ตัวใหม่อาจแคชไฟล์ "เก่า"
+  // ไว้ใต้ชื่อแคชใหม่ → ผู้ใช้เห็นว่าอัปเดตแล้ว แต่โค้ดยังเป็นตัวเดิม และจะไม่ลองใหม่จนกว่า sw.js จะเปลี่ยนอีกรอบ
+  const fresh = (cache, url) =>
+    fetch(new Request(url, { cache: 'reload' })).then((res) => {
+      if (!res || (res.status !== 200 && res.type !== 'opaque')) throw new Error('bad response ' + url);
+      return cache.put(url, res);
+    });
+
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
-      cache.addAll(CORE_ASSETS).then(() =>
-        Promise.allSettled(OPTIONAL_ASSETS.map((u) => cache.add(u)))
+      Promise.all(CORE_ASSETS.map((u) => fresh(cache, u))).then(() =>
+        Promise.allSettled(OPTIONAL_ASSETS.map((u) => fresh(cache, u)))
       )
     )
   );
@@ -28,8 +37,14 @@ self.addEventListener('install', (e) => {
 
 // รับสัญญาณจากหน้าแอป (กดปุ่มอัปเดต) → ให้ SW ใหม่เริ่มทำงานทันที
 self.addEventListener('message', (e) => {
-  if (e.data && e.data.type === 'SKIP_WAITING') {
+  if (!e.data) return;
+  if (e.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+  // ให้หน้าแอปถามได้ว่า "ตอนนี้ไฟล์ที่เสิร์ฟอยู่มาจากแคชเวอร์ชันไหน"
+  // ใช้ยืนยันว่าอัปเดตลงเครื่องจริงหรือยัง — ค่านี้ deploy.ps1 บวกเลขให้อัตโนมัติทุกครั้ง เชื่อถือได้กว่าเลขที่พิมพ์มือ
+  if (e.data.type === 'GET_VERSION' && e.ports && e.ports[0]) {
+    e.ports[0].postMessage({ cacheName: CACHE_NAME });
   }
 });
 

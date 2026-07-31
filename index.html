@@ -641,7 +641,13 @@
                 <i class="fa-solid fa-file-import"></i> นำเข้าข้อมูลสำรอง (.json)
               </button>
               <input type="file" id="import-file-input" style="display: none;" accept=".json" onchange="app.importData(event)">
+              <button class="btn-small secondary" onclick="app.openRestoreModal()" style="padding: 10px 16px; border-color: #4285F4; color: #4285F4;">
+                <i class="fa-brands fa-google-drive"></i> กู้ข้อมูลจาก Google Drive
+              </button>
             </div>
+            <p style="color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 1rem;">
+              ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ — ปุ่ม "กู้ข้อมูล" ใช้ดึงไฟล์เหล่านั้นกลับมาได้เลย ไม่ต้องเข้า Drive เอง
+            </p>
             <hr style="border: 0; border-top: 1px solid var(--border-color); margin-bottom: 1rem;">
             <button class="btn-danger-outline" id="btn-reset-data">
               <i class="fa-solid fa-trash-arrow-up"></i> ล้างข้อมูลในระบบและคืนค่าเริ่มต้นทั้งหมด
@@ -1320,6 +1326,26 @@
         <button type="button" class="btn-small primary" onclick="window.print()" style="background: var(--accent-barber); color: var(--bg-app);">
           <i class="fa-solid fa-print"></i> พิมพ์ใบเสร็จ
         </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Modal: กู้ข้อมูลจาก Google Drive -->
+  <div class="modal-overlay" id="modal-restore">
+    <div class="modal-card" style="max-width: 560px;">
+      <div class="modal-header">
+        <h2 class="modal-title"><i class="fa-brands fa-google-drive"></i> กู้ข้อมูลจาก Google Drive</h2>
+        <button class="modal-close" onclick="app.closeModal('modal-restore')">&times;</button>
+      </div>
+      <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 12px;">
+        เลือกไฟล์สำรองที่ต้องการกู้คืน (ไฟล์ใหม่สุดอยู่บนสุด)<br>
+        <b>ข้อมูลในเครื่องนี้จะถูกเขียนทับทั้งหมด</b> — ระบบจะดาวน์โหลดสำเนาข้อมูลปัจจุบันเก็บไว้ให้ก่อนเสมอ
+      </p>
+      <div id="restore-list" style="max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-restore')">ปิด</button>
+        <button type="button" class="btn-small primary" onclick="app.loadDriveBackups()">โหลดรายการใหม่</button>
       </div>
     </div>
   </div>

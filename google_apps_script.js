@@ -40,6 +40,16 @@ var DAILY_SHEET_RETENTION_DAYS = 62;
 // ──────────────────────────────
 var BACKUP_RETENTION_DAYS = 30;
 
+// ชื่อโฟลเดอร์และคำนำหน้าไฟล์สำรองใน Google Drive
+// ใช้ร่วมกันทั้งตอนสำรอง (handleBackup) และตอนกู้คืน (handleListBackups / handleGetBackup)
+// แก้ที่เดียวพอ — เดิม hard-code ในฟังก์ชันเดียว พอมีหลายที่จะหลุดง่าย
+var BACKUP_FOLDER_NAME = "Erotica_POS_Backups";
+var BACKUP_FILE_PREFIX = "pos_backup_";
+
+// หัวคอลัมน์ของชีต "สรุปรายเดือน" — ใช้ค้นหาจากหัวตาราง แทนการอ้างเลขคอลัมน์ตายตัว
+var MASTER_VAR_HEADER = "เงินขาด/เกิน (฿)";
+var MASTER_TS_HEADER  = "อัปเดตล่าสุด";
+
 // ─────────────────────────────────────────────
 //  ROUTER
 // ─────────────────────────────────────────────
@@ -67,6 +77,8 @@ function doPost(e) {
     if (action === "summary_day")   return handleDailySummary(data, ss);
     if (action === "summary_month") return handleMonthlySummary(data, ss);
     if (action === "backup")        return handleBackup(data, ss);
+    if (action === "list_backups")  return handleListBackups();
+    if (action === "get_backup")    return handleGetBackup(data);
     if (action === "void_transaction") return handleVoidTransaction(data, ss);
     return handleTransaction(data, ss);
 
@@ -84,17 +96,11 @@ function doGet(e)     { return ContentService.createTextOutput("Erotica POS API 
 // ─────────────────────────────────────────────
 function handleBackup(data, ss) {
   try {
-    var folderName = "Erotica_POS_Backups";
-    var folders = DriveApp.getFoldersByName(folderName);
-    var folder;
-    if (folders.hasNext()) {
-      folder = folders.next();
-    } else {
-      folder = DriveApp.createFolder(folderName);
-    }
+    var folderName = BACKUP_FOLDER_NAME;
+    var folder = getBackupFolder_(true);
 
     var timeStamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd_HH-mm-ss");
-    var fileName = "pos_backup_" + timeStamp + ".json";
+    var fileName = BACKUP_FILE_PREFIX + timeStamp + ".json";
     var fileContent = JSON.stringify(data.backupData, null, 2);
     var file = folder.createFile(fileName, fileContent, MimeType.PLAIN_TEXT);
 
@@ -104,7 +110,7 @@ function handleBackup(data, ss) {
       var files = folder.getFilesByType(MimeType.PLAIN_TEXT);
       while (files.hasNext()) {
         var f = files.next();
-        if (f.getName().indexOf("pos_backup_") === 0 && f.getDateCreated().getTime() < cutoffMs) {
+        if (f.getName().indexOf(BACKUP_FILE_PREFIX) === 0 && f.getDateCreated().getTime() < cutoffMs) {
           try { f.setTrashed(true); } catch (e2) {}
         }
       }
@@ -117,6 +123,92 @@ function handleBackup(data, ss) {
     });
   } catch (err) {
     return json("error", "การสำรองข้อมูลล้มเหลว: " + err.toString());
+  }
+}
+
+
+// หาโฟลเดอร์สำรองใน Drive
+// หมายเหตุ: Google Drive ยอมให้มีโฟลเดอร์ชื่อซ้ำกันได้ — ที่นี่หยิบตัวแรกที่เจอเสมอ
+// ทั้งตอนเขียนและตอนอ่าน จึงชี้ไปที่โฟลเดอร์เดียวกันตลอด ไม่สลับไปมา
+function getBackupFolder_(createIfMissing) {
+  var folders = DriveApp.getFoldersByName(BACKUP_FOLDER_NAME);
+  if (folders.hasNext()) return folders.next();
+  return createIfMissing ? DriveApp.createFolder(BACKUP_FOLDER_NAME) : null;
+}
+
+// ─────────────────────────────────────────────
+//  LIST BACKUPS — รายชื่อไฟล์สำรองใน Drive (ใหม่สุดอยู่บน)
+//  ส่งกลับแค่ metadata ไม่ส่งเนื้อไฟล์ เพื่อให้หน้ารายการโหลดเร็วแม้มีไฟล์เยอะ
+// ─────────────────────────────────────────────
+function handleListBackups() {
+  try {
+    var folder = getBackupFolder_(false);
+    if (!folder) return json("success", "ยังไม่มีโฟลเดอร์สำรองใน Google Drive", { files: [] });
+
+    var it = folder.getFiles();
+    var arr = [];
+    while (it.hasNext()) {
+      var f = it.next();
+      if (f.getName().indexOf(BACKUP_FILE_PREFIX) !== 0) continue;
+      arr.push({
+        id: f.getId(),
+        name: f.getName(),
+        created: f.getDateCreated().toISOString(),
+        sizeKB: Math.round(f.getSize() / 1024)
+      });
+    }
+    // เรียงใหม่สุดขึ้นก่อน — คนกู้ข้อมูลตอนฉุกเฉินอยากได้ไฟล์ล่าสุดเป็นอันดับแรก
+    arr.sort(function (a, b) { return a.created < b.created ? 1 : (a.created > b.created ? -1 : 0); });
+    // จำกัด 50 ไฟล์ กัน payload บวมถ้ามีคนตั้ง BACKUP_RETENTION_DAYS = 0 (ไม่ลบเก่าเลย)
+    if (arr.length > 50) arr = arr.slice(0, 50);
+
+    return json("success", "พบไฟล์สำรอง " + arr.length + " ไฟล์", { files: arr });
+  } catch (err) {
+    return json("error", "อ่านรายการไฟล์สำรองไม่สำเร็จ: " + err.toString());
+  }
+}
+
+// ─────────────────────────────────────────────
+//  GET BACKUP — อ่านเนื้อไฟล์สำรอง 1 ไฟล์ ส่งกลับให้แอปเขียนลงเครื่อง
+// ─────────────────────────────────────────────
+function handleGetBackup(data) {
+  try {
+    var fileId = String(data.fileId || "").trim();
+    if (!fileId) return json("error", "ไม่ได้ระบุไฟล์ที่จะกู้คืน");
+
+    var folder = getBackupFolder_(false);
+    if (!folder) return json("error", "ไม่พบโฟลเดอร์ " + BACKUP_FOLDER_NAME + " ใน Google Drive");
+
+    // ⚠️ ความปลอดภัย: ต้องยืนยันว่า fileId นี้อยู่ใน "โฟลเดอร์สำรอง" จริง
+    // ถ้าเปิด DriveApp.getFileById(fileId) ตรง ๆ คนที่ได้ URL + secret ไป
+    // จะอ่านไฟล์อะไรก็ได้ใน Google Drive ของเจ้าของบัญชี ไม่ใช่แค่ไฟล์ POS
+    var file = null;
+    var it = folder.getFiles();
+    while (it.hasNext()) {
+      var f = it.next();
+      if (f.getId() === fileId) { file = f; break; }
+    }
+    if (!file) return json("error", "ไม่พบไฟล์นี้ในโฟลเดอร์สำรอง (อาจถูกลบไปแล้ว)");
+    if (file.getName().indexOf(BACKUP_FILE_PREFIX) !== 0)
+      return json("error", "ไฟล์นี้ไม่ใช่ไฟล์สำรองของระบบ POS");
+
+    var parsed;
+    try {
+      parsed = JSON.parse(file.getBlob().getDataAsString("UTF-8"));
+    } catch (e2) {
+      return json("error", "ไฟล์สำรองเสียหาย อ่านเป็น JSON ไม่ได้ — ลองเลือกไฟล์ที่เก่ากว่านี้");
+    }
+    // กันไฟล์ที่ parse ผ่านแต่ไม่ใช่โครงสร้างของเรา (เช่นไฟล์ทดสอบที่คนเผลอวางไว้)
+    if (!parsed || typeof parsed !== "object" || !parsed.transactions)
+      return json("error", "ไฟล์นี้ไม่ใช่ข้อมูลสำรองของ POS (ไม่พบรายการบิล)");
+
+    return json("success", "อ่านไฟล์สำรองสำเร็จ", {
+      fileName: file.getName(),
+      created: file.getDateCreated().toISOString(),
+      backupData: parsed
+    });
+  } catch (err) {
+    return json("error", "กู้คืนข้อมูลไม่สำเร็จ: " + err.toString());
   }
 }
 
@@ -306,6 +398,49 @@ function writeSummarySheet(sheet, data, periodLabel) {
     });
   r += 3;
 
+  // ── การนับเงินสดปิดกะ ───────────────────────
+  // แสดงเฉพาะเมื่อมีกะปิดในงวดนี้ — งวดที่ยังไม่ปิดกะจะไม่มีบล็อกนี้เลย ดีกว่าโชว์ตารางว่าง
+  var shiftRows = data.shiftCash || [];
+  if (shiftRows.length > 0) {
+    sheet.getRange(r, 1, 1, 5).merge()
+      .setValue("การนับเงินสดปิดกะ")
+      .setBackground(TEAL).setFontColor("white").setFontWeight("bold");
+    r++;
+    styleHeaderRow(sheet, r, ["กะ","ผู้ปิด","ควรมี (฿)","นับได้ (฿)","ขาด/เกิน (฿)"], "#134e4a", LTEAL);
+    r++;
+
+    var sumExpected = 0, sumCounted = 0, sumDiff = 0;
+    var sumStart = 0, sumSales = 0, sumExp = 0;
+    shiftRows.forEach(function(sh) {
+      var d   = Number(sh.difference) || 0;
+      var bg  = "#f0fdfa";
+      var dBg  = d < 0 ? LRED : (d > 0 ? LGREEN : "#f1f5f9");
+      var dClr = d < 0 ? "#9f1239" : (d > 0 ? "#166534" : "#475569");
+      sheet.getRange(r,1).setValue(shiftRangeLabel(sh)).setBackground(bg).setFontColor("#0f766e").setHorizontalAlignment("center");
+      sheet.getRange(r,2).setValue(safeCell(sh.closedBy || "-")).setBackground(bg).setFontColor("#0f766e").setHorizontalAlignment("center");
+      sheet.getRange(r,3).setValue(Number(sh.expected) || 0).setBackground(bg).setFontColor("#0f766e").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+      sheet.getRange(r,4).setValue(Number(sh.counted) || 0).setBackground(bg).setFontColor("#0f766e").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+      sheet.getRange(r,5).setValue(d).setBackground(dBg).setFontColor(dClr).setFontWeight(d === 0 ? "normal" : "bold").setNumberFormat("+#,##0.00;-#,##0.00;0.00").setHorizontalAlignment("right");
+      sumExpected += Number(sh.expected) || 0;
+      sumCounted  += Number(sh.counted)  || 0;
+      sumDiff     += d;
+      sumStart    += Number(sh.startCash) || 0;
+      sumSales    += Number(sh.cashSales) || 0;
+      sumExp      += Number(sh.expenses)  || 0;
+      r++;
+    });
+
+    var tBg  = sumDiff < 0 ? LRED : (sumDiff > 0 ? LGREEN : "#f1f5f9");
+    var tClr = sumDiff < 0 ? "#9f1239" : (sumDiff > 0 ? "#166534" : "#475569");
+    sheet.getRange(r,1,1,2).merge()
+      .setValue("รวม · เงินตั้งต้น " + numFmt(sumStart) + " · ขายสด " + numFmt(sumSales) + " · ค่าใช้จ่าย " + numFmt(sumExp))
+      .setBackground(LTEAL).setFontColor("#0f766e").setFontWeight("bold").setFontSize(9);
+    sheet.getRange(r,3).setValue(sumExpected).setBackground(LTEAL).setFontColor("#0f766e").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+    sheet.getRange(r,4).setValue(sumCounted).setBackground(LTEAL).setFontColor("#0f766e").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+    sheet.getRange(r,5).setValue(sumDiff).setBackground(tBg).setFontColor(tClr).setFontWeight("bold").setNumberFormat("+#,##0.00;-#,##0.00;0.00").setHorizontalAlignment("right");
+    r += 2;
+  }
+
   // ── รายการบริการ ────────────────────────────
   sheet.getRange(r, 1, 1, 5).merge()
     .setValue("รายการบริการ (จำแนกตามยอดขาย)")
@@ -420,9 +555,14 @@ function updateMasterSummarySheet(ss, data, periodType, periodKey) {
   var master = ss.getSheetByName(masterName);
   if (!master) {
     master = ss.insertSheet(masterName, 0);
-    var mh = ["ประเภท","ช่วงเวลา","บิล","รายได้รวม (฿)","ค่าใช้จ่าย (฿)","กำไรสุทธิ (฿)","อัปเดตล่าสุด"];
+    var mh = ["ประเภท","ช่วงเวลา","บิล","รายได้รวม (฿)","ค่าใช้จ่าย (฿)","กำไรสุทธิ (฿)", MASTER_VAR_HEADER, MASTER_TS_HEADER];
     styleHeaderRow(master, 1, mh, "#1e293b", "#e2e8f0");
     master.setFrozenRows(1);
+  } else {
+    // ต้อง flush ให้การแทรกคอลัมน์มีผลจริงก่อน — writeToMaster ด้านล่างอ่านหัวตารางซ้ำ
+    // ถ้าอ่านก่อนที่ Sheets จะ apply การแทรก จะหาคอลัมน์ใหม่ไม่เจอแล้วข้ามการเขียนเงินขาด/เกินไปทั้งรอบ
+    migrateMasterAddVarianceColumn(master);
+    SpreadsheetApp.flush();
   }
   var lastRow = master.getLastRow();
   var found   = false;
@@ -438,7 +578,38 @@ function updateMasterSummarySheet(ss, data, periodType, periodKey) {
     }
   }
   if (!found) writeToMaster(master, lastRow + 1, periodType, periodKey, data);
-  master.autoResizeColumns(1, 7);
+  master.autoResizeColumns(1, Math.max(master.getLastColumn(), 1));
+}
+
+// หาตำแหน่งคอลัมน์จาก "หัวตาราง" ไม่ใช่จากเลขคอลัมน์ตายตัว
+// เหตุผล: เดิมเขียนตามเลข 7/8 ตายตัว ถ้าชีตของจริงมีคอลัมน์ค้าง/ถูกแทรกเพิ่มโดยคน
+// การเขียนตามเลขจะไปทับคอลัมน์ "อัปเดตล่าสุด" ด้วยตัวเลขเงิน — เพี้ยนแบบเงียบ ๆ หาสาเหตุยาก
+// คืน 0 = ไม่พบคอลัมน์นั้น (ผู้เรียกต้องเช็คก่อนใช้เสมอ)
+function masterColumnMap_(sheet) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return { varCol: 0, tsCol: 0 };
+  var headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  var map = { varCol: 0, tsCol: 0 };
+  for (var i = 0; i < headers.length; i++) {
+    var h = String(headers[i]).trim();
+    if (h === MASTER_VAR_HEADER) map.varCol = i + 1;
+    if (h === MASTER_TS_HEADER)  map.tsCol  = i + 1;
+  }
+  return map;
+}
+
+// แทรกคอลัมน์ "เงินขาด/เกิน" ให้ชีต master ที่สร้างไว้ก่อนเวอร์ชันนี้
+// idempotent: ถ้าหาคอลัมน์นี้เจอแล้ว = เคย migrate แล้ว ไม่ทำซ้ำ
+// แทรกก่อน "อัปเดตล่าสุด" เพื่อให้คอลัมน์เงินอยู่ติดกัน — ข้อมูลเดิมเลื่อนตามอัตโนมัติ ไม่หาย
+function migrateMasterAddVarianceColumn(master) {
+  var cols = masterColumnMap_(master);
+  if (cols.varCol > 0) return;   // มีแล้ว
+  if (cols.tsCol === 0) return;  // ไม่รู้จักโครงสร้างชีตนี้ — ไม่แตะ ดีกว่าทำข้อมูลเพี้ยน
+  master.insertColumnBefore(cols.tsCol);
+  master.getRange(1, cols.tsCol)
+    .setValue(MASTER_VAR_HEADER)
+    .setBackground("#1e293b").setFontColor("#e2e8f0")
+    .setFontWeight("bold").setHorizontalAlignment("center");
 }
 
 function writeToMaster(sheet, row, type, key, data) {
@@ -451,7 +622,30 @@ function writeToMaster(sheet, row, type, key, data) {
   sheet.getRange(row,4).setValue(data.totalRevenue).setNumberFormat("#,##0.00").setBackground("#fef9c3").setHorizontalAlignment("right");
   sheet.getRange(row,5).setValue(data.totalExpenses).setNumberFormat("#,##0.00").setBackground("#ffe4e6").setHorizontalAlignment("right");
   sheet.getRange(row,6).setValue(net).setNumberFormat("#,##0.00").setBackground(netBg).setFontColor(netClr).setFontWeight("bold").setHorizontalAlignment("right");
-  sheet.getRange(row,7).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm"));
+
+  // เงินขาด/เกิน — แยกสี 3 ระดับ: ขาด(แดง) / เกิน(เขียว) / ตรงพอดีหรือยังไม่ปิดกะ(เทา)
+  // ใช้ "—" เมื่อยังไม่มีกะปิดในงวดนั้น เพื่อไม่ให้ 0 (ตรงพอดี) กับ "ยังไม่ปิดกะ" ดูเหมือนกัน
+  // ⚠️ หาคอลัมน์จากหัวตาราง ถ้าไม่เจอ = ข้ามไปเลย ห้ามเดาเลขคอลัมน์แล้วเขียนทับของเดิม
+  var cols = masterColumnMap_(sheet);
+  if (cols.varCol > 0) {
+    var hasShift = Number(data.shiftCount || 0) > 0;
+    var varVal   = Number(data.cashVariance || 0);
+    var varCell  = sheet.getRange(row, cols.varCol);
+    if (!hasShift) {
+      varCell.setValue("—").setBackground("#f8fafc").setFontColor("#94a3b8")
+             .setFontWeight("normal").setHorizontalAlignment("center");
+    } else {
+      var vBg  = varVal < 0 ? "#ffe4e6" : (varVal > 0 ? "#dcfce7" : "#f1f5f9");
+      var vClr = varVal < 0 ? "#9f1239" : (varVal > 0 ? "#166534" : "#475569");
+      varCell.setValue(varVal).setNumberFormat("+#,##0.00;-#,##0.00;0.00")
+             .setBackground(vBg).setFontColor(vClr)
+             .setFontWeight(varVal === 0 ? "normal" : "bold").setHorizontalAlignment("right");
+    }
+  }
+
+  // timestamp ลงคอลัมน์ "อัปเดตล่าสุด" ที่หาเจอ ถ้าหาไม่เจอค่อยต่อท้ายตาราง (ไม่ทับของใคร)
+  var tsCol = cols.tsCol > 0 ? cols.tsCol : Math.max(sheet.getLastColumn() + 1, 7);
+  sheet.getRange(row, tsCol).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm"));
 }
 
 // ── HELPERS ───────────────────────────────────
@@ -478,6 +672,15 @@ function styleHeaderRow(sheet, row, headers, bg, fg) {
 
 function fmt(date, pattern) {
   return Utilities.formatDate(date, Session.getScriptTimeZone(), pattern);
+}
+
+// ป้ายกำกับช่วงเวลากะ "07-26 11:02→03:14" — ใส่วันที่ด้วยเพราะกะคร่อมเที่ยงคืน
+// และในชีตรายเดือนต้องแยกให้ออกว่าแถวไหนของวันไหน
+function shiftRangeLabel(sh) {
+  var tz = Session.getScriptTimeZone();
+  var s = sh.startTime ? Utilities.formatDate(new Date(sh.startTime), tz, "MM-dd HH:mm") : "?";
+  var e = sh.endTime   ? Utilities.formatDate(new Date(sh.endTime),   tz, "HH:mm")       : "?";
+  return s + "→" + e;
 }
 
 function numFmt(n) {

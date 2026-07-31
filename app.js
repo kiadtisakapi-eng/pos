@@ -36,7 +36,7 @@ const DEFAULT_CATEGORIES = [
 const API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.3.2 (2026-07-19)';
+const APP_VERSION = '1.4.0 (2026-07-31)';
 
 // ─────────────────────────────────────────────
 //  วันทำการ (Business Date) — ร้านเปิด 11:00 น. ถึงตี 3 ของวันถัดไป
@@ -100,6 +100,8 @@ class PosApp {
 
     this.timerInterval = null;
     this.isSyncing = false;
+    this.loadFailed = false;      // true = โหลดข้อมูลจาก IndexedDB ไม่สำเร็จ → ห้ามเขียนทับ DB ทุกกรณี
+    this.restoreBusy = false;     // true = กำลังกู้ข้อมูลจาก Drive อยู่ ห้ามเริ่มรอบใหม่ซ้อน
     this.currentRole = null;      // 'owner' | 'manager' | 'staff' | null (ยังไม่ล็อกอิน)
     this.currentUser = null;      // { id, name } ของผู้ที่ล็อกอินอยู่
     this.loginSelectedId = null;  // ผู้ใช้ที่เลือกในหน้าล็อกอิน
@@ -347,6 +349,10 @@ class PosApp {
     };
 
     try {
+      // เคลียร์ธงทุกครั้งที่เริ่มโหลด — ถ้ารอบนี้สำเร็จต้องกลับมาบันทึกได้ตามปกติ
+      // (resetData() เรียก loadState() ซ้ำหลังล้าง DB จึงต้องมีทางกลับ ไม่ใช่ธงค้างตลอดชีวิตแอป)
+      this.loadFailed = false;
+
       // 1. ตรวจสอบการย้ายข้อมูล (Migration) จาก LocalStorage ไป IndexedDB
       const migrationCheck = await db.state.get('db_migrated');
       const isMigrated = migrationCheck ? migrationCheck.value : false;
@@ -526,6 +532,13 @@ class PosApp {
 
     } catch (err) {
       console.error('Error loading IndexedDB', err);
+
+      // ⚠️ จุดวิกฤต — อ่านฐานข้อมูลไม่สำเร็จ ไม่ได้แปลว่า "ไม่มีข้อมูล"
+      // ข้อมูลจริงอาจยังอยู่ครบใน IndexedDB แค่อ่านไม่ได้ชั่วคราว (DB ถูกล็อกจากอีกแท็บ,
+      // iOS ล้าง storage, เขียนค้างตอนแบตหมด) ค่าด้านล่างเป็นแค่ค่าว่างให้ UI เรนเดอร์ได้
+      // ห้ามให้ค่าว่างชุดนี้ถูกเขียนกลับลง DB เด็ดขาด — จะทับข้อมูลจริงหายถาวร
+      this.loadFailed = true;
+
       this.state.services = [...DEFAULT_SERVICES];
       this.state.categories = [...DEFAULT_CATEGORIES];
       this.state.staff = [...DEFAULT_STAFF];
@@ -545,8 +558,51 @@ class PosApp {
       this.telegramToken = '';
       this.telegramChatId = '';
       this.currentRole = 'staff';
-      setTimeout(() => this.showToast('เกิดข้อผิดพลาดในการโหลดฐานข้อมูล ระบบเปิดด้วยโหมดสำรองและตั้งค่ารหัสผ่านเป็น "123456" ชั่วคราว', 'error', 6000), 500);
+
+      // จอทึบเต็มหน้า ปิดไม่ได้ — toast เตือน 6 วิ ไม่พอ เพราะพนักงานกดปิดแล้วขายต่อ
+      // แล้ว saveState() รอบแรกจะทับข้อมูลจริงทันที
+      this.showFatalLoadError(err);
     }
+  }
+
+  // ─── จอเตือนวิกฤต: โหลดฐานข้อมูลไม่สำเร็จ ห้ามใช้งานต่อ ───────────────
+  // ตั้งใจให้ปิดไม่ได้และไม่มีปุ่ม "ใช้งานต่อ" — การขายต่อในสถานะนี้ทำลายข้อมูลเก่า
+  // หยุดขาย 5 นาทีเสียหายน้อยกว่าเสียประวัติทั้งร้าน
+  showFatalLoadError(err) {
+    const build = () => {
+      if (document.getElementById('fatal-load-error')) return;
+      const el = document.createElement('div');
+      el.id = 'fatal-load-error';
+      el.setAttribute('role', 'alertdialog');
+      el.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#450a0a;color:#fff;' +
+        'display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;' +
+        'font-family:system-ui,-apple-system,sans-serif;overflow:auto;';
+      el.innerHTML =
+        '<div style="max-width:520px;line-height:1.7">' +
+          '<div style="font-size:3rem;margin-bottom:8px">⚠️</div>' +
+          '<h1 style="font-size:1.5rem;margin:0 0 16px;font-weight:700">โหลดข้อมูลร้านไม่สำเร็จ</h1>' +
+          '<p style="font-size:1.05rem;margin:0 0 20px">' +
+            '<b>ห้ามขายต่อด้วยเครื่องนี้</b><br>' +
+            'ข้อมูลจริงน่าจะยังอยู่ครบ แต่แอปอ่านไม่ได้ตอนนี้<br>' +
+            'ถ้าขายต่อ ข้อมูลเก่าทั้งหมดจะถูกเขียนทับหายถาวร' +
+          '</p>' +
+          '<div style="background:rgba(0,0,0,0.35);border-radius:10px;padding:16px;text-align:left;font-size:0.95rem;margin-bottom:16px">' +
+            '<b>ให้ทำตามลำดับนี้</b>' +
+            '<ol style="margin:8px 0 0;padding-left:20px">' +
+              '<li>ปิดแอปนี้ให้สนิท (ปัดขึ้นออกจากมัลติทาสก์)</li>' +
+              '<li>ปิดแท็บ/หน้าต่างอื่นที่เปิดแอปนี้ค้างไว้ให้หมด</li>' +
+              '<li>เปิดแอปใหม่</li>' +
+              '<li>ถ้ายังขึ้นจอนี้อีก <b>อย่าลบแอป อย่าล้างข้อมูล</b> — ให้แจ้งผู้ดูแลระบบ</li>' +
+            '</ol>' +
+          '</div>' +
+          '<p style="font-size:0.85rem;opacity:0.75;margin:0">ระบบได้ปิดการบันทึกข้อมูลทั้งหมดไว้แล้วเพื่อป้องกันข้อมูลเสียหาย</p>' +
+          '<p style="font-size:0.75rem;opacity:0.5;margin:12px 0 0;word-break:break-word">' + escapeHtml(String((err && err.message) || err || '')) + '</p>' +
+        '</div>';
+      document.body.appendChild(el);
+    };
+    // loadState ถูกเรียกได้ก่อน DOM พร้อม — ถ้ายังไม่มี body ให้รอ
+    if (document.body) build();
+    else document.addEventListener('DOMContentLoaded', build, { once: true });
   }
 
   // Auto-archive: ลบ shift history เก่ากว่า 90 วัน + transactions เก่ากว่า 365 วันที่ synced แล้ว
@@ -585,6 +641,14 @@ class PosApp {
 
   // เซฟข้อมูลลงใน IndexedDB
   async saveState() {
+    // 🛑 กันข้อมูลหายถาวร — ถ้า loadState() ล้มเหลว state ในหน่วยความจำเป็นค่าว่าง
+    // ไม่ใช่ข้อมูลจริง การเขียนลง DB ตอนนี้คือการทับข้อมูลจริงทิ้ง
+    // ต้องอยู่ก่อน archiveOldData() ด้วย — ไม่งั้น archive จะไปกรอง array ว่างแล้วไม่มีความหมาย
+    if (this.loadFailed) {
+      console.error('[GUARD] ปฏิเสธการบันทึก — โหลดข้อมูลไม่สำเร็จตอนเปิดแอป');
+      return;
+    }
+
     this.archiveOldData();
 
     try {
@@ -617,8 +681,10 @@ class PosApp {
   }
 
   // สำรองข้อมูลขึ้น Google Drive
+  // คืน true เมื่อไฟล์ขึ้น Drive สำเร็จจริง — resetData() ใช้ค่านี้ตัดสินว่าจะยอมลบข้อมูลไหม
   async autoBackupToGoogleDrive() {
-    if (!this.googleSheetsUrl) return;
+    if (!this.googleSheetsUrl) return false;
+    if (this.loadFailed) return false; // state เป็นค่าว่าง — สำรองไปก็ได้ไฟล์เปล่าไปทับของดีบน Drive
 
     const backupData = {
       services: this.state.services,
@@ -666,27 +732,69 @@ class PosApp {
       if (result.status === 'success') {
         this.showToast('สำรองข้อมูลขึ้น Google Drive สำเร็จ!', 'success');
         console.log('Google Drive Backup success:', result.details);
+        return true;
       } else {
         throw new Error(result.message || 'คลาวด์แจ้งเตือนข้อผิดพลาด');
       }
     } catch (err) {
       console.error('Auto backup failed:', err);
       this.showToast('สำรองข้อมูลขึ้น Google Drive ล้มเหลว: ' + err.message, 'error');
+      return false;
     }
   }
 
   // เคลียร์ข้อมูลทั้งหมดในระบบคืนสู่ค่าเดิม
-  resetData() {
-    this.showConfirm('คุณแน่ใจหรือไม่ว่าต้องการรีเซ็ตข้อมูลทั้งหมดกลับสู่ค่าตั้งต้น?', async () => {
-      try {
-        await db.state.clear();
-      } catch (e) { console.error(e); }
-      localStorage.clear();
-      await this.loadState();
-      await this.migratePinIfNeeded();
-      this.renderAll();
-      this.showToast('คืนค่าเริ่มต้นข้อมูลเรียบร้อยแล้ว!', 'info');
-    });
+  // ⚠️ ทำลายข้อมูลถาวร กู้ไม่ได้ — จึงบังคับ 3 ด่าน: สิทธิ์เจ้าของ → พิมพ์คำยืนยัน → backup สำเร็จ
+  // เหตุผลที่ไม่ใช้ showConfirm ธรรมดา: คนกดยืนยัน dialog ตามความเคยชินโดยไม่อ่าน
+  // การบังคับ "พิมพ์" ทำให้ต้องอ่านและตั้งใจจริง
+  async resetData() {
+    if (this.loadFailed) {
+      this.showToast('โหลดข้อมูลไม่สำเร็จ — ปิดฟังก์ชันนี้ไว้เพื่อความปลอดภัย', 'error');
+      return;
+    }
+    if (this.currentRole !== 'owner') {
+      this.showToast('เฉพาะเจ้าของร้านเท่านั้นที่รีเซ็ตข้อมูลทั้งหมดได้', 'warning');
+      return;
+    }
+
+    const KEYWORD = 'ลบทั้งหมด';
+    const typed = window.prompt(
+      'คำเตือน: การรีเซ็ตจะลบข้อมูลทั้งหมดถาวร กู้คืนไม่ได้\n' +
+      `(บิล ${this.state.transactions.length} รายการ · พนักงาน ${this.state.staff.length} คน · ` +
+      `ลูกค้า ${this.state.customers.length} คน · ประวัติกะ ${(this.state.shift.history || []).length} กะ)\n\n` +
+      `ถ้าแน่ใจจริง ให้พิมพ์คำว่า  ${KEYWORD}  แล้วกดตกลง`
+    );
+    if (typed === null) return;                       // กดยกเลิก
+    if (typed.trim() !== KEYWORD) {
+      this.showToast('ข้อความยืนยันไม่ตรง — ยกเลิกการรีเซ็ตแล้ว', 'info');
+      return;
+    }
+
+    // ด่านสุดท้าย: ต้องมีสำเนาบน Drive ก่อน ไม่งั้นไม่มีอะไรให้กู้เลย
+    if (this.googleSheetsUrl) {
+      this.showToast('กำลังสำรองข้อมูลก่อนรีเซ็ต...', 'info');
+      const ok = await this.autoBackupToGoogleDrive();
+      if (!ok) {
+        this.showToast('สำรองข้อมูลไม่สำเร็จ — ยกเลิกการรีเซ็ตเพื่อความปลอดภัย ลองใหม่เมื่อเน็ตพร้อม', 'error', 6000);
+        return;
+      }
+    } else {
+      // ไม่ได้ตั้ง URL = ไม่มีสำเนาที่ไหนเลย ต้องยืนยันอีกชั้นว่ารับความเสี่ยงเอง
+      const sure = window.confirm(
+        'ยังไม่ได้ตั้งค่า Google Sheets — ระบบสำรองข้อมูลก่อนลบไม่ได้\n' +
+        'ถ้าลบตอนนี้ ข้อมูลจะหายถาวรโดยไม่มีสำเนาที่ไหนเลย\n\nยืนยันจะลบทั้งที่ไม่มีสำเนา?'
+      );
+      if (!sure) return;
+    }
+
+    try {
+      await db.state.clear();
+    } catch (e) { console.error(e); }
+    localStorage.clear();
+    await this.loadState();
+    await this.migratePinIfNeeded();
+    this.renderAll();
+    this.showToast('คืนค่าเริ่มต้นข้อมูลเรียบร้อยแล้ว!', 'info');
   }
 
   clearSalesData() {
@@ -695,7 +803,13 @@ class PosApp {
       this.state.queue = [];
       this.state.cart = [];
       this.state.voidLog = [];     // ล้างประวัติ void ของยอดเก่าไปพร้อมกัน
-      this.state.cloudOutbox = []; // สำคัญ: ล้างงานคลาวด์ที่ค้าง — ไม่งั้น outbox เก่าจะ flush สรุป "ศูนย์" ไปทับชีตของวันเก่า
+
+      // งานคลาวด์ที่ค้าง: ต้องตัด "งานสรุป" ทิ้ง (ไม่งั้น outbox เก่าจะ flush สรุป "ศูนย์" ไปทับชีตของวันเก่า)
+      // แต่ต้อง "เก็บคำสั่งลบแถวบิลไว้" — เดิมล้างทิ้งทั้งก้อน ทำให้บิลที่ยกเลิกไปแล้วแต่ยังลบในชีตไม่สำเร็จ
+      // (เน็ตหลุด/GAS ล่ม) ค้างเป็นแถวผีในชีตถาวร ไม่มีอะไรมาลบให้อีกเลย → ยอดแท็บบิลไม่ตรงกับชีตสรุป
+      this.state.cloudOutbox = (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [])
+        .filter(it => it.needVoidDelete && it.voidDelete)
+        .map(it => ({ ...it, needSummary: false, needTelegram: false, telegramMessage: '' }));
       this.state.shift = {
         active: false,
         startTime: null,
@@ -2373,6 +2487,47 @@ class PosApp {
     return closed.concat(active);
   }
 
+  // ─── กะที่ปิดแล้วของงวดหนึ่งๆ (ใช้เกณฑ์ "วันทำการที่ปิดกะ" เดียวกับ getExpensesForDate) ───
+  // ต้องใช้เกณฑ์เดียวกัน ไม่งั้นค่าใช้จ่ายกับเงินขาด/เกินของกะเดียวกันจะไปโผล่คนละวัน
+  // กะที่ยังเปิดอยู่ไม่นับ — ยังไม่มีการนับเงินปิดกะ จึงยังไม่มีตัวเลขขาด/เกิน
+  getClosedShiftsForPeriod(periodType, periodKey) {
+    const history = (this.state.shift && Array.isArray(this.state.shift.history)) ? this.state.shift.history : [];
+    return history.filter(sh => {
+      const ts = sh.endTime || sh.startTime;
+      if (!ts) return false;
+      return periodType === 'month'
+        ? this.getBusinessMonthKey(ts) === periodKey
+        : this.getBusinessISODate(ts) === periodKey;
+    });
+  }
+
+  // ─── สรุปการนับเงินสดปิดกะของงวด (ส่งขึ้นชีต) ─────────────────────────
+  buildShiftCashSummary(periodType, periodKey) {
+    const shifts = this.getClosedShiftsForPeriod(periodType, periodKey)
+      .slice()
+      .sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+    const num = v => (typeof v === 'number' && isFinite(v)) ? v : 0;
+    const rows = shifts.map(sh => ({
+      startTime:  sh.startTime || null,
+      endTime:    sh.endTime || null,
+      closedBy:   sh.closedBy || '',
+      startCash:  num(sh.startCash),
+      cashSales:  num(sh.cashSales),
+      expenses:   num(sh.expensesTotal),
+      // กะเก่าที่บันทึกก่อนมีฟิลด์ expectedCash — คำนวณย้อนให้ ไม่ปล่อยเป็น 0 จนดูเหมือนเงินหายทั้งกะ
+      expected:   (typeof sh.expectedCash === 'number' && isFinite(sh.expectedCash))
+                    ? sh.expectedCash
+                    : num(sh.startCash) + num(sh.cashSales) - num(sh.expensesTotal),
+      counted:    num(sh.countedCash),
+      difference: num(sh.difference)
+    }));
+    return {
+      shiftCount:   rows.length,
+      cashVariance: rows.reduce((s, r) => s + r.difference, 0),
+      shifts:       rows
+    };
+  }
+
   // ─── สร้าง payload สรุป (ใช้ร่วมกันทั้ง daily / monthly) ───────────────
   buildSummaryPayload(transactions, expenses, periodType, periodKey) {
     // 1. รายได้แยกช่องทาง
@@ -2424,6 +2579,9 @@ class PosApp {
       }
     });
 
+    // 5. การนับเงินสดปิดกะ — recompute จาก shift.history ทุกครั้งที่ส่ง (idempotent: ชีตเขียนทับอยู่แล้ว)
+    const cash = this.buildShiftCashSummary(periodType, periodKey);
+
     const payload = {
       secret:          API_SECRET,
       action:          periodType === 'day' ? 'summary_day' : 'summary_month',
@@ -2431,6 +2589,9 @@ class PosApp {
       monthKey:        periodType === 'month' ? periodKey : undefined,
       totalRevenue, cashRevenue, qrRevenue, creditRevenue,
       billCount, avgBill, totalExpenses, netIncome,
+      cashVariance:     cash.cashVariance,
+      shiftCount:       cash.shiftCount,
+      shiftCash:        cash.shifts,
       services:         Object.values(svcMap),
       expenses:         (expenses || []).map(e => ({ note: e.note, amount: e.amount })),
       staffCommissions: Object.values(staffMap).filter(st => st.count > 0)
@@ -3124,6 +3285,29 @@ class PosApp {
     // footer แถบข้าง — เดิม hardcode "v1.0.0" ใน HTML ไม่ตรงกับเวอร์ชันจริง
     const sideEl = document.getElementById('sidebar-version-label');
     if (sideEl) sideEl.innerText = 'เวอร์ชัน ' + APP_VERSION;
+    this.showCacheVersion();
+  }
+
+  // ถามเวอร์ชันแคชจาก Service Worker ที่ทำงานอยู่จริง แล้วต่อท้ายป้ายเวอร์ชัน
+  // ทำไมต้องมี: APP_VERSION เป็นเลขที่พิมพ์มือ ลืมแก้เมื่อไหร่ป้ายก็โกหกทันที
+  // ส่วนเลขแคช deploy.ps1 บวกให้เองทุกครั้งที่ deploy — ถ้าเลขนี้ยังเท่าเดิมแปลว่าเครื่องยังไม่ได้ของใหม่
+  showCacheVersion() {
+    const el = document.getElementById('app-version-label');
+    if (!el || !('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+    try {
+      const ch = new MessageChannel();
+      let answered = false;
+      ch.port1.onmessage = (ev) => {
+        answered = true;
+        const name = ev.data && ev.data.cacheName;
+        if (name) el.innerText = 'เวอร์ชัน ' + APP_VERSION + ' · แคช ' + name;
+      };
+      // SW รุ่นเก่ายังไม่รู้จักคำสั่งนี้ จะเงียบไปเฉยๆ — อย่าค้างรอ ปล่อยให้ป้ายเดิมอยู่ต่อ
+      setTimeout(() => { if (!answered) ch.port1.close(); }, 3000);
+      navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' }, [ch.port2]);
+    } catch (err) {
+      console.warn('อ่านเวอร์ชันแคชไม่ได้', err);
+    }
   }
 
   // นำชื่อร้านที่ตั้งค่าไว้ไปแสดงทุกจุดบนหน้าจอ (hero แดชบอร์ด, โลโก้แถบข้าง, ชื่อแท็บ)
@@ -3256,7 +3440,8 @@ class PosApp {
       });
 
       const register = () => {
-        navigator.serviceWorker.register('./sw.js')
+        // updateViaCache:'none' — บังคับให้ตรวจ sw.js กับเซิร์ฟเวอร์จริงเสมอ ไม่หยิบจาก HTTP cache
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
           .then(reg => {
             console.log('Service Worker Registered successfully', reg.scope);
             // ถ้ามีเวอร์ชันใหม่ "รอ" อยู่แล้วตั้งแต่เปิดแอป (ติดตั้งไว้รอบก่อนแต่ยังไม่กดอัปเดต) → แจ้งเลย
@@ -4352,61 +4537,225 @@ class PosApp {
 
   // นำเข้าข้อมูลจากไฟล์ JSON
   importData(event) {
+    const input = event.target;
+    const file = input.files && input.files[0];
+    // ล้างค่า input ทันที — ไม่งั้นเลือก "ไฟล์ชื่อเดิม" ซ้ำครั้งที่สอง onchange จะไม่ยิงเลย
+    // (ปลอดภัย: FileReader ถือ object ไฟล์ไว้แล้ว การล้าง value ไม่กระทบการอ่าน)
+    input.value = '';
+    if (!file) return;
+
     const fileReader = new FileReader();
     fileReader.onload = (e) => {
       try {
         const parsed = JSON.parse(e.target.result);
-        // ตรวจชนิดข้อมูลจริง ไม่ใช่แค่ truthy — ไฟล์เพี้ยน (field เป็น string/object) เคยทำให้
-        // state พังตอน .map() แล้วพังค้างถาวรเพราะถูกบันทึกลง DB ไปแล้ว
-        if (Array.isArray(parsed.services) && Array.isArray(parsed.staff) && Array.isArray(parsed.transactions)) {
-          this.showConfirm('คุณแน่ใจหรือไม่ว่าต้องการนำเข้าข้อมูลและเขียนทับข้อมูลในเครื่องปัจจุบันทั้งหมด?', async () => {
-            this.state.services = parsed.services;
-            this.state.staff = parsed.staff;
-            if (Array.isArray(parsed.categories) && parsed.categories.length) this.state.categories = parsed.categories;
-            this.state.customers = Array.isArray(parsed.customers) ? parsed.customers : [];
-            this.state.queue = Array.isArray(parsed.queue) ? parsed.queue : [];
-            this.state.transactions = parsed.transactions;
-            this.state.voidLog = Array.isArray(parsed.voidLog) ? parsed.voidLog : [];
-            // ล้างงานคลาวด์ค้างของข้อมูลชุดเก่า — กัน outbox เดิม flush สรุปที่คำนวณจากข้อมูลชุดใหม่ไปทับชีตผิดๆ
-            this.state.cloudOutbox = [];
-
-            this.state.shift = (parsed.shift && typeof parsed.shift === 'object' && !Array.isArray(parsed.shift))
-              ? parsed.shift
-              : { active: false, startTime: null, startCash: 0, startDetails: {}, expenses: [], history: [] };
-            // ซ่อมโครงสร้างกะจากไฟล์เก่า/ไฟล์ที่ field หาย
-            if (!Array.isArray(this.state.shift.history)) this.state.shift.history = [];
-            if (!Array.isArray(this.state.shift.expenses)) this.state.shift.expenses = [];
-            if (typeof this.state.shift.active !== 'boolean') this.state.shift.active = false;
-            if (parsed.shopPromptPayId) this.shopPromptPayId = parsed.shopPromptPayId;
-            if (parsed.shopName) this.shopName = parsed.shopName;
-            if (parsed.shopTagline) this.shopTagline = parsed.shopTagline;
-            if (typeof parsed.shopAddress === 'string') this.shopAddress = parsed.shopAddress;
-            if (typeof parsed.shopPhone === 'string') this.shopPhone = parsed.shopPhone;
-            // รับเฉพาะ data URL รูปภาพ — กันไฟล์ JSON แปลกปลอมฝังสคริปต์ผ่าน img src
-            if (typeof parsed.shopLogo === 'string' && (parsed.shopLogo === '' || parsed.shopLogo.startsWith('data:image/'))) {
-              this.shopLogo = parsed.shopLogo;
-            }
-            if (parsed.theme) this.theme = parsed.theme;
-            if (parsed.ownerPin) this.ownerPin = parsed.ownerPin;
-            if (parsed.googleSheetsUrl) this.googleSheetsUrl = parsed.googleSheetsUrl;
-            if (parsed.telegramToken) this.telegramToken = parsed.telegramToken;
-            if (parsed.telegramChatId) this.telegramChatId = parsed.telegramChatId;
-
-            await this.migratePinIfNeeded();
-            await this.saveState();
-            this.renderAll();
-            this.vibrateDevice(100);
-            this.showToast('นำเข้าข้อมูลและรีเฟรชหน้าจอสำเร็จ!', 'info');
-          });
-        } else {
+        if (!this.isValidBackupObject(parsed)) {
           this.showToast('รูปแบบไฟล์ข้อมูลสำรองไม่ถูกต้อง!', 'info');
+          return;
         }
+        this.showConfirm('คุณแน่ใจหรือไม่ว่าต้องการนำเข้าข้อมูลและเขียนทับข้อมูลในเครื่องปัจจุบันทั้งหมด?', async () => {
+          try {
+            await this.applyBackupData(parsed);
+            this.showToast('นำเข้าข้อมูลและรีเฟรชหน้าจอสำเร็จ!', 'info');
+          } catch (e2) {
+            console.error('import failed', e2);
+            this.showToast('นำเข้าข้อมูลไม่สำเร็จ: ' + (e2.message || e2), 'error', 6000);
+          }
+        });
       } catch (err) {
         this.showToast('เกิดข้อผิดพลาดในการอ่านไฟล์ JSON!', 'info');
         console.error(err);
       }
     };
-    if (event.target.files[0]) fileReader.readAsText(event.target.files[0]);
+    fileReader.readAsText(file);
+  }
+
+  // ตรวจว่าอ็อบเจกต์นี้หน้าตาเหมือนไฟล์สำรองจริงไหม
+  // ตรวจชนิดข้อมูลจริง ไม่ใช่แค่ truthy — ไฟล์เพี้ยน (field เป็น string/object) เคยทำให้
+  // state พังตอน .map() แล้วพังค้างถาวรเพราะถูกบันทึกลง DB ไปแล้ว
+  isValidBackupObject(parsed) {
+    return !!parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      && Array.isArray(parsed.services)
+      && Array.isArray(parsed.staff)
+      && Array.isArray(parsed.transactions);
+  }
+
+  // เขียนข้อมูลจากไฟล์สำรองลง state + IndexedDB
+  // ใช้ร่วมกัน 2 ทาง: นำเข้าไฟล์ .json จากเครื่อง และกู้จาก Google Drive
+  // ต้องเป็นโค้ดชุดเดียวกัน — ถ้าแยกกัน แก้ทางหนึ่งแล้วลืมอีกทางเมื่อไหร่ ข้อมูลจะเข้าไม่เหมือนกัน
+  // ⚠️ ผู้เรียกต้องตรวจ isValidBackupObject() มาก่อนแล้ว
+  async applyBackupData(parsed) {
+    // ถ้าโหลดข้อมูลตอนเปิดแอปไม่สำเร็จ saveState() จะถูกบล็อกไว้ (กันเขียนทับข้อมูลจริง)
+    // ถ้าปล่อยให้ทำต่อ ผู้ใช้จะเห็นหน้าจอเปลี่ยนเหมือนกู้สำเร็จ แต่ไม่มีอะไรถูกบันทึกลงเครื่องเลย
+    // — พอปิดแอปแล้วเปิดใหม่ข้อมูลหายอีกรอบ ต้องหยุดตรงนี้แล้วบอกตรง ๆ ดีกว่า
+    if (this.loadFailed) {
+      throw new Error('โหลดข้อมูลเดิมไม่สำเร็จ ระบบล็อกการบันทึกไว้ — ปิดแอปแล้วเปิดใหม่ก่อน');
+    }
+    this.state.services = parsed.services;
+    this.state.staff = parsed.staff;
+    if (Array.isArray(parsed.categories) && parsed.categories.length) this.state.categories = parsed.categories;
+    this.state.customers = Array.isArray(parsed.customers) ? parsed.customers : [];
+    this.state.queue = Array.isArray(parsed.queue) ? parsed.queue : [];
+    this.state.transactions = parsed.transactions;
+    this.state.voidLog = Array.isArray(parsed.voidLog) ? parsed.voidLog : [];
+    // ล้างงานคลาวด์ค้างของข้อมูลชุดเก่า — กัน outbox เดิม flush สรุปที่คำนวณจากข้อมูลชุดใหม่ไปทับชีตผิดๆ
+    this.state.cloudOutbox = [];
+    this.state.cart = [];
+
+    this.state.shift = (parsed.shift && typeof parsed.shift === 'object' && !Array.isArray(parsed.shift))
+      ? parsed.shift
+      : { active: false, startTime: null, startCash: 0, startDetails: {}, expenses: [], history: [] };
+    // ซ่อมโครงสร้างกะจากไฟล์เก่า/ไฟล์ที่ field หาย
+    if (!Array.isArray(this.state.shift.history)) this.state.shift.history = [];
+    if (!Array.isArray(this.state.shift.expenses)) this.state.shift.expenses = [];
+    if (typeof this.state.shift.active !== 'boolean') this.state.shift.active = false;
+
+    if (parsed.shopPromptPayId) this.shopPromptPayId = parsed.shopPromptPayId;
+    if (parsed.shopName) this.shopName = parsed.shopName;
+    if (parsed.shopTagline) this.shopTagline = parsed.shopTagline;
+    if (typeof parsed.shopAddress === 'string') this.shopAddress = parsed.shopAddress;
+    if (typeof parsed.shopPhone === 'string') this.shopPhone = parsed.shopPhone;
+    // รับเฉพาะ data URL รูปภาพ — กันไฟล์ JSON แปลกปลอมฝังสคริปต์ผ่าน img src
+    if (typeof parsed.shopLogo === 'string' && (parsed.shopLogo === '' || parsed.shopLogo.startsWith('data:image/'))) {
+      this.shopLogo = parsed.shopLogo;
+    }
+    if (parsed.theme) this.theme = parsed.theme;
+    if (parsed.ownerPin) this.ownerPin = parsed.ownerPin;
+
+    // ⚠️ URL คลาวด์: ถ้าเครื่องนี้ตั้งค่าไว้แล้ว ให้ยึดของเครื่องเป็นหลัก
+    // ไฟล์สำรองเก่าอาจเก็บ URL ของ deployment รุ่นก่อน — ถ้าทับลงไป แอปจะยิงไป URL ที่ตายแล้ว
+    // แบบเงียบ ๆ (ไม่มี error ให้เห็นทันที) แล้วยอดขายจะไม่ขึ้นชีตโดยไม่มีใครรู้
+    if (parsed.googleSheetsUrl && !this.googleSheetsUrl) this.googleSheetsUrl = parsed.googleSheetsUrl;
+    if (parsed.telegramToken) this.telegramToken = parsed.telegramToken;
+    if (parsed.telegramChatId) this.telegramChatId = parsed.telegramChatId;
+
+    await this.migratePinIfNeeded();
+    await this.saveState();
+    this.renderAll();
+    this.vibrateDevice(100);
+  }
+
+  // ==================== กู้ข้อมูลจาก GOOGLE DRIVE ====================
+
+  // เปิดหน้าเลือกไฟล์สำรองที่อยู่บน Drive
+  async openRestoreModal() {
+    if (this.loadFailed) {
+      this.showToast('โหลดข้อมูลไม่สำเร็จ — ปิดฟังก์ชันนี้ไว้เพื่อความปลอดภัย', 'error');
+      return;
+    }
+    if (this.currentRole !== 'owner') {
+      this.showToast('เฉพาะเจ้าของร้านเท่านั้นที่กู้ข้อมูลได้', 'warning');
+      return;
+    }
+    if (!this.googleSheetsUrl) {
+      this.showToast('ยังไม่ได้ตั้งค่า Google Sheets URL — กู้ข้อมูลจาก Drive ไม่ได้', 'warning', 5000);
+      return;
+    }
+    this.openModal('modal-restore');
+    await this.loadDriveBackups();
+  }
+
+  // แปลงเวลาไฟล์เป็นข้อความที่คนอ่านออก (วัน/เดือน/ปี พ.ศ. เวลา)
+  formatBackupLabel(f) {
+    const d = new Date(f && f.created);
+    if (!f || isNaN(d.getTime())) return (f && f.name) || 'ไฟล์สำรอง';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear() + 543} ${pad(d.getHours())}:${pad(d.getMinutes())} น.`;
+  }
+
+  // ดึงรายชื่อไฟล์สำรองจาก Drive มาแสดง (ยังไม่ดาวน์โหลดเนื้อไฟล์ — เร็วแม้ไฟล์เยอะ)
+  async loadDriveBackups() {
+    const list = document.getElementById('restore-list');
+    if (!list) return;
+    list.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);">กำลังโหลดรายการไฟล์สำรอง...</div>';
+
+    try {
+      const res = await this.fetchWithTimeout(this.googleSheetsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ secret: API_SECRET, action: 'list_backups' })
+      }, 20000);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (d.status !== 'success') throw new Error(d.message || 'คลาวด์แจ้งข้อผิดพลาด');
+
+      const files = (d.details && Array.isArray(d.details.files)) ? d.details.files : [];
+      if (!files.length) {
+        list.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);">' +
+          'ยังไม่มีไฟล์สำรองใน Google Drive<br>' +
+          '<span style="font-size:0.8rem;">ไฟล์จะถูกสร้างอัตโนมัติทุกครั้งที่ปิดกะ</span></div>';
+        return;
+      }
+
+      list.innerHTML = files.map((f, idx) => {
+        const label = this.formatBackupLabel(f);
+        const tag = idx === 0 ? '<span style="font-size:0.7rem;padding:2px 8px;border-radius:99px;background:var(--accent-premium,#f5c842);color:#1a1a1a;font-weight:700;">ล่าสุด</span>' : '';
+        return '<button type="button" class="btn-small secondary restore-item"' +
+          ` data-id="${escapeHtml(f.id)}" data-label="${escapeHtml(label)}"` +
+          ' style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:12px 14px;text-align:left;min-height:52px;">' +
+            `<span style="display:flex;flex-direction:column;gap:2px;"><b>${escapeHtml(label)}</b>` +
+            `<span style="font-size:0.72rem;opacity:0.65;">${escapeHtml(f.name || '')} · ${Number(f.sizeKB) || 0} KB</span></span>` +
+            tag +
+          '</button>';
+      }).join('');
+
+      // ผูก event ทีหลัง ไม่ใช้ onclick ใน HTML — กันชื่อไฟล์ที่มีอัญประกาศไปทำ markup พัง
+      list.querySelectorAll('.restore-item').forEach((btn) => {
+        btn.onclick = () => this.restoreFromDriveBackup(btn.dataset.id, btn.dataset.label);
+      });
+    } catch (err) {
+      console.error('list backups failed', err);
+      list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--danger,#f43f6a);">' +
+        'โหลดรายการไม่สำเร็จ<br><span style="font-size:0.8rem;">' + escapeHtml(err.message || String(err)) + '</span></div>';
+    }
+  }
+
+  // กู้ข้อมูลจากไฟล์ที่เลือก
+  restoreFromDriveBackup(fileId, label) {
+    if (!fileId) return;
+    const cur = `บิล ${this.state.transactions.length} รายการ · ลูกค้า ${this.state.customers.length} คน · ` +
+                `ประวัติกะ ${(this.state.shift.history || []).length} กะ`;
+
+    this.showConfirm(
+      `กู้ข้อมูลจากไฟล์สำรองของวันที่ ${label} ใช่ไหม?\n\n` +
+      `ข้อมูลในเครื่องนี้จะถูกเขียนทับทั้งหมด (ตอนนี้มี ${cur})\n\n` +
+      `ระบบจะดาวน์โหลดสำเนาข้อมูลปัจจุบันเก็บไว้ในเครื่องให้ก่อนเสมอ`,
+      async () => {
+        // กันกดรัวจนกู้ซ้อนกัน 2 รอบ (รอบหลังจะทับผลของรอบแรกกลางคัน)
+        if (this.restoreBusy) return;
+        this.restoreBusy = true;
+        try {
+          // 1) เซฟสำเนาของ "ตอนนี้" ไว้ก่อน — กันเลือกผิดไฟล์แล้วยอดของวันนี้หายตามไปด้วย
+          try { this.exportData(); } catch (e) { console.warn('safety export failed', e); }
+
+          // 2) ดึงเนื้อไฟล์ — ก้อนใหญ่กว่างานปกติมาก ให้เวลา 60 วิ
+          this.showToast('กำลังดึงไฟล์สำรองจาก Google Drive...', 'info');
+          const res = await this.fetchWithTimeout(this.googleSheetsUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ secret: API_SECRET, action: 'get_backup', fileId: fileId })
+          }, 60000);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const d = await res.json();
+          if (d.status !== 'success') throw new Error(d.message || 'คลาวด์แจ้งข้อผิดพลาด');
+
+          const parsed = d.details && d.details.backupData;
+          if (!this.isValidBackupObject(parsed)) {
+            throw new Error('ไฟล์สำรองไม่ครบ (ไม่พบรายการบริการ/พนักงาน/บิล) — ลองเลือกไฟล์อื่น');
+          }
+
+          // 3) เขียนลงเครื่อง (ใช้เส้นทางเดียวกับการนำเข้าไฟล์)
+          await this.applyBackupData(parsed);
+          this.closeModal('modal-restore');
+          this.showToast(`กู้ข้อมูลจากไฟล์วันที่ ${label} สำเร็จแล้ว`, 'success', 6000);
+        } catch (err) {
+          console.error('restore failed', err);
+          // ข้อมูลเดิมยังอยู่ครบ — applyBackupData ยังไม่ถูกเรียกถ้าพังก่อนถึงขั้นนั้น
+          this.showToast('กู้ข้อมูลไม่สำเร็จ: ' + (err.message || err) + ' (ข้อมูลเดิมในเครื่องยังอยู่ครบ)', 'error', 7000);
+        } finally {
+          this.restoreBusy = false;
+        }
+      }
+    );
   }
 
   // สร้างข้อความรายงานสรุปปิดกะ (แยกจากการส่ง เพื่อ snapshot เก็บลง outbox ได้)
