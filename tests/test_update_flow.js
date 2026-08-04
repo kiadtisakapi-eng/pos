@@ -104,7 +104,7 @@ console.log('\n--- ถามเวอร์ชันแคชจาก SW ---');
   const sw=loadSW(); let got=null;
   sw.listeners.message[0]({data:{type:'GET_VERSION'},ports:[{postMessage:m=>{got=m}}]});
   t('ตอบชื่อแคชกลับมาให้หน้าแอปโชว์ได้',()=>eq(got,{cacheName:CACHE_NAME}));
-  t('ชื่อแคชตรงกับที่ตั้งไว้ในไฟล์',()=>eq(CACHE_NAME,'jahn-pos-v47-drive-restore'));
+  t('ชื่อแคชเข้ารูปแบบที่ deploy.ps1 บวกเลขได้',()=>ok(/^jahn-pos-v\d+/.test(CACHE_NAME),'got '+CACHE_NAME));
 }
 
 console.log('\n--- การเสิร์ฟไฟล์ (fetch) ---');
@@ -128,8 +128,9 @@ console.log('\n--- deploy.ps1 บวกเลขเวอร์ชันให�
   const m=cur.match(/jahn-pos-v(\d+)/);
   t('ชื่อแคชปัจจุบันเข้ารูปแบบที่สคริปต์รู้จัก',()=>ok(m,'regex ไม่ match — deploy.ps1 จะข้ามการบวกเลขเงียบ ๆ'));
   t('จำลองการ deploy: v'+m[1]+' -> v'+(+m[1]+1),()=>{
+    const suffix=CACHE_NAME.replace(/^jahn-pos-v\d+/,'');
     const next=cur.replace(/jahn-pos-v\d+/g,'jahn-pos-v'+(+m[1]+1));
-    ok(next.includes('jahn-pos-v'+(+m[1]+1)+'-drive-restore'),'ส่วนคำอธิบายท้ายชื่อต้องคงอยู่');
+    ok(next.includes('jahn-pos-v'+(+m[1]+1)+suffix),'ส่วนคำอธิบายท้ายชื่อต้องคงอยู่');
     eq((next.match(/jahn-pos-v/g)||[]).length,(cur.match(/jahn-pos-v/g)||[]).length);
   });
 }

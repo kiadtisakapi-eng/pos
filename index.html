@@ -375,8 +375,16 @@
                   <span>บาท</span>
                 </div>
               </div>
+              <div class="summary-row" id="summary-vat-row" style="display: none;">
+                <span id="summary-vat-label">VAT</span>
+                <span id="summary-vat">฿0.00</span>
+              </div>
+              <div class="summary-row" id="summary-rounding-row" style="display: none;">
+                <span>ปัดเศษขึ้น</span>
+                <span id="summary-rounding">฿0.00</span>
+              </div>
               <div class="summary-row total">
-                <span>ราคาสุทธิ</span>
+                <span>ยอดที่ต้องชำระ</span>
                 <span id="summary-total">฿0.00</span>
               </div>
             </div>
@@ -384,6 +392,10 @@
             <!-- Checkout Action -->
             <button class="checkout-btn" id="btn-checkout" disabled>
               <i class="fa-solid fa-credit-card"></i> ไปที่หน้าชำระเงิน
+            </button>
+            <button class="btn-small secondary" id="btn-print-quote" disabled
+                    style="width: 100%; min-height: 44px; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+              <i class="fa-solid fa-print"></i> พิมพ์ใบแจ้งยอดให้ลูกค้าดู
             </button>
           </div>
         </div>
@@ -478,6 +490,29 @@
             </div>
           </div>
           
+          <!-- VAT Settings -->
+          <div class="glass-card" id="settings-vat-card">
+            <div class="section-title">
+              <span><i class="fa-solid fa-receipt"></i> ภาษีมูลค่าเพิ่ม (VAT)</span>
+            </div>
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; min-height: 44px;">
+              <input type="checkbox" id="vat-enabled" style="width: 20px; height: 20px; cursor: pointer;">
+              <span class="form-label" style="margin: 0;">เปิดการเก็บ VAT</span>
+            </label>
+            <div class="form-group" style="margin-top: 8px;">
+              <label class="form-label">อัตรา VAT (%)</label>
+              <input type="number" class="form-input" id="vat-rate" min="0" max="30" step="0.5" value="7" style="max-width: 160px;">
+            </div>
+            <p style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.7; margin: 0 0 10px;">
+              ระบบจะบวก VAT <b>เฉพาะหมวดที่ติ๊กไว้</b> แล้วปัดยอดรวมทั้งบิลขึ้นเป็นจำนวนเต็มบาท<br>
+              เงินปัดเศษแยกออกจาก VAT บนใบเสร็จและในชีต — ไม่ปนกับยอดที่ต้องนำส่งสรรพากร
+            </p>
+            <div id="vat-category-summary" style="font-size: 0.8rem;"></div>
+            <button class="btn-small primary" id="btn-save-vat" style="margin-top: 12px; min-height: 44px;">
+              <i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่า VAT
+            </button>
+          </div>
+
           <!-- Categories Management -->
           <div class="glass-card">
             <div class="section-title">
@@ -1106,7 +1141,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">ระยะเวลา (นาที) *</label>
-            <input type="number" class="form-input" id="serv-duration" required min="5" placeholder="เช่น 45">
+            <input type="number" class="form-input" id="serv-duration" required min="0" step="1" placeholder="เช่น 45 (ใส่ 0 ถ้าเป็นสินค้า)">
           </div>
         </div>
         <div class="form-row">
@@ -1153,6 +1188,15 @@
         <div class="form-group">
           <label class="form-label">ไอคอน</label>
           <select class="form-input" id="cat-icon"></select>
+        </div>
+        <div class="form-group">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; min-height: 44px;">
+            <input type="checkbox" id="cat-vat" style="width: 20px; height: 20px; cursor: pointer;">
+            <span class="form-label" style="margin: 0;">เก็บ VAT จากหมวดนี้</span>
+          </label>
+          <p style="color: var(--text-muted); font-size: 0.75rem; margin: 2px 0 0;">
+            เปิดเฉพาะหมวดที่ต้องเสียภาษีจริง เช่น เครื่องดื่ม/สินค้า — จะมีผลก็ต่อเมื่อเปิดสวิตช์ VAT ใหญ่ในหน้าตั้งค่าแล้ว
+          </p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-category')">ยกเลิก</button>
@@ -1330,6 +1374,23 @@
     </div>
   </div>
 
+
+  <!-- Modal: ใบแจ้งยอดก่อนชำระเงิน (ไม่ใช่ใบเสร็จ) -->
+  <div class="modal-overlay" id="modal-quote">
+    <div class="modal-card" style="max-width: 360px; background: var(--bg-surface-solid); padding: 1.25rem;">
+      <div class="modal-header" style="border-bottom: none; margin-bottom: 0.5rem;">
+        <h2 class="modal-title" style="color: var(--text-primary);">ใบแจ้งยอด (ก่อนชำระเงิน)</h2>
+        <button class="modal-close" onclick="app.closeModal('modal-quote')">&times;</button>
+      </div>
+      <div id="quote-preview" style="max-height: 62vh; overflow-y: auto;"></div>
+      <div class="modal-footer" style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-quote')">ปิด</button>
+        <button type="button" class="btn-small primary" onclick="window.print()" style="background: var(--accent-barber); color: var(--bg-app);">
+          <i class="fa-solid fa-print"></i> พิมพ์
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal: กู้ข้อมูลจาก Google Drive -->
   <div class="modal-overlay" id="modal-restore">

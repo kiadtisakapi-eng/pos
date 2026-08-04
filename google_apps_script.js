@@ -49,6 +49,11 @@ var BACKUP_FILE_PREFIX = "pos_backup_";
 // หัวคอลัมน์ของชีต "สรุปรายเดือน" — ใช้ค้นหาจากหัวตาราง แทนการอ้างเลขคอลัมน์ตายตัว
 var MASTER_VAR_HEADER = "เงินขาด/เกิน (฿)";
 var MASTER_TS_HEADER  = "อัปเดตล่าสุด";
+var MASTER_REV_HEADER = "รายได้รวม (฿)";
+var MASTER_EXP_HEADER = "ค่าใช้จ่าย (฿)";
+var MASTER_NET_HEADER = "กำไรสุทธิ (฿)";
+// 4 คอลัมน์ VAT แทรกก่อน "รายได้รวม" — เรียงให้บวกจากซ้ายไปขวาแล้วได้รายได้รวมพอดี
+var MASTER_VAT_HEADERS = ["ไม่คิด VAT (฿)", "คิด VAT (฿)", "VAT (฿)", "ปัดเศษ (฿)"];
 
 // ─────────────────────────────────────────────
 //  ROUTER
@@ -223,6 +228,9 @@ function handleTransaction(data, ss) {
   // ใช้ monthKey ที่ client คำนวณจากเวลาท้องถิ่นหน้าร้านเป็นหลัก — กันบิลช่วงเที่ยงคืน/ปลายเดือน
   // ลงแท็บผิดเดือนเมื่อ timezone ของโปรเจกต์ Apps Script ไม่ตรงกับหน้าร้าน (fallback: timezone ฝั่งสคริปต์)
   var monthYear = /^(0[1-9]|1[0-2])-\d{4}$/.test(data.monthKey || "") ? data.monthKey : fmt(txDate, "MM-yyyy");
+  // กันบิลที่วันที่หายไปแล้วกลายเป็นปี 1970 — จะได้แท็บ "01-1970" ค้างอยู่ในไฟล์ถาวร
+  if (!isValidMonthKey_(monthYear))
+    return json("error", "เดือนของบิลไม่ถูกต้อง (" + monthYear + ") — ตรวจสอบวันที่ของบิลใบนี้");
   var sheet     = getOrCreateSheet(ss, monthYear, [
     "เลขที่บิล","วันที่-เวลา","ลูกค้า","รายการบริการ",
     "ช่องทางชำระเงิน","ราคารวม (฿)","ส่วนลด (฿)","ยอดสุทธิ (฿)","พนักงาน"
@@ -279,6 +287,9 @@ function handleVoidTransaction(data, ss) {
   }
   // ใช้ monthKey จาก client เป็นหลัก (เหตุผลเดียวกับ handleTransaction) — ต้องชี้แท็บเดือนเดียวกับตอนบันทึกบิล
   var monthYear = /^(0[1-9]|1[0-2])-\d{4}$/.test(data.monthKey || "") ? data.monthKey : fmt(txDate, "MM-yyyy");
+  // กันบิลที่วันที่หายไปแล้วกลายเป็นปี 1970 — จะได้แท็บ "01-1970" ค้างอยู่ในไฟล์ถาวร
+  if (!isValidMonthKey_(monthYear))
+    return json("error", "เดือนของบิลไม่ถูกต้อง (" + monthYear + ") — ตรวจสอบวันที่ของบิลใบนี้");
   var sheet = ss.getSheetByName(monthYear);
   if (!sheet) {
     return json("error", "ไม่พบแผ่นงานของเดือนนี้");
@@ -307,8 +318,27 @@ function handleVoidTransaction(data, ss) {
 // ─────────────────────────────────────────────
 //  2. DAILY SUMMARY — สรุปรายวัน
 // ─────────────────────────────────────────────
+// ── ด่านฝั่งเซิร์ฟเวอร์: คีย์ต้องอยู่ในรูปแบบและช่วงปีที่เป็นไปได้ ──────────
+// ต้องเช็คที่นี่ด้วย ไม่ใช่เช็คแค่ในแอป — เครื่องที่ยังไม่ได้อัปเดตแอปก็ยิงเข้ามาที่นี่ได้
+// ปี 1970 คือค่าที่ได้เมื่อ "วันที่หายไป" ไม่ใช่วันที่จริง จึงตัดออกด้วยช่วงปี 2020-2100
+function isValidDateKey_(k) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(k || ""))) return false;
+  var p = String(k).split("-");
+  var y = Number(p[0]), m = Number(p[1]), d = Number(p[2]);
+  return y >= 2020 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+}
+
+function isValidMonthKey_(k) {
+  if (!/^\d{2}-\d{4}$/.test(String(k || ""))) return false;
+  var p = String(k).split("-");
+  var m = Number(p[0]), y = Number(p[1]);
+  return y >= 2020 && y <= 2100 && m >= 1 && m <= 12;
+}
+
 function handleDailySummary(data, ss) {
   var dateKey   = data.dateKey;          // "2026-06-06"
+  if (!isValidDateKey_(dateKey))
+    return json("error", "วันที่ไม่ถูกต้อง (" + dateKey + ") — ไม่สร้างแท็บสรุปเพื่อกันข้อมูลขยะในรายงาน");
   var sheetName = "สรุป-" + dateKey;
   var sheet     = ss.getSheetByName(sheetName);
   if (sheet) ss.deleteSheet(sheet);      // สร้างใหม่ทุกครั้ง (overwrite)
@@ -326,6 +356,8 @@ function handleDailySummary(data, ss) {
 // ─────────────────────────────────────────────
 function handleMonthlySummary(data, ss) {
   var monthKey  = data.monthKey;         // "06-2026"
+  if (!isValidMonthKey_(monthKey))
+    return json("error", "เดือนไม่ถูกต้อง (" + monthKey + ") — ไม่สร้างแท็บสรุปเพื่อกันข้อมูลขยะในรายงาน");
   var sheetName = "สรุป-" + monthKey;
   var sheet     = ss.getSheetByName(sheetName);
   if (sheet) ss.deleteSheet(sheet);
@@ -439,6 +471,42 @@ function writeSummarySheet(sheet, data, periodLabel) {
     sheet.getRange(r,4).setValue(sumCounted).setBackground(LTEAL).setFontColor("#0f766e").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
     sheet.getRange(r,5).setValue(sumDiff).setBackground(tBg).setFontColor(tClr).setFontWeight("bold").setNumberFormat("+#,##0.00;-#,##0.00;0.00").setHorizontalAlignment("right");
     r += 2;
+  }
+
+  // ── ภาษีมูลค่าเพิ่ม ─────────────────────────
+  // แสดงเฉพาะงวดที่มี VAT จริง — งวดก่อนเปิดระบบจะไม่มีบล็อกนี้เลย ดีกว่าโชว์ตารางศูนย์
+  var vatBase = Number(data.vatableBase) || 0;
+  var vatAmt  = Number(data.vatAmount)   || 0;
+  var vatRnd  = Number(data.rounding)    || 0;
+  if (vatBase > 0 || vatAmt > 0 || vatRnd > 0) {
+    sheet.getRange(r, 1, 1, 5).merge()
+      .setValue("ภาษีมูลค่าเพิ่ม").setBackground("#854F0B").setFontColor("white").setFontWeight("bold");
+    r++;
+    styleHeaderRow(sheet, r, ["กลุ่ม","ฐานภาษี (฿)","อัตรา","ภาษีขาย (฿)",""], "#633806", "#FAC775");
+    r++;
+
+    var vcats = data.vatCategories || [];
+    vcats.forEach(function(c) {
+      sheet.getRange(r,1).setValue(safeCell(c.name || "-")).setBackground("#FAEEDA").setFontColor("#412402");
+      sheet.getRange(r,2).setValue(Number(c.base)||0).setBackground("#FAEEDA").setFontColor("#412402").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+      sheet.getRange(r,3).setValue((Number(data.vatRate)||0) + "%").setBackground("#FAEEDA").setFontColor("#412402").setHorizontalAlignment("center");
+      sheet.getRange(r,4).setValue(Number(c.vat)||0).setBackground("#FAEEDA").setFontColor("#412402").setNumberFormat("#,##0.00").setFontWeight("bold").setHorizontalAlignment("right");
+      r++;
+    });
+
+    // แถวยอดที่ไม่คิด VAT — ให้เห็นว่าเงินที่เหลือไปอยู่ไหน ไม่ใช่หายไปเฉย ๆ
+    sheet.getRange(r,1).setValue("ยอดขายที่ไม่คิด VAT").setBackground("#FAEEDA").setFontColor("#854F0B");
+    sheet.getRange(r,2).setValue(Number(data.nonVatBase)||0).setBackground("#FAEEDA").setFontColor("#854F0B").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+    sheet.getRange(r,3).setValue("ยกเว้น").setBackground("#FAEEDA").setFontColor("#854F0B").setHorizontalAlignment("center");
+    sheet.getRange(r,4).setValue("—").setBackground("#FAEEDA").setFontColor("#854F0B").setHorizontalAlignment("right");
+    r++;
+
+    sheet.getRange(r,1).setValue("รวม · เงินปัดเศษ " + numFmt(vatRnd) + " (ไม่ใช่ภาษี ไม่ต้องนำส่ง)")
+      .setBackground("#FAC775").setFontColor("#412402").setFontWeight("bold").setFontSize(9);
+    sheet.getRange(r,2).setValue(vatBase).setBackground("#FAC775").setFontColor("#412402").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+    sheet.getRange(r,3).setValue("").setBackground("#FAC775");
+    sheet.getRange(r,4).setValue(vatAmt).setBackground("#FAC775").setFontColor("#412402").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
+    r += 3;
   }
 
   // ── รายการบริการ ────────────────────────────
@@ -555,13 +623,16 @@ function updateMasterSummarySheet(ss, data, periodType, periodKey) {
   var master = ss.getSheetByName(masterName);
   if (!master) {
     master = ss.insertSheet(masterName, 0);
-    var mh = ["ประเภท","ช่วงเวลา","บิล","รายได้รวม (฿)","ค่าใช้จ่าย (฿)","กำไรสุทธิ (฿)", MASTER_VAR_HEADER, MASTER_TS_HEADER];
+    var mh = ["ประเภท","ช่วงเวลา","บิล"]
+      .concat(MASTER_VAT_HEADERS)
+      .concat([MASTER_REV_HEADER,"ค่าใช้จ่าย (฿)","กำไรสุทธิ (฿)", MASTER_VAR_HEADER, MASTER_TS_HEADER]);
     styleHeaderRow(master, 1, mh, "#1e293b", "#e2e8f0");
     master.setFrozenRows(1);
   } else {
     // ต้อง flush ให้การแทรกคอลัมน์มีผลจริงก่อน — writeToMaster ด้านล่างอ่านหัวตารางซ้ำ
     // ถ้าอ่านก่อนที่ Sheets จะ apply การแทรก จะหาคอลัมน์ใหม่ไม่เจอแล้วข้ามการเขียนเงินขาด/เกินไปทั้งรอบ
     migrateMasterAddVarianceColumn(master);
+    migrateMasterAddVatColumns(master);
     SpreadsheetApp.flush();
   }
   var lastRow = master.getLastRow();
@@ -589,11 +660,17 @@ function masterColumnMap_(sheet) {
   var lastCol = sheet.getLastColumn();
   if (lastCol < 1) return { varCol: 0, tsCol: 0 };
   var headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  var map = { varCol: 0, tsCol: 0 };
+  var map = { varCol: 0, tsCol: 0, revCol: 0, expCol: 0, netCol: 0, vatCols: [0, 0, 0, 0] };
   for (var i = 0; i < headers.length; i++) {
     var h = String(headers[i]).trim();
     if (h === MASTER_VAR_HEADER) map.varCol = i + 1;
     if (h === MASTER_TS_HEADER)  map.tsCol  = i + 1;
+    if (h === MASTER_REV_HEADER) map.revCol = i + 1;
+    if (h === MASTER_EXP_HEADER) map.expCol = i + 1;
+    if (h === MASTER_NET_HEADER) map.netCol = i + 1;
+    for (var k = 0; k < MASTER_VAT_HEADERS.length; k++) {
+      if (h === MASTER_VAT_HEADERS[k]) map.vatCols[k] = i + 1;
+    }
   }
   return map;
 }
@@ -601,6 +678,26 @@ function masterColumnMap_(sheet) {
 // แทรกคอลัมน์ "เงินขาด/เกิน" ให้ชีต master ที่สร้างไว้ก่อนเวอร์ชันนี้
 // idempotent: ถ้าหาคอลัมน์นี้เจอแล้ว = เคย migrate แล้ว ไม่ทำซ้ำ
 // แทรกก่อน "อัปเดตล่าสุด" เพื่อให้คอลัมน์เงินอยู่ติดกัน — ข้อมูลเดิมเลื่อนตามอัตโนมัติ ไม่หาย
+// แทรก 4 คอลัมน์ VAT ให้ชีตที่สร้างไว้ก่อนเวอร์ชันนี้
+// idempotent: เจอครบแล้วออกเลย · เจอบางส่วน = โครงสร้างเพี้ยน ไม่แตะดีกว่าทำข้อมูลพัง
+function migrateMasterAddVatColumns(master) {
+  var cols = masterColumnMap_(master);
+  var found = 0;
+  for (var i = 0; i < cols.vatCols.length; i++) { if (cols.vatCols[i] > 0) found++; }
+  if (found === MASTER_VAT_HEADERS.length) return;   // ครบแล้ว
+  if (found > 0) return;                             // ครบบ้างไม่ครบบ้าง — ไม่แตะ
+  if (cols.revCol === 0) return;                     // ไม่รู้จักโครงสร้าง — ไม่แตะ
+
+  // แทรกทีละคอลัมน์หน้า "รายได้รวม" โดยไล่จากขวาไปซ้าย ตำแหน่งเดิมจึงไม่ขยับระหว่างทาง
+  for (var j = MASTER_VAT_HEADERS.length - 1; j >= 0; j--) {
+    master.insertColumnBefore(cols.revCol);
+    master.getRange(1, cols.revCol)
+      .setValue(MASTER_VAT_HEADERS[j])
+      .setBackground("#334155").setFontColor("#e2e8f0")
+      .setFontWeight("bold").setHorizontalAlignment("center");
+  }
+}
+
 function migrateMasterAddVarianceColumn(master) {
   var cols = masterColumnMap_(master);
   if (cols.varCol > 0) return;   // มีแล้ว
@@ -613,20 +710,42 @@ function migrateMasterAddVarianceColumn(master) {
 }
 
 function writeToMaster(sheet, row, type, key, data) {
+  var colsRev = masterColumnMap_(sheet);
   var net    = data.netIncome;
   var netBg  = net >= 0 ? "#dcfce7" : "#ffe4e6";
   var netClr = net >= 0 ? "#166534" : "#9f1239";
   sheet.getRange(row,1).setValue(type === "month" ? "รายเดือน" : "รายวัน");
   sheet.getRange(row,2).setNumberFormat("@").setValue(key).setFontWeight("bold");
   sheet.getRange(row,3).setValue(data.billCount).setHorizontalAlignment("center");
-  sheet.getRange(row,4).setValue(data.totalRevenue).setNumberFormat("#,##0.00").setBackground("#fef9c3").setHorizontalAlignment("right");
-  sheet.getRange(row,5).setValue(data.totalExpenses).setNumberFormat("#,##0.00").setBackground("#ffe4e6").setHorizontalAlignment("right");
-  sheet.getRange(row,6).setValue(net).setNumberFormat("#,##0.00").setBackground(netBg).setFontColor(netClr).setFontWeight("bold").setHorizontalAlignment("right");
+  // รายได้รวม — หาคอลัมน์จากหัวตาราง (ชีตเก่าอยู่ช่อง 4 ชีตใหม่ถูกดัน 4 ช่องเพราะคอลัมน์ VAT)
+  var revCol = colsRev.revCol > 0 ? colsRev.revCol : 4;
+  sheet.getRange(row,revCol).setValue(data.totalRevenue).setNumberFormat("#,##0.00").setBackground("#fef9c3").setHorizontalAlignment("right");
+
+  // 4 ช่อง VAT — เขียนเมื่อหาคอลัมน์เจอเท่านั้น ห้ามเดาเลขคอลัมน์
+  if (colsRev.vatCols[0] > 0 && colsRev.vatCols[1] > 0 && colsRev.vatCols[2] > 0 && colsRev.vatCols[3] > 0) {
+    var vals = [Number(data.nonVatBase)||0, Number(data.vatableBase)||0, Number(data.vatAmount)||0, Number(data.rounding)||0];
+    // งวดก่อนเปิด VAT: แอปส่ง nonVatBase = totalRevenue มาให้แล้ว ค่าที่เหลือเป็น 0 ตามจริง
+    var bgs = ["#f8fafc", "#e6f1fb", "#fef3c7", "#f1f5f9"];
+    var fgs = ["#475569", "#0c447c", "#854f0b", "#64748b"];
+    for (var v = 0; v < 4; v++) {
+      sheet.getRange(row, colsRev.vatCols[v])
+        .setValue(vals[v]).setNumberFormat("#,##0.00")
+        .setBackground(bgs[v]).setFontColor(fgs[v])
+        .setFontWeight(v === 2 && vals[2] > 0 ? "bold" : "normal")
+        .setHorizontalAlignment("right");
+    }
+  }
+  // ⚠️ ค่าใช้จ่าย/กำไรสุทธิ ต้องหาจากหัวตารางเช่นกัน — พอแทรกคอลัมน์ VAT เข้ามา 4 ช่อง
+  // สองคอลัมน์นี้เลื่อนจากช่อง 5-6 ไปเป็น 9-10 ถ้ายังเขียนตามเลขเดิมจะไปทับคอลัมน์ VAT
+  var expCol = colsRev.expCol > 0 ? colsRev.expCol : 5;
+  var netCol = colsRev.netCol > 0 ? colsRev.netCol : 6;
+  sheet.getRange(row,expCol).setValue(data.totalExpenses).setNumberFormat("#,##0.00").setBackground("#ffe4e6").setHorizontalAlignment("right");
+  sheet.getRange(row,netCol).setValue(net).setNumberFormat("#,##0.00").setBackground(netBg).setFontColor(netClr).setFontWeight("bold").setHorizontalAlignment("right");
 
   // เงินขาด/เกิน — แยกสี 3 ระดับ: ขาด(แดง) / เกิน(เขียว) / ตรงพอดีหรือยังไม่ปิดกะ(เทา)
   // ใช้ "—" เมื่อยังไม่มีกะปิดในงวดนั้น เพื่อไม่ให้ 0 (ตรงพอดี) กับ "ยังไม่ปิดกะ" ดูเหมือนกัน
   // ⚠️ หาคอลัมน์จากหัวตาราง ถ้าไม่เจอ = ข้ามไปเลย ห้ามเดาเลขคอลัมน์แล้วเขียนทับของเดิม
-  var cols = masterColumnMap_(sheet);
+  var cols = colsRev;
   if (cols.varCol > 0) {
     var hasShift = Number(data.shiftCount || 0) > 0;
     var varVal   = Number(data.cashVariance || 0);

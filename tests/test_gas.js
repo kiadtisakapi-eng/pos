@@ -86,6 +86,59 @@ t('ปิดกะแล้วตรงพอดี -> เลข 0 ไม่ใ�
   eq(sh._grid[1][6],0);
 });
 
+console.log('\n--- คอลัมน์ VAT ในชีตสรุปรายเดือน ---');
+const OLD8=['ประเภท','ช่วงเวลา','บิล','รายได้รวม (฿)','ค่าใช้จ่าย (฿)','กำไรสุทธิ (฿)',V,TS];
+t('ชีตเดิม 8 คอลัมน์ -> แทรก 4 คอลัมน์ VAT หน้า "รายได้รวม"',()=>{
+  const sh=FakeSheet(OLD8,[['เดือน','07-2026',10,1000,100,900,-50,'2026-07-01']]);
+  g.migrateMasterAddVatColumns(sh);
+  const m=g.masterColumnMap_(sh);
+  eq(m.vatCols,[4,5,6,7],'คอลัมน์ VAT ต้องอยู่ช่อง 4-7');
+  eq(m.revCol,8,'รายได้รวมต้องเลื่อนไปช่อง 8');
+  eq(sh._grid[1][7],1000,'ยอดรายได้เดิมต้องเลื่อนตาม ไม่หาย');
+  eq(sh._grid[1][10],-50,'เงินขาด/เกินเดิมต้องเลื่อนตาม');
+  eq(sh._grid[1][11],'2026-07-01','timestamp เดิมต้องเลื่อนตาม');
+});
+t('เรียก migrate ซ้ำ ไม่แทรกซ้ำ',()=>{
+  const sh=FakeSheet(OLD8,[]);
+  g.migrateMasterAddVatColumns(sh); g.migrateMasterAddVatColumns(sh); g.migrateMasterAddVatColumns(sh);
+  eq(sh._grid[0].length,12);
+});
+t('ชีตโครงสร้างแปลก (ไม่มี "รายได้รวม") -> ไม่แตะ',()=>{
+  const sh=FakeSheet(['aaa','bbb'],[['1','2']]);
+  g.migrateMasterAddVatColumns(sh);
+  eq(sh._grid[0].length,2);
+});
+t('เขียน 4 ช่อง VAT ลงคอลัมน์ที่ถูก และบวกได้เท่ารายได้รวม',()=>{
+  const sh=FakeSheet(OLD8,[]);
+  g.migrateMasterAddVatColumns(sh);
+  g.writeToMaster(sh,2,'day','2026-08-01',{
+    billCount:38, totalRevenue:18420, totalExpenses:600, netIncome:17820,
+    nonVatBase:17600, vatableBase:750, vatAmount:52.5, rounding:17.5,
+    shiftCount:1, cashVariance:-30});
+  const m=g.masterColumnMap_(sh);
+  eq(sh._grid[1][m.vatCols[0]-1],17600);
+  eq(sh._grid[1][m.vatCols[1]-1],750);
+  eq(sh._grid[1][m.vatCols[2]-1],52.5);
+  eq(sh._grid[1][m.vatCols[3]-1],17.5);
+  eq(sh._grid[1][m.revCol-1],18420);
+  eq(17600+750+52.5+17.5,18420,'4 ช่องต้องบวกได้เท่ารายได้รวม');
+  eq(sh._grid[1][m.varCol-1],-30,'เงินขาด/เกินยังลงถูกช่องหลังแทรกคอลัมน์');
+});
+t('ชีตเก่าที่ยังไม่ migrate -> เขียนรายได้รวมช่อง 4 ตามเดิม ไม่ทับคอลัมน์อื่น',()=>{
+  const sh=FakeSheet(OLD8,[]);
+  g.writeToMaster(sh,2,'day','2026-08-01',{billCount:5,totalRevenue:999,totalExpenses:0,netIncome:999,
+    nonVatBase:999,vatableBase:0,vatAmount:0,rounding:0,shiftCount:0,cashVariance:0});
+  eq(sh._grid[1][3],999);
+  eq(sh._grid[1][7],'2026-07-31 12:00','timestamp ยังลงช่อง 8 ตามเดิม');
+});
+t('ชีตใหม่เอี่ยมสร้างมาพร้อม 12 คอลัมน์',()=>{
+  const mh=['ประเภท','ช่วงเวลา','บิล'].concat(g.MASTER_VAT_HEADERS).concat([g.MASTER_REV_HEADER,'ค่าใช้จ่าย (฿)','กำไรสุทธิ (฿)',V,TS]);
+  eq(mh.length,12);
+  const sh=FakeSheet(mh,[]);
+  const m=g.masterColumnMap_(sh);
+  eq(m.vatCols,[4,5,6,7]); eq(m.revCol,8); eq(m.varCol,11); eq(m.tsCol,12);
+});
+
 console.log('\n--- ความปลอดภัยของ get_backup ---');
 function FakeFile(id,name,content,created){return{getId:()=>id,getName:()=>name,getSize:()=>content.length,
   getDateCreated:()=>created||new Date('2026-07-27T14:40:00Z'),getBlob:()=>({getDataAsString:()=>content}),setTrashed(){}}}

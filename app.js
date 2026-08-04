@@ -25,10 +25,13 @@ const DEFAULT_QUEUE = [];
 
 const DEFAULT_TRANSACTIONS = [];
 
+// vat: true = สินค้าในหมวดนี้ต้องบวก VAT ตอนคิดเงิน
+// หมวดที่ไม่มีฟิลด์นี้ (ข้อมูลเก่าก่อนมีระบบ VAT) ถือว่า false เสมอ — ห้ามเดาเป็น true
 const DEFAULT_CATEGORIES = [
-  { id: 'barber', name: 'ตัดผมชาย (Barber)', icon: 'fa-scissors' },
-  { id: 'massage', name: 'นวดและสปา (Massage)', icon: 'fa-spa' },
-  { id: 'premium', name: 'แพ็คเกจพรีเมียม (Premium)', icon: 'fa-gem' }
+  { id: 'barber', name: 'ตัดผมชาย (Barber)', icon: 'fa-scissors', vat: false },
+  { id: 'massage', name: 'นวดและสปา (Massage)', icon: 'fa-spa', vat: false },
+  { id: 'premium', name: 'แพ็คเกจพรีเมียม (Premium)', icon: 'fa-gem', vat: false },
+  { id: 'drinks', name: 'เครื่องดื่ม (Drinks)', icon: 'fa-mug-hot', vat: true }
 ];
 
 // ⚠️ SECRET TOKEN — ต้องตรงกับค่า API_SECRET ในไฟล์ google_apps_script.js ทุกตัวอักษร
@@ -36,7 +39,7 @@ const DEFAULT_CATEGORIES = [
 const API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.4.0 (2026-07-31)';
+const APP_VERSION = '1.5.0 (2026-08-03)';
 
 // ─────────────────────────────────────────────
 //  วันทำการ (Business Date) — ร้านเปิด 11:00 น. ถึงตี 3 ของวันถัดไป
@@ -102,6 +105,8 @@ class PosApp {
     this.isSyncing = false;
     this.loadFailed = false;      // true = โหลดข้อมูลจาก IndexedDB ไม่สำเร็จ → ห้ามเขียนทับ DB ทุกกรณี
     this.restoreBusy = false;     // true = กำลังกู้ข้อมูลจาก Drive อยู่ ห้ามเริ่มรอบใหม่ซ้อน
+    this.vatEnabled = false;      // สวิตช์ใหญ่ — ปิดไว้ก่อนเสมอ ต้องเปิดเองในหน้าตั้งค่า
+    this.vatRate = 7;             // อัตรา VAT (%) เก็บติดบิลทุกใบ เผื่ออนาคตอัตราเปลี่ยน
     this.currentRole = null;      // 'owner' | 'manager' | 'staff' | null (ยังไม่ล็อกอิน)
     this.currentUser = null;      // { id, name } ของผู้ที่ล็อกอินอยู่
     this.loginSelectedId = null;  // ผู้ใช้ที่เลือกในหน้าล็อกอิน
@@ -222,9 +227,29 @@ class PosApp {
 
   // เลื่อน timestamp ถอยหลังตามชั่วโมงตัดวัน — ฐานของทุกฟังก์ชันด้านล่าง
   getBusinessTime(dateVal) {
+    // ⚠️ ต้องกัน null/undefined/'' ก่อน — new Date(null) ไม่ใช่ Invalid Date แต่เป็น 1 ม.ค. 1970
+    // ถ้าปล่อยผ่าน บิลที่ไม่มีวันที่ (เช่นมาจากไฟล์สำรองที่เสียหาย) จะถูกจัดเข้าเดือน "01-1970"
+    // แล้วระบบจะสร้างแท็บ "สรุป-01-1970" กับแถวขยะในชีตสรุปรายเดือนขึ้นมาเอง
+    if (dateVal === null || dateVal === undefined || dateVal === '') return NaN;
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return NaN;
     return d.getTime() - BUSINESS_DAY_CUTOFF_HOUR * 3600 * 1000;
+  }
+
+  // ── ตรวจรูปแบบคีย์วัน/เดือน ก่อนส่งขึ้นชีต ────────────────────────
+  // ด่านสุดท้ายก่อนสร้างแท็บใหม่บน Google Sheets — คีย์เพี้ยนแม้ตัวเดียวจะได้แท็บขยะ
+  // ที่ลบเองไม่ได้จากในแอป และไปโผล่ปนในชีตสรุปรายเดือน ทำให้รายงานอ่านไม่รู้เรื่อง
+  // จำกัดช่วงปี 2020-2100 ด้วย เพราะปี 1970 คือค่าที่ได้เมื่อวันที่หายไป ไม่ใช่วันที่จริง
+  isValidDateKey(k) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(k || ''))) return false;
+    const [y, m, d] = String(k).split('-').map(Number);
+    return y >= 2020 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+  }
+
+  isValidMonthKey(k) {
+    if (!/^\d{2}-\d{4}$/.test(String(k || ''))) return false;
+    const [m, y] = String(k).split('-').map(Number);
+    return y >= 2020 && y <= 2100 && m >= 1 && m <= 12;
   }
 
   // วันทำการแบบ "2026-07-18" (บิลตี 2 ของวันที่ 19 → "2026-07-18")
@@ -530,6 +555,11 @@ class PosApp {
       this.telegramChatId = telegramChatIdVal ? telegramChatIdVal.value : '';
       this.currentRole = 'staff';
 
+      const vatEnabledVal = await db.state.get('vatEnabled');
+      const vatRateVal    = await db.state.get('vatRate');
+      this.vatEnabled = vatEnabledVal ? !!vatEnabledVal.value : false;
+      this.vatRate    = (vatRateVal && Number.isFinite(Number(vatRateVal.value))) ? Number(vatRateVal.value) : 7;
+
     } catch (err) {
       console.error('Error loading IndexedDB', err);
 
@@ -558,6 +588,8 @@ class PosApp {
       this.telegramToken = '';
       this.telegramChatId = '';
       this.currentRole = 'staff';
+      this.vatEnabled = false;
+      this.vatRate = 7;
 
       // จอทึบเต็มหน้า ปิดไม่ได้ — toast เตือน 6 วิ ไม่พอ เพราะพนักงานกดปิดแล้วขายต่อ
       // แล้ว saveState() รอบแรกจะทับข้อมูลจริงทันที
@@ -672,7 +704,9 @@ class PosApp {
         { key: 'ownerPin', value: this.ownerPin },
         { key: 'googleSheetsUrl', value: this.googleSheetsUrl },
         { key: 'telegramToken', value: this.telegramToken },
-        { key: 'telegramChatId', value: this.telegramChatId }
+        { key: 'telegramChatId', value: this.telegramChatId },
+        { key: 'vatEnabled', value: !!this.vatEnabled },
+        { key: 'vatRate', value: Number(this.vatRate) || 0 }
       ]);
     } catch (e) {
       console.error('IndexedDB save failure!', e);
@@ -702,6 +736,8 @@ class PosApp {
       shopPhone: this.shopPhone || '',
       shopLogo: this.shopLogo || '',
       theme: this.theme || 'dark',
+      vatEnabled: !!this.vatEnabled,
+      vatRate: Number(this.vatRate) || 0,
       // ownerPin is omitted for security since sending it over the network to Apps Script is vulnerable
       googleSheetsUrl: this.googleSheetsUrl || '',
       // telegramToken ถูกตัดออกเพื่อความปลอดภัย (ตั้งค่าใหม่หลัง restore)
@@ -841,6 +877,8 @@ class PosApp {
     document.getElementById('btn-clear-cart').addEventListener('click', () => this.clearCart());
     document.getElementById('cart-discount').addEventListener('input', () => this.updateCartTotals());
     document.getElementById('btn-checkout').addEventListener('click', () => this.openCheckoutModal());
+    const btnQuote = document.getElementById('btn-print-quote');
+    if (btnQuote) btnQuote.addEventListener('click', () => this.showQuotePreview());
     
     // Floating Mobile Cart
     document.getElementById('mobile-cart-trigger').addEventListener('click', () => {
@@ -895,6 +933,9 @@ class PosApp {
     if (btnAddCategory) btnAddCategory.addEventListener('click', () => this.openCategoryModal(null));
     const formCategory = document.getElementById('form-category');
     if (formCategory) formCategory.addEventListener('submit', (e) => { e.preventDefault(); this.addCategory(); });
+    // ตั้งค่า VAT
+    const btnSaveVat = document.getElementById('btn-save-vat');
+    if (btnSaveVat) btnSaveVat.addEventListener('click', () => this.saveVatSettings());
     document.getElementById('btn-reset-data').addEventListener('click', () => this.resetData());
 
     // Customer search bar
@@ -1255,7 +1296,9 @@ class PosApp {
             <div class="service-info">
               <span class="service-name">${escapeHtml(s.name)}</span>
               <span class="service-duration">
-                <i class="fa-regular fa-clock"></i> ${s.duration} นาที
+                ${(Number(s.duration) || 0) > 0
+                  ? `<i class="fa-regular fa-clock"></i> ${s.duration} นาที`
+                  : `<i class="fa-solid fa-bag-shopping"></i> สินค้า`}
               </span>
             </div>
             <div class="service-price">฿${s.price.toLocaleString('th-TH')}</div>
@@ -1383,14 +1426,19 @@ class PosApp {
       
       const secondsElapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutesElapsed = Math.floor(secondsElapsed / 60);
-      
-      const percent = Math.min(100, Math.floor((minutesElapsed / duration) * 100));
-      
+
+      // ⚠️ บิลที่มีแต่สินค้า (เครื่องดื่ม) รวมเวลาได้ 0 — หารด้วย 0 จะได้ NaN
+      // แล้วแถบความคืบหน้าจะกลายเป็น width:"NaN%" และข้อความ "ให้บริการไปแล้ว 0/0 นาที"
+      const hasDuration = Number.isFinite(duration) && duration > 0;
+      const percent = hasDuration ? Math.min(100, Math.floor((minutesElapsed / duration) * 100)) : 100;
+
       const timeEl = document.getElementById(`time-elapsed-${qId}`);
       const progressEl = document.getElementById(`progress-bar-${qId}`);
-      
+
       if (timeEl) {
-        timeEl.innerText = `ให้บริการไปแล้ว ${minutesElapsed}/${duration} นาที`;
+        timeEl.innerText = hasDuration
+          ? `ให้บริการไปแล้ว ${minutesElapsed}/${duration} นาที`
+          : 'สินค้า — ส่งให้ลูกค้าได้เลย';
       }
       if (progressEl) {
         progressEl.style.width = `${percent}%`;
@@ -1453,8 +1501,12 @@ class PosApp {
               <i class="fa-solid ${escapeHtml(c.icon || 'fa-tag')}"></i>
             </div>
             <div class="settings-list-item-info">
-              <span class="title" style="font-weight: 600;">${escapeHtml(c.name)}</span>
-              <span class="desc">${count} บริการในหมวดนี้</span>
+              <span class="title" style="font-weight: 600;">${escapeHtml(c.name)}${
+                c.vat === true
+                  ? ` <span style="font-size:0.68rem;padding:2px 8px;border-radius:99px;background:rgba(245,200,66,0.18);color:var(--accent-premium,#f5c842);font-weight:700;vertical-align:middle;">VAT</span>`
+                  : ''
+              }</span>
+              <span class="desc">${count} บริการในหมวดนี้${c.vat === true && !this.vatEnabled ? ' · รอเปิดสวิตช์ VAT' : ''}</span>
             </div>
           </div>
           <div style="display: flex; gap: 8px;">
@@ -1464,6 +1516,57 @@ class PosApp {
         </div>
       `;
     }).join('');
+  }
+
+  // ── หน้าตั้งค่า VAT ────────────────────────────────────────────────
+  renderVatSettings() {
+    const chk  = document.getElementById('vat-enabled');
+    const rate = document.getElementById('vat-rate');
+    const sum  = document.getElementById('vat-category-summary');
+    if (chk)  chk.checked = !!this.vatEnabled;
+    if (rate) rate.value = Number(this.vatRate) || 0;
+    if (!sum) return;
+
+    const cats = this.state.categories || [];
+    const on  = cats.filter(c => c.vat === true);
+    const off = cats.filter(c => c.vat !== true);
+    if (!this.vatEnabled) {
+      sum.innerHTML = `<div style="color:var(--text-muted);">ปิดอยู่ — ทุกบิลไม่มี VAT` +
+        (on.length ? ` (ติ๊กหมวดไว้แล้ว ${on.length} หมวด รอเปิดสวิตช์)` : '') + `</div>`;
+      return;
+    }
+    if (on.length === 0) {
+      sum.innerHTML = `<div style="color:var(--color-danger,#f43f6a);">เปิดสวิตช์แล้วแต่ยังไม่ได้ติ๊กหมวดไหนเลย — บิลจะยังไม่มี VAT<br>
+        <span style="color:var(--text-muted);">ไปที่หมวดหมู่การขาย → แก้ไข → ติ๊ก "เก็บ VAT จากหมวดนี้"</span></div>`;
+      return;
+    }
+    sum.innerHTML =
+      `<div style="margin-bottom:4px;"><b style="color:var(--accent-premium,#f5c842);">คิด ${this.vatRate}%:</b> ${escapeHtml(on.map(c => c.name).join(' · '))}</div>` +
+      (off.length ? `<div style="color:var(--text-muted);"><b>ไม่คิด:</b> ${escapeHtml(off.map(c => c.name).join(' · '))}</div>` : '');
+  }
+
+  async saveVatSettings() {
+    if (this.currentRole !== 'owner') {
+      this.showToast('เฉพาะเจ้าของร้านเท่านั้นที่ตั้งค่า VAT ได้', 'warning');
+      return;
+    }
+    const chk  = document.getElementById('vat-enabled');
+    const rate = document.getElementById('vat-rate');
+    const raw  = parseFloat(rate ? rate.value : 7);
+    // อัตราต้องอยู่ในช่วงที่เป็นไปได้ — พิมพ์ 700 แล้วบิลจะบวมแบบไม่มีใครทันสังเกต
+    if (!Number.isFinite(raw) || raw < 0 || raw > 30) {
+      this.showToast('อัตรา VAT ต้องอยู่ระหว่าง 0 ถึง 30 เปอร์เซ็นต์', 'warning');
+      return;
+    }
+    this.vatEnabled = !!(chk && chk.checked);
+    this.vatRate = Math.round(raw * 100) / 100;
+    await this.saveState();
+    this.renderVatSettings();
+    this.renderCategoryList();
+    this.updateCartTotals(); // ตะกร้าที่ค้างอยู่ต้องเปลี่ยนยอดทันที
+    this.showToast(this.vatEnabled
+      ? `เปิดเก็บ VAT ${this.vatRate}% แล้ว — มีผลกับบิลใหม่เท่านั้น บิลเก่าไม่เปลี่ยน`
+      : 'ปิดการเก็บ VAT แล้ว — บิลเก่าที่เคยเก็บ VAT ยังคงตัวเลขเดิมไว้', 'success', 5000);
   }
 
   getCategoryIconOptions(selected) {
@@ -1481,6 +1584,7 @@ class PosApp {
   }
 
   openCategoryModal(catId) {
+    let vat = false;
     this.state.editingCategoryId = catId || null;
     const titleEl = document.getElementById('category-modal-title');
     const nameInput = document.getElementById('cat-name');
@@ -1488,13 +1592,15 @@ class PosApp {
     let selectedIcon = 'fa-tag', name = '';
     if (catId) {
       const c = this.state.categories.find(x => x.id === catId);
-      if (c) { name = c.name; selectedIcon = c.icon || 'fa-tag'; }
+      if (c) { name = c.name; selectedIcon = c.icon || 'fa-tag'; vat = c.vat === true; }
       if (titleEl) titleEl.innerText = 'แก้ไขหมวดหมู่';
     } else {
       if (titleEl) titleEl.innerText = 'เพิ่มหมวดหมู่ใหม่';
     }
     if (nameInput) nameInput.value = name;
     if (iconSel) iconSel.innerHTML = this.getCategoryIconOptions(selectedIcon);
+    const vatChk = document.getElementById('cat-vat');
+    if (vatChk) vatChk.checked = vat;
     this.openModal('modal-category');
   }
 
@@ -1505,21 +1611,25 @@ class PosApp {
     const iconSel = document.getElementById('cat-icon');
     const name = (nameInput ? nameInput.value : '').trim();
     const icon = (iconSel ? iconSel.value : 'fa-tag') || 'fa-tag';
+    const vatChk = document.getElementById('cat-vat');
+    const vat = !!(vatChk && vatChk.checked);
     if (!name) { this.showToast('กรุณากรอกชื่อหมวดหมู่', 'warning'); if (nameInput) nameInput.focus(); return; }
     const dup = this.state.categories.find(c => c.name.trim() === name && c.id !== this.state.editingCategoryId);
     if (dup) { this.showToast('มีหมวดหมู่ชื่อนี้อยู่แล้ว', 'warning'); return; }
     if (this.state.editingCategoryId) {
       const c = this.state.categories.find(x => x.id === this.state.editingCategoryId);
-      if (c) { c.name = name; c.icon = icon; }
+      if (c) { c.name = name; c.icon = icon; c.vat = vat; }
       this.state.editingCategoryId = null;
     } else {
-      this.state.categories.push({ id: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, name, icon });
+      this.state.categories.push({ id: `cat-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, name, icon, vat });
     }
     await this.saveState();
     this.closeModal('modal-category');
     this.renderCategoryList();
+    this.renderVatSettings();
     this.renderPos();
     this.renderSettingsLists();
+    this.updateCartTotals(); // ตะกร้าที่ค้างอยู่ต้องคิด VAT ใหม่ทันทีตามหมวดที่เพิ่งแก้
     this.showToast('บันทึกหมวดหมู่เรียบร้อยแล้ว', 'success');
   }
 
@@ -1542,6 +1652,7 @@ class PosApp {
 
   renderSettingsLists() {
     this.renderCategoryList();
+    this.renderVatSettings();
     // 1. รายชื่อพนักงาน
     const staffList = document.getElementById('settings-staff-list');
     staffList.innerHTML = this.state.staff.map(s => `
@@ -1572,7 +1683,7 @@ class PosApp {
             </div>
             <div class="settings-list-item-info">
               <span class="title" style="font-weight: 600;">${escapeHtml(s.name)}</span>
-              <span class="desc">หมวดหมู่: ${typeText} • ฿${s.price} • ${s.duration} นาที • ค่าคอม ${s.commission || 0}${s.commissionType === 'fixed' ? '฿' : '%'}</span>
+              <span class="desc">หมวดหมู่: ${typeText} • ฿${s.price} • ${(Number(s.duration) || 0) > 0 ? `${s.duration} นาที` : 'สินค้า'} • ค่าคอม ${s.commission || 0}${s.commissionType === 'fixed' ? '฿' : '%'}</span>
             </div>
           </div>
           <div style="display: flex; gap: 8px;">
@@ -1651,6 +1762,7 @@ class PosApp {
       duration: service.duration,
       commission: service.commission || 0,
       commissionType: service.commissionType || 'percent',
+      category: service.category || '',   // ใช้ตัดสินว่าต้องบวก VAT ไหม
       staffId: defaultStaff.id,
       staffName: defaultStaff.name
     });
@@ -1697,8 +1809,12 @@ class PosApp {
           <p>เลือกบริการด้านซ้ายเพื่อเริ่มออกบิล</p>
         </div>`;
       document.getElementById('btn-checkout').disabled = true;
+      const bq0 = document.getElementById('btn-print-quote');
+      if (bq0) bq0.disabled = true;
     } else {
       document.getElementById('btn-checkout').disabled = false;
+      const bq1 = document.getElementById('btn-print-quote');
+      if (bq1) bq1.disabled = false;
 
       // สร้างตัวเลือกรายชื่อพนักงานสำหรับใส่ในกล่อง Dropdown ของตะกร้าสินค้า
       const staffOptions = this.state.staff.map(st => 
@@ -1744,9 +1860,68 @@ class PosApp {
     return Math.min(Math.max(0, raw), subtotal);
   }
 
+  // ยอดที่ลูกค้าต้องจ่ายจริง = ก่อน VAT + VAT + ปัดเศษขึ้นเต็มบาท
+  // ทุกที่ที่ถามว่า "ต้องเก็บเงินเท่าไร" (ช่องรับเงิน, QR, เงินทอน, บิล) ใช้ค่านี้ตัวเดียว
   getCartTotal() {
+    return this.getCartBillTotals().total;
+  }
+
+  // ── หมวดนี้ต้องบวก VAT ไหม ──────────────────────────────────────────
+  // หมวดที่ไม่มีฟิลด์ vat (ข้อมูลเก่า) หรือหาหมวดไม่เจอ = ไม่คิด VAT
+  // ตั้งใจให้ "ไม่คิด" เป็นค่าตั้งต้น — เก็บภาษีเกินจากลูกค้าแก้ยากกว่าเก็บขาด
+  isVatableCategory(categoryId) {
+    if (!this.vatEnabled) return false;
+    const cat = (this.state.categories || []).find(c => c.id === categoryId);
+    return !!(cat && cat.vat === true);
+  }
+
+  // แตกตะกร้าเป็นบรรทัด พร้อมราคาหลังส่วนลดและธง VAT
+  // ใช้ตัวเดียวกันทั้งตอนแสดงผลในตะกร้าและตอนจบบิล — ตัวเลขจึงตรงกันเป๊ะเสมอ
+  getCartLines() {
     const subtotal = this.getCartSubtotal();
-    return Math.max(0, subtotal - this.getCartDiscount(subtotal));
+    const discount = this.getCartDiscount(subtotal);
+    const nets = this.distributeDiscount(this.state.cart.map(i => i.price), subtotal, discount);
+    return this.state.cart.map((item, i) => ({
+      netPrice: nets[i],
+      vatable: this.isVatableCategory(item.category)
+    }));
+  }
+
+  // ── คำนวณยอดทั้งบิล ────────────────────────────────────────────────
+  // คิดเป็น "สตางค์จำนวนเต็ม" ทั้งหมด ไม่ใช้ทศนิยมเลย
+  // เหตุผล: 385.60 ในคอมพิวเตอร์อาจเป็น 385.60000000000002 ซึ่งปัดขึ้นได้ 386 (ถูก)
+  // แต่ 386.00 ที่เพี้ยนเป็น 386.00000000000006 จะถูกปัดเป็น 387 — ลูกค้าโดนเก็บเกิน 1 บาทแบบสุ่ม
+  // หาสาเหตุแทบไม่ได้เพราะเกิดเฉพาะบางยอด
+  computeBillTotals(lines) {
+    return this.computeTotalsAtRate(lines, this.vatEnabled ? (Number(this.vatRate) || 0) : 0);
+  }
+
+  // เวอร์ชันที่ระบุอัตราเอง — ใช้ตอนแก้บิลย้อนหลัง ต้องคิดด้วย "อัตราของบิลใบนั้น"
+  // ไม่ใช่อัตราปัจจุบัน ไม่งั้นแก้ชื่อพนักงานในบิลเก่าแล้วยอดเงินเปลี่ยนตามไปด้วย
+  computeTotalsAtRate(lines, rateInput) {
+    const rate = Number(rateInput) || 0;
+    let vatableSat = 0, nonVatSat = 0;
+    (lines || []).forEach(l => {
+      const sat = Math.round((Number(l.netPrice) || 0) * 100);
+      if (l.vatable && rate > 0) vatableSat += sat; else nonVatSat += sat;
+    });
+    const vatSat = Math.round(vatableSat * rate / 100);
+    const rawSat = nonVatSat + vatableSat + vatSat;
+    // ปัดขึ้นเต็มบาทเสมอ — ใช้เลขจำนวนเต็มล้วน ไม่มีการหารทศนิยม
+    const remainder = rawSat % 100;
+    const grandSat = remainder === 0 ? rawSat : rawSat + (100 - remainder);
+    return {
+      vatRate:     rate,
+      nonVatBase:  nonVatSat / 100,
+      vatableBase: vatableSat / 100,
+      vatAmount:   vatSat / 100,
+      rounding:    (grandSat - rawSat) / 100,
+      total:       grandSat / 100
+    };
+  }
+
+  getCartBillTotals() {
+    return this.computeBillTotals(this.getCartLines());
   }
 
   // กระจายส่วนลดตามสัดส่วนราคา + เกลี่ยเศษสตางค์ (largest remainder)
@@ -1769,10 +1944,35 @@ class PosApp {
 
   updateCartTotals() {
     const subtotal = this.getCartSubtotal();
-    const total = this.getCartTotal();
+    const t = this.getCartBillTotals();
+    const money = v => v.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     document.getElementById('summary-subtotal').innerText = `฿${subtotal.toLocaleString('th-TH')}`;
-    document.getElementById('summary-total').innerText = `฿${total.toLocaleString('th-TH')}`;
+    document.getElementById('summary-total').innerText = `฿${t.total.toLocaleString('th-TH')}`;
+
+    // แถว VAT / ปัดเศษ — ซ่อนเมื่อไม่มีค่า ไม่ให้บิลบริการล้วนรกด้วยเลข 0
+    const vatRow = document.getElementById('summary-vat-row');
+    const vatLbl = document.getElementById('summary-vat-label');
+    const vatVal = document.getElementById('summary-vat');
+    if (vatRow) {
+      if (t.vatAmount > 0) {
+        vatRow.style.display = '';
+        if (vatLbl) vatLbl.innerText = `VAT ${t.vatRate}% (จาก ฿${money(t.vatableBase)})`;
+        if (vatVal) vatVal.innerText = `฿${money(t.vatAmount)}`;
+      } else {
+        vatRow.style.display = 'none';
+      }
+    }
+    const rndRow = document.getElementById('summary-rounding-row');
+    const rndVal = document.getElementById('summary-rounding');
+    if (rndRow) {
+      if (t.rounding > 0) {
+        rndRow.style.display = '';
+        if (rndVal) rndVal.innerText = `฿${money(t.rounding)}`;
+      } else {
+        rndRow.style.display = 'none';
+      }
+    }
   }
 
   // ==================== CHECKOUT AND PAYMENT ====================
@@ -1977,7 +2177,11 @@ class PosApp {
     try {
       const subtotal = this.getCartSubtotal();
       const discount = this.getCartDiscount(subtotal); // clamp [0, subtotal] แล้ว
-      const total = this.getCartTotal();
+      // ⚠️ ล็อกตัวเลข VAT ณ วินาทีที่จบบิล แล้วเก็บติดไปกับบิลเลย
+      // ห้ามคำนวณสดจากค่าตั้งค่าตอนแสดงผล ไม่งั้นวันที่เปลี่ยนอัตรา VAT หรือปิดสวิตช์
+      // บิลเก่าทั้งหมดจะเปลี่ยนตัวเลขตามไปด้วย และยอดที่ยื่นสรรพากรไปแล้วจะไม่ตรงกับระบบ
+      const vatCalc = this.getCartBillTotals();
+      const total = vatCalc.total;
 
       // เงินรับ-เงินทอน (เฉพาะจ่ายเงินสด) เก็บลงบิลเพื่อตรวจสอบย้อนหลังได้
       let cashReceived = null, cashChange = null;
@@ -2023,6 +2227,7 @@ class PosApp {
           const netPrices = this.distributeDiscount(this.state.cart.map(i => i.price), subtotal, discount);
           return this.state.cart.map((item, i) => {
           const netPrice = netPrices[i];
+          const isVatable = this.isVatableCategory(item.category);
           const commType = item.commissionType || 'percent';
           const commVal = item.commission || 0;
           // ค่าคอมแบบ % คิดบน netPrice; แบบ fixed เป็นจำนวนคงที่ไม่ขึ้นกับส่วนลด
@@ -2035,13 +2240,22 @@ class PosApp {
             staffName: item.staffName,
             commission: commVal,
             commissionType: commType,
-            commissionAmount: commissionAmount
+            // ค่าคอมคิดจาก netPrice ซึ่งเป็นยอด "ก่อน VAT" เสมอ
+            // ถ้าเผลอคิดจากยอดรวม VAT เท่ากับจ่ายคอมจากเงินภาษีที่ต้องส่งสรรพากร
+            commissionAmount: commissionAmount,
+            category: item.category || '',
+            vatable: isVatable
           };
           });
         })(),
         subtotal: subtotal,
         discount: discount,
-        total: total,
+        vatRate:     vatCalc.vatRate,      // อัตราที่ใช้จริงตอนออกบิลใบนี้
+        nonVatBase:  vatCalc.nonVatBase,   // ยอดที่ไม่คิด VAT
+        vatableBase: vatCalc.vatableBase,  // ฐานภาษี
+        vatAmount:   vatCalc.vatAmount,    // ภาษีขาย — ต้องนำส่งสรรพากร
+        rounding:    vatCalc.rounding,     // เงินปัดเศษ — รายได้ร้าน ไม่ใช่ภาษี
+        total: total,                      // = nonVatBase + vatableBase + vatAmount + rounding
         cashReceived: cashReceived,
         cashChange: cashChange,
         paymentMethod: this.state.selectedPaymentMethod,
@@ -2102,11 +2316,110 @@ class PosApp {
     }
   }
 
+  // ==================== ใบแจ้งยอดก่อนชำระเงิน ====================
+  // เอกสารนี้พิมพ์ตอนยังไม่ได้รับเงิน จึงไม่ใส่เลขที่บิล ไม่มีช่องเงินรับ/เงินทอน
+  // และไม่บันทึกอะไรลงระบบเลย — พิมพ์ซ้ำกี่ครั้งก็ไม่มีผลข้างเคียง
+  // (เจ้าของร้านเลือกไม่ใส่ข้อความคาดหัวว่า "ไม่ใช่ใบเสร็จ" — ตัวแยกที่เหลือคือเลขที่บิลกับช่องเงินรับ)
+  showQuotePreview() {
+    if (!this.state.cart || this.state.cart.length === 0) {
+      this.showToast('ยังไม่มีรายการในตะกร้า', 'warning');
+      return;
+    }
+    const container = document.getElementById('quote-preview');
+    if (!container) return;
+
+    const money = v => (Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const subtotal = this.getCartSubtotal();
+    const discount = this.getCartDiscount(subtotal);
+    // ใช้ตัวคำนวณตัวเดียวกับตอนจบบิลเป๊ะ ๆ — ยอดบนกระดาษกับยอดที่เก็บจริงต้องไม่มีทางต่างกัน
+    const t = this.getCartBillTotals();
+    const lines = this.getCartLines();
+    const now = new Date();
+
+    container.innerHTML = `
+      <div class="receipt-container">
+        <div class="receipt-header">
+          <div class="receipt-shop-name">${escapeHtml(this.shopName || 'Erotica Barber & Massage')}</div>
+          ${this.shopPhone ? `<div style="font-size:0.7rem;color:#555;">โทร. ${escapeHtml(this.shopPhone)}</div>` : ''}
+        </div>
+
+        <div class="receipt-row"><span>วันที่:</span><span>${now.toLocaleString('th-TH')}</span></div>
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-items">
+          ${this.state.cart.map((item, i) => `
+            <div class="receipt-item-row">
+              <div class="receipt-item-details">
+                <span>${escapeHtml(item.name)}${lines[i] && lines[i].vatable ? ' *' : ''}</span>
+                <span>฿${money(item.price)}</span>
+              </div>
+              <div class="receipt-item-staff">ผู้ดูแล: ${escapeHtml(item.staffName || 'ไม่ระบุ')}</div>
+            </div>`).join('')}
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-row"><span>รวมค่าบริการ:</span><span>฿${money(subtotal)}</span></div>
+        <div class="receipt-row"><span>ส่วนลด:</span><span>-฿${money(discount)}</span></div>
+        ${t.vatAmount > 0 ? `
+        <div class="receipt-divider"></div>
+        ${t.nonVatBase > 0 ? `<div class="receipt-row"><span>ยอดไม่คิด VAT:</span><span>฿${money(t.nonVatBase)}</span></div>` : ''}
+        <div class="receipt-row"><span>ยอดคิด VAT (*):</span><span>฿${money(t.vatableBase)}</span></div>
+        <div class="receipt-row"><span>VAT ${t.vatRate}%:</span><span>฿${money(t.vatAmount)}</span></div>` : ''}
+        ${t.rounding > 0 ? `<div class="receipt-row"><span>ปัดเศษ:</span><span>฿${money(t.rounding)}</span></div>` : ''}
+
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-row receipt-totals">
+          <span>ยอดที่ต้องชำระ:</span>
+          <span>฿${t.total.toLocaleString('th-TH')}</span>
+        </div>
+
+        <div class="receipt-footer" style="margin-top:14px;font-size:0.7rem;color:#555;text-align:center;line-height:1.6;">
+          ${t.vatAmount > 0 ? '* รายการที่มีเครื่องหมายนี้คิด VAT<br>' : ''}
+          ยอดนี้ใช้ได้ ณ เวลาที่พิมพ์ — หากมีการเพิ่ม/ลดรายการ ยอดจะเปลี่ยน
+        </div>
+      </div>`;
+
+    this.openModal('modal-quote');
+  }
+
   // ==================== RECEIPT RENDERING ====================
   
   showThermalReceipt(tx) {
     const container = document.getElementById('thermal-receipt-preview');
     const timeStr = new Date(tx.date).toLocaleString('th-TH');
+
+    // บล็อก VAT — แสดงเฉพาะบิลที่มี VAT จริง
+    // บิลเก่าที่ออกก่อนเปิดระบบ VAT ไม่มีฟิลด์พวกนี้ จะไม่ขึ้นบล็อกนี้เลย (ถูกต้อง — ตอนนั้นไม่ได้เก็บ)
+    const money = v => (Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const vatAmt = Number(tx.vatAmount) || 0;
+    const rnd    = Number(tx.rounding) || 0;
+    let vatBlock = '';
+    if (vatAmt > 0 || rnd > 0) {
+      vatBlock = '<div class="receipt-divider"></div>' +
+        (Number(tx.nonVatBase) > 0 ? `
+        <div class="receipt-row">
+          <span>ยอดไม่คิด VAT:</span>
+          <span>฿${money(tx.nonVatBase)}</span>
+        </div>` : '') +
+        (Number(tx.vatableBase) > 0 ? `
+        <div class="receipt-row">
+          <span>ยอดคิด VAT:</span>
+          <span>฿${money(tx.vatableBase)}</span>
+        </div>` : '') +
+        (vatAmt > 0 ? `
+        <div class="receipt-row">
+          <span>VAT ${Number(tx.vatRate) || 0}%:</span>
+          <span>฿${money(vatAmt)}</span>
+        </div>` : '') +
+        (rnd > 0 ? `
+        <div class="receipt-row">
+          <span>ปัดเศษ:</span>
+          <span>฿${money(rnd)}</span>
+        </div>` : '');
+    }
     
     // ดึงคิวอาร์สำหรับโชว์ท้ายบิล
     container.innerHTML = `
@@ -2120,7 +2433,7 @@ class PosApp {
         
         <div class="receipt-row">
           <span>เลขที่ใบเสร็จ:</span>
-          <span>${tx.id}</span>
+          <span class="receipt-billid">${tx.id}</span>
         </div>
         <div class="receipt-row">
           <span>วันที่:</span>
@@ -2159,11 +2472,11 @@ class PosApp {
           <span>ส่วนลดพิเศษ:</span>
           <span>-฿${(tx.discount || 0).toLocaleString('th-TH')}</span>
         </div>
-        
+        ${vatBlock}
         <div class="receipt-divider"></div>
         
         <div class="receipt-row receipt-totals">
-          <span>ราคาสุทธิ:</span>
+          <span>รวมทั้งสิ้น:</span>
           <span>฿${(tx.total || 0).toLocaleString('th-TH')}</span>
         </div>
         
@@ -2403,7 +2716,9 @@ class PosApp {
 
     if (!svcName) { this.showToast('กรุณากรอกชื่อบริการ','warning'); nameInput.focus(); return; }
     if (isNaN(price) || price <= 0) { this.showToast('ราคาต้องมากกว่า 0 บาท','warning'); priceInput.focus(); return; }
-    if (isNaN(dur) || dur <= 0)     { this.showToast('ระยะเวลาต้องมากกว่า 0 นาที','warning'); durationInput.focus(); return; }
+    // ระยะเวลา 0 = สินค้าที่ขายทันที (เครื่องดื่ม/ของทานเล่น) ไม่ใช่บริการที่ต้องจับเวลา
+    // เดิมบังคับ > 0 ทำให้เพิ่มเครื่องดื่มเข้าระบบไม่ได้เลย ต้องใส่เวลาปลอมซึ่งไปโผล่ในหน้าคิวงาน
+    if (isNaN(dur) || dur < 0)      { this.showToast('ระยะเวลาต้องไม่ติดลบ (ใส่ 0 ได้ถ้าเป็นสินค้าขายทันที)','warning'); durationInput.focus(); return; }
 
     if (this.state.editingServiceId) {
       const service = this.state.services.find(s => s.id === this.state.editingServiceId);
@@ -2528,6 +2843,57 @@ class PosApp {
     };
   }
 
+  // ─── สรุป VAT ของงวด — บวกจากตัวเลขที่ล็อกไว้ในบิลแต่ละใบ ──────────────
+  // การันตี: nonVatBase + vatableBase + vatAmount + rounding = totalRevenue เสมอ
+  // ถ้าวันไหนบวกไม่ลงตัว แปลว่ามีบั๊ก — ใช้เป็นตัวตรวจสอบตัวเองได้
+  buildVatSummary(transactions) {
+    const num = v => (typeof v === 'number' && isFinite(v)) ? v : 0;
+    const r2  = v => Math.round(v * 100) / 100;
+    let nonVat = 0, base = 0, vat = 0, rnd = 0, rate = 0;
+    const byCat = {};
+
+    (transactions || []).forEach(tx => {
+      const txVat = num(tx.vatAmount);
+      // บิลเก่าที่ออกก่อนมีระบบ VAT ไม่มีฟิลด์พวกนี้เลย → ทั้งใบนับเป็น "ไม่คิด VAT"
+      // ซึ่งเป็นความจริง ไม่ใช่การเดา
+      if (!tx.vatAmount && !tx.vatableBase && !tx.rounding) {
+        nonVat += num(tx.total);
+        return;
+      }
+      nonVat += num(tx.nonVatBase);
+      base   += num(tx.vatableBase);
+      vat    += txVat;
+      rnd    += num(tx.rounding);
+      if (num(tx.vatRate) > 0) rate = num(tx.vatRate);
+
+      // แยกตามหมวด เพื่อให้ชีตบอกได้ว่าภาษีมาจากกลุ่มไหน
+      (tx.details || []).forEach(d => {
+        if (!d.vatable) return;
+        const key = d.category || 'ไม่ระบุหมวด';
+        byCat[key] = (byCat[key] || 0) + num(d.netPrice);
+      });
+    });
+
+    const catName = id => {
+      const c = (this.state.categories || []).find(x => x.id === id);
+      return c ? c.name : id;
+    };
+    const categories = Object.keys(byCat).map(id => ({
+      name: catName(id),
+      base: r2(byCat[id]),
+      vat:  r2(byCat[id] * rate / 100)
+    })).sort((a, b) => b.base - a.base);
+
+    return {
+      nonVatBase:  r2(nonVat),
+      vatableBase: r2(base),
+      vatAmount:   r2(vat),
+      rounding:    r2(rnd),
+      vatRate:     rate,
+      categories:  categories
+    };
+  }
+
   // ─── สร้าง payload สรุป (ใช้ร่วมกันทั้ง daily / monthly) ───────────────
   buildSummaryPayload(transactions, expenses, periodType, periodKey) {
     // 1. รายได้แยกช่องทาง
@@ -2582,6 +2948,11 @@ class PosApp {
     // 5. การนับเงินสดปิดกะ — recompute จาก shift.history ทุกครั้งที่ส่ง (idempotent: ชีตเขียนทับอยู่แล้ว)
     const cash = this.buildShiftCashSummary(periodType, periodKey);
 
+    // 6. ภาษีมูลค่าเพิ่ม — อ่านจาก "ตัวเลขที่เก็บไว้ในบิล" เท่านั้น ไม่คำนวณใหม่จากค่าตั้งค่าปัจจุบัน
+    // ถ้าคำนวณใหม่ พอกดส่งสรุปเดือนเก่าซ้ำ ระบบจะยัด VAT ลงบิลที่ไม่เคยเก็บ VAT
+    // แล้วยอดที่เคยยื่นสรรพากรไปแล้วจะไม่ตรงกับชีต โดยไม่มีร่องรอยว่าเปลี่ยนตอนไหน
+    const vat = this.buildVatSummary(transactions);
+
     const payload = {
       secret:          API_SECRET,
       action:          periodType === 'day' ? 'summary_day' : 'summary_month',
@@ -2592,6 +2963,12 @@ class PosApp {
       cashVariance:     cash.cashVariance,
       shiftCount:       cash.shiftCount,
       shiftCash:        cash.shifts,
+      nonVatBase:       vat.nonVatBase,     // ยอดขายที่ไม่คิด VAT
+      vatableBase:      vat.vatableBase,    // ฐานภาษี — ใช้กรอก ภ.พ.30
+      vatAmount:        vat.vatAmount,      // ภาษีขาย — ใช้กรอก ภ.พ.30
+      rounding:         vat.rounding,       // เงินปัดเศษ (ไม่ใช่ภาษี)
+      vatRate:          vat.vatRate,
+      vatCategories:    vat.categories,
       services:         Object.values(svcMap),
       expenses:         (expenses || []).map(e => ({ note: e.note, amount: e.amount })),
       staffCommissions: Object.values(staffMap).filter(st => st.count > 0)
@@ -2601,6 +2978,11 @@ class PosApp {
 
   // ─── ส่งสรุปรายวันไป Google Sheets ─────────────────────────────────────
   async syncDailySummary(dateStr, transactions, expenses, isSilent = true) {
+    if (!this.isValidDateKey(dateStr)) {
+      console.error('[Guard] ปฏิเสธการส่งสรุปรายวัน — คีย์วันที่ใช้ไม่ได้:', dateStr);
+      if (!isSilent) this.showToast('วันที่ของข้อมูลใช้ไม่ได้ — ไม่ส่งขึ้นชีตเพื่อกันแท็บขยะ', 'error', 5000);
+      return true; // คืน true เพื่อให้ outbox เลิกพยายาม ไม่วนลูป retry ตลอดไป
+    }
     if (!this.googleSheetsUrl) {
       if (!isSilent) this.showToast('กรุณากรอก URL ของ Google Sheets Web App ในหน้าตั้งค่าก่อน', 'warning');
       return false;
@@ -2630,6 +3012,11 @@ class PosApp {
 
   // ─── ส่งสรุปรายเดือนไป Google Sheets ───────────────────────────────────
   async syncMonthlySummary(monthStr, isSilent = true) {
+    if (!this.isValidMonthKey(monthStr)) {
+      console.error('[Guard] ปฏิเสธการส่งสรุปรายเดือน — คีย์เดือนใช้ไม่ได้:', monthStr);
+      if (!isSilent) this.showToast('เดือนของข้อมูลใช้ไม่ได้ — ไม่ส่งขึ้นชีตเพื่อกันแท็บขยะ', 'error', 5000);
+      return true;
+    }
     if (!this.googleSheetsUrl) {
       if (!isSilent) this.showToast('กรุณากรอก URL ของ Google Sheets Web App ในหน้าตั้งค่าก่อน', 'warning');
       return false;
@@ -3582,8 +3969,12 @@ class PosApp {
             paymentMethod: tx.paymentMethod,
             name: sName,
             price: price,
-            // บิลเก่าไม่มี netPrice ต่อรายการ — เกลี่ยส่วนลดตามสัดส่วน (tx.total/tx.subtotal) ให้กระทบยอดได้
-            netPrice: (tx.subtotal > 0 ? Math.round(price * (tx.total / tx.subtotal) * 100) / 100 : price),
+            // บิลเก่าไม่มี netPrice ต่อรายการ — เกลี่ยส่วนลดตามสัดส่วนให้กระทบยอดได้
+            // ⚠️ ต้องใช้ (subtotal - discount) ไม่ใช่ tx.total — เพราะ tx.total รวม VAT กับเงินปัดเศษไว้แล้ว
+            // ถ้าใช้ tx.total สัดส่วนจะเกิน 1 แล้วค่าคอมพนักงานบวมตามภาษีที่ต้องส่งสรรพากร
+            netPrice: (tx.subtotal > 0
+              ? Math.round(price * (Math.max(0, tx.subtotal - (tx.discount || 0)) / tx.subtotal) * 100) / 100
+              : price),
             staffId: sId,
             staffName: fallbackStaffName,
             commissionAmount: commAmt
@@ -4055,9 +4446,16 @@ class PosApp {
 
     const rawDiscount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
     const discount = Math.min(Math.max(0, rawDiscount), subtotal); // clamp เหมือนตอนบันทึกจริง
-    const total = Math.max(0, subtotal - discount);
 
-    document.getElementById('edit-tx-total').value = `฿${total.toLocaleString('th-TH')}`;
+    // ต้องโชว์ยอดรวม VAT + ปัดเศษ ให้ตรงกับที่จะบันทึกจริง
+    // ไม่งั้นเจ้าของร้านเห็น 380 ในหน้าต่างแก้ไข แต่กดบันทึกแล้วได้ 386
+    const nets = this.distributeDiscount(tx.details.map(d => d.price), subtotal, discount);
+    const preview = this.computeTotalsAtRate(
+      tx.details.map((d, i) => ({ netPrice: nets[i], vatable: !!d.vatable })),
+      Number(tx.vatRate) || 0
+    );
+
+    document.getElementById('edit-tx-total').value = `฿${preview.total.toLocaleString('th-TH')}`;
   }
 
   // บันทึกการแก้ไขธุรกรรมย้อนหลัง
@@ -4107,9 +4505,21 @@ class PosApp {
       item.commissionAmount = commType === 'fixed' ? commVal : Math.round(item.netPrice * commVal) / 100;
     });
 
+    // คิด VAT ใหม่ด้วย "อัตราและธง vatable ที่ล็อกไว้ในบิลใบนี้" ไม่ใช่ค่าตั้งค่าปัจจุบัน
+    // ถ้าไม่คิดใหม่ ยอด total จะกลับไปเป็นยอดก่อน VAT ทั้งที่ลูกค้าจ่ายรวม VAT ไปแล้ว
+    // → เงินในลิ้นชักไม่ตรงกับระบบ และ 4 ช่องในชีตจะบวกไม่เท่ารายได้รวม
+    const editVat = this.computeTotalsAtRate(
+      tx.details.map(d => ({ netPrice: d.netPrice, vatable: !!d.vatable })),
+      Number(tx.vatRate) || 0
+    );
+
     tx.subtotal = subtotal;
     tx.discount = discount;
-    tx.total = total;
+    tx.nonVatBase  = editVat.nonVatBase;
+    tx.vatableBase = editVat.vatableBase;
+    tx.vatAmount   = editVat.vatAmount;
+    tx.rounding    = editVat.rounding;
+    tx.total = editVat.total;
     tx.rev = (tx.rev || 0) + 1; // เวอร์ชันการแก้ไข — ให้รอบ sync ที่กำลังส่งข้อมูลเก่าอยู่รู้ว่าห้าม mark synced ทับ
     tx.syncStatus = 'pending'; // ตั้งค่าเป็น pending เพื่อให้ระบบซิงก์ใหม่
 
@@ -4494,6 +4904,10 @@ class PosApp {
     const syncSettingsCard = document.getElementById('settings-sheets-sync-card');
     if (syncSettingsCard) syncSettingsCard.style.display = isOwner ? 'block' : 'none';
 
+    // 5.1 การ์ดตั้งค่า VAT — เฉพาะ owner (กระทบยอดเงินและภาษี พนักงานไม่ควรแตะ)
+    const vatCard = document.getElementById('settings-vat-card');
+    if (vatCard) vatCard.style.display = isOwner ? 'block' : 'none';
+
     // 6. ซ่อนเมนูตามสิทธิ์: ตั้งค่า=owner เท่านั้น, รายงาน=manager ขึ้นไป
     document.querySelectorAll('.nav-item[data-screen="settings"], .bottom-nav-item[data-screen="settings"]')
       .forEach(el => el.style.display = isOwner ? '' : 'none');
@@ -4523,6 +4937,8 @@ class PosApp {
       shopPhone: this.shopPhone || '',
       shopLogo: this.shopLogo || '',
       theme: this.theme || 'dark',
+      vatEnabled: !!this.vatEnabled,
+      vatRate: Number(this.vatRate) || 0,
       googleSheetsUrl: this.googleSheetsUrl || '',
       telegramChatId: this.telegramChatId || ''
       // หมายเหตุ: ownerPin และ telegramToken ถูกตัดออกเพื่อความปลอดภัย — ตั้งค่าใหม่หลังนำเข้าข้อมูล
@@ -4619,6 +5035,8 @@ class PosApp {
       this.shopLogo = parsed.shopLogo;
     }
     if (parsed.theme) this.theme = parsed.theme;
+    if (typeof parsed.vatEnabled === 'boolean') this.vatEnabled = parsed.vatEnabled;
+    if (Number.isFinite(Number(parsed.vatRate))) this.vatRate = Number(parsed.vatRate);
     if (parsed.ownerPin) this.ownerPin = parsed.ownerPin;
 
     // ⚠️ URL คลาวด์: ถ้าเครื่องนี้ตั้งค่าไว้แล้ว ให้ยึดของเครื่องเป็นหลัก
@@ -4632,6 +5050,18 @@ class PosApp {
     await this.saveState();
     this.renderAll();
     this.vibrateDevice(100);
+
+    // เตือนถ้าไฟล์มีบิลที่วันที่ใช้ไม่ได้ — บิลพวกนี้จะไม่โผล่ในรายงานเดือนไหนเลย
+    // เงียบไว้อันตรายกว่า เพราะยอดขายจะหายไปจากรายงานโดยไม่มีใครรู้ว่าหายไปไหน
+    const badDates = (this.state.transactions || [])
+      .filter(tx => !this.isValidDateKey(this.getBusinessISODate(tx.date)));
+    if (badDates.length > 0) {
+      console.warn('[Import] บิลที่วันที่ใช้ไม่ได้:', badDates.map(t => t.id));
+      this.showToast(
+        `เตือน: มีบิล ${badDates.length} ใบในไฟล์นี้ที่วันที่ใช้ไม่ได้ ` +
+        `บิลเหล่านี้จะไม่ถูกนับในรายงานรายวัน/รายเดือน — ตรวจสอบไฟล์สำรองอีกครั้ง`,
+        'warning', 9000);
+    }
   }
 
   // ==================== กู้ข้อมูลจาก GOOGLE DRIVE ====================
@@ -4831,9 +5261,12 @@ class PosApp {
     // ถ้ากะลากยาวจนคร่อมวันทำการ (ปิดหลัง 06:00 เช้า) จะรีเฟรชทั้งสองวัน/สองเดือนให้เอง
     const openTs  = shiftLog.startTime || shiftLog.endTime;
     const closeTs = shiftLog.endTime;
-    const dateKeys  = [...new Set([this.getBusinessISODate(openTs), this.getBusinessISODate(closeTs)])];
-    const monthKeys = [...new Set([this.getBusinessMonthKey(openTs), this.getBusinessMonthKey(closeTs)])];
-    const needSummary  = !!this.googleSheetsUrl;
+    const dateKeys  = [...new Set([this.getBusinessISODate(openTs), this.getBusinessISODate(closeTs)])]
+      .filter(k => this.isValidDateKey(k));
+    const monthKeys = [...new Set([this.getBusinessMonthKey(openTs), this.getBusinessMonthKey(closeTs)])]
+      .filter(k => this.isValidMonthKey(k));
+    // กะที่ไม่มีเวลาเปิด/ปิดที่ใช้ได้เลย — ส่งสรุปไม่ได้ แต่ยังส่ง Telegram ได้
+    const needSummary  = !!this.googleSheetsUrl && (dateKeys.length > 0 || monthKeys.length > 0);
     const needTelegram = !!(this.telegramToken && this.telegramChatId);
     if (!needSummary && !needTelegram) return; // ไม่ได้ตั้งค่าอะไรเลย ไม่ต้องคิว
     if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
@@ -4854,6 +5287,10 @@ class PosApp {
     if (isNaN(d.getTime())) return;
     const dateKey  = this.getBusinessISODate(d);   // วันทำการของบิลที่ถูกแก้
     const monthKey = this.getBusinessMonthKey(d);
+    if (!this.isValidDateKey(dateKey) && !this.isValidMonthKey(monthKey)) {
+      console.warn('[Guard] ไม่คิวสรุป — วันที่ของบิลใช้ไม่ได้', dateVal);
+      return;
+    }
     if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
     // ถ้ามีงานสรุปของวันเดียวกันค้างอยู่แล้ว ไม่ต้องคิวซ้ำ (flush จะ recompute จาก state ล่าสุดอยู่แล้ว)
     const dup = this.state.cloudOutbox.some(it => it.needSummary &&
@@ -4993,6 +5430,8 @@ class PosApp {
   enqueueVoidCloudOps(tx, voidRecord) {
     const dateKey  = this.getBusinessISODate(tx.date);   // วันทำการของบิลที่ถูก void
     const monthKey = this.getBusinessMonthKey(tx.date);  // ต้องชี้แท็บเดือนเดียวกับตอนบันทึกบิล
+    const okDate   = this.isValidDateKey(dateKey);
+    const okMonth  = this.isValidMonthKey(monthKey);
     const hasUrl       = !!this.googleSheetsUrl;
     const needTelegram = !!(this.telegramToken && this.telegramChatId);
     if (!hasUrl && !needTelegram) return;
@@ -5002,10 +5441,11 @@ class PosApp {
     this.state.cloudOutbox.push({
       id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       createdAt: Date.now(),
-      dateKeys: [dateKey], monthKeys: [monthKey],
-      needVoidDelete: hasUrl,
-      voidDelete: hasUrl ? { id: tx.id, date: tx.date, monthKey: monthKey, voidedBy: voidRecord.by || '' } : null,
-      needSummary: hasUrl,
+      dateKeys: okDate ? [dateKey] : [], monthKeys: okMonth ? [monthKey] : [],
+      // บิลที่วันที่เพี้ยน: ยังส่งคำสั่งลบแถวได้ (GAS ค้นจากเลขบิลได้) แต่ห้ามสั่งสร้างแท็บสรุปของวันขยะ
+      needVoidDelete: hasUrl && okMonth,
+      voidDelete: (hasUrl && okMonth) ? { id: tx.id, date: tx.date, monthKey: monthKey, voidedBy: voidRecord.by || '' } : null,
+      needSummary: hasUrl && (okDate || okMonth),
       needTelegram,
       telegramMessage: needTelegram ? this.buildVoidAlertMessage(voidRecord) : '',
       tries: 0

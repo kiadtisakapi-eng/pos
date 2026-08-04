@@ -1465,7 +1465,8 @@ body {
 .receipt-header { text-align: center; margin-bottom: 1rem; }
 .receipt-shop-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
 .receipt-divider { border-top: 1px dashed #bbb; margin: 8px 0; }
-.receipt-row { display: flex; justify-content: space-between; }
+.receipt-row { display: flex; justify-content: space-between; gap: 8px; }
+.receipt-billid { word-break: break-all; text-align: right; font-size: 0.9em; }
 .receipt-item-row { margin-bottom: 6px; }
 .receipt-item-details { display: flex; justify-content: space-between; }
 .receipt-item-staff { font-size: 0.72rem; color: #555; padding-left: 10px; }
@@ -1781,43 +1782,100 @@ html[data-theme="light"] .tab-count {
    PRINT MEDIA STYLES (Thermal Receipt Output)
    ============================================================ */
 @media print {
-  body * { visibility: hidden; }
-  
-  #modal-receipt, #modal-receipt * {
-    visibility: visible;
+  /* ── ซ่อนตัวแอปทั้งก้อนด้วย display:none ไม่ใช่ visibility:hidden ──────────────
+     visibility:hidden ยัง "กินพื้นที่" อยู่ — ความสูงของหน้าจอแอปจะกลายเป็น
+     กระดาษเปล่าตามหลังใบเสร็จ ถ้ากดพิมพ์ตอนอยู่หน้ารายงานที่ตารางยาว
+     จะได้กระดาษเปล่าหลายแผ่นต่อการพิมพ์ 1 ครั้ง (เปลืองม้วนกระดาษมาก) */
+  .app-container { display: none !important; }
+
+  /* หน้าต่างอื่นทั้งหมดต้องไม่ติดไปด้วย เหลือเฉพาะใบเสร็จ/ใบแจ้งยอดที่เปิดอยู่ */
+  .modal-overlay { display: none !important; }
+
+  #modal-receipt.active,
+  #modal-quote.active {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    background: #fff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    z-index: auto !important;
   }
-  
-  #modal-receipt {
-    position: absolute;
-    left: 0; top: 0;
-    width: 100%;
-    margin: 0; padding: 0;
-    background: transparent !important;
+
+  html, body {
+    background: #fff !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
-  
+
   .modal-card {
-    box-shadow: none;
-    border: none;
-    margin: 0; padding: 0;
-    width: 100%; max-width: 100%;
-    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    background: #fff !important;
   }
-  
-  .modal-close, .modal-footer, #btn-print-receipt {
+
+  /* หัวหน้าต่าง ("ใบเสร็จรับเงินสำเร็จ") กับปุ่มต่าง ๆ เป็นส่วนของหน้าจอ ไม่ใช่ของใบเสร็จ */
+  .modal-header, .modal-title, .modal-close, .modal-footer,
+  #btn-print-receipt, #btn-print-quote {
     display: none !important;
   }
 
   .receipt-container {
-    box-shadow: none;
-    width: 100%; max-width: 100%;
-    color: #000; background: #fff;
-    font-size: 13px;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #000 !important;
+    background: #fff !important;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  /* ยกเลิกลิมิตความสูงของกล่องพรีวิวตอนพิมพ์ — inline style จำกัดไว้ 65vh ทำให้บิลที่มีหลายรายการโดนตัดท้าย */
-  #thermal-receipt-preview {
+  /* เลขที่ใบเสร็จยาว 27 ตัวอักษร — บังคับให้ตัดบรรทัดในตัวมันเอง
+     ไม่ให้ดันคำว่า "เลขที่ใบเสร็จ:" หลุดออกนอกกระดาษ */
+  .receipt-billid {
+    font-size: 0.82em;
+    word-break: break-all;
+    text-align: right;
+  }
+
+  .receipt-row {
+    gap: 8px;
+    align-items: baseline;
+  }
+
+  .receipt-row > span:last-child {
+    min-width: 0;
+    text-align: right;
+  }
+
+  /* กล่องพรีวิวถูกจำกัดความสูงไว้ 65vh ตอนอยู่บนจอ — ถ้าไม่ปลดล็อก บิลหลายรายการจะโดนตัดท้าย */
+  #thermal-receipt-preview,
+  #quote-preview {
     max-height: none !important;
     overflow: visible !important;
+  }
+
+  /* ── กระดาษม้วน 80 มม. ────────────────────────────────────────────────
+     size: 80mm auto = กว้าง 80 มม. ความยาวไหลตามเนื้อหา (ไม่ตัดเป็นหน้า A4)
+     ขอบ 3 มม. เหลือพื้นที่พิมพ์ 74 มม. — กว้างพอไม่ให้ชื่อบริการตกบรรทัด
+     แต่ยังไม่ชิดขอบจนหัวพิมพ์ตัดตัวหนังสือ
+     ถ้าวันหนึ่งเปลี่ยนไปใช้ม้วน 58 มม. ให้แก้เป็น size: 58mm auto; margin: 3mm; */
+  @page {
+    size: 80mm auto;
+    margin: 3mm;
   }
 }
 
