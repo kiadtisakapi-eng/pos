@@ -37,6 +37,7 @@ t('ไม่มี transactions = ไม่ผ่าน',()=>{const b=goodBackup
 console.log('\n--- applyBackupData ---');
 app.loadFailed=false;
 app.googleSheetsUrl='https://CURRENT-deployment/exec';
+app.googleSheetsApiToken='A'.repeat(24);
 app.state.cloudOutbox=[{needSummary:true}];
 app.shopLogo='';
 await app.applyBackupData(goodBackup());
@@ -67,8 +68,28 @@ t('ISO ปกติ -> พ.ศ.',()=>{const s=app.formatBackupLabel({created:'20
 t('created พัง -> ใช้ชื่อไฟล์',()=>eq(app.formatBackupLabel({created:'ขยะ',name:'pos_backup_x.json'}),'pos_backup_x.json'));
 t('ไม่มีอะไรเลย -> ข้อความสำรอง',()=>eq(app.formatBackupLabel(null),'ไฟล์สำรอง'));
 
+console.log('\n--- resumePendingCloudWork ---');
+let resumedTx=0,resumedOutbox=0;
+app.googleSheetsUrl='https://gas/exec'; app.googleSheetsApiToken='A'.repeat(24);
+app.syncPendingTransactions=(silent)=>{if(silent)resumedTx++;};
+app.flushCloudOutbox=()=>{resumedOutbox++;};
+app.resumePendingCloudWork();
+t('เปิดแอป/เน็ตกลับ -> ส่งบิลและ outbox ที่ค้าง',()=>{eq(resumedTx,1);eq(resumedOutbox,1);});
+app.googleSheetsApiToken=''; app.resumePendingCloudWork();
+t('ไม่มีรหัสคลาวด์ -> ไม่พยายามส่ง',()=>{eq(resumedTx,1);eq(resumedOutbox,1);});
+
+console.log('\n--- คิวสรุประหว่างตั้งค่า token ---');
+app.state.cloudOutbox=[];
+app.googleSheetsUrl='https://gas/exec'; app.googleSheetsApiToken='';
+app.enqueueShiftCloseCloudOps({startTime:Date.now()-60000,endTime:Date.now()});
+t('มี URL แล้วแต่ยังไม่มี token -> เก็บงานสรุปไว้ก่อน',()=>{
+  eq(app.state.cloudOutbox.length,1);
+  ok(app.state.cloudOutbox[0].needSummary);
+});
+
 console.log('\n--- restoreFromDriveBackup ---');
 app.googleSheetsUrl='https://gas/exec';
+app.googleSheetsApiToken='A'.repeat(24);
 let sentBody=null;
 app.fetchWithTimeout=async(url,opt)=>{ sentBody=JSON.parse(opt.body);
   return { ok:true, json:async()=>({status:'success',details:{fileName:'pos_backup_a.json',backupData:goodBackup()}}) }; };
@@ -101,7 +122,7 @@ t('ไม่เขียน DB และแจ้งว่าข้อมูล�
 
 console.log('\n--- ด่านสิทธิ์ openRestoreModal ---');
 let opened=0; app.openModal=()=>{opened++}; app.loadDriveBackups=async()=>{};
-app.loadFailed=false; app.currentRole='staff'; app.googleSheetsUrl='https://gas/exec';
+app.loadFailed=false; app.currentRole='staff'; app.googleSheetsUrl='https://gas/exec'; app.googleSheetsApiToken='A'.repeat(24);
 await app.openRestoreModal(); t('staff เปิดไม่ได้',()=>eq(opened,0));
 app.currentRole='owner'; app.googleSheetsUrl='';
 await app.openRestoreModal(); t('ไม่มี URL เปิดไม่ได้',()=>eq(opened,0));
@@ -109,6 +130,21 @@ app.googleSheetsUrl='https://gas/exec'; app.loadFailed=true;
 await app.openRestoreModal(); t('loadFailed เปิดไม่ได้',()=>eq(opened,0));
 app.loadFailed=false;
 await app.openRestoreModal(); t('owner + URL ครบ เปิดได้',()=>eq(opened,1));
+
+console.log('\n--- saveShopSettings: บันทึกล้มเหลวต้องคืนค่าเดิม ---');
+app.googleSheetsUrl='https://old/exec'; app.googleSheetsApiToken='B'.repeat(24);
+const urlInput=h.document.getElementById('shop-sheets-sync-url');
+const tokenInput=h.document.getElementById('shop-sheets-api-token');
+urlInput.value='https://new/exec'; tokenInput.value='C'.repeat(24);
+app.saveState=async()=>false;
+await app.saveShopSettings();
+t('เซฟตั้งค่าไม่สำเร็จ -> URL และ token กลับเป็นค่าเดิม',()=>{
+  eq(app.googleSheetsUrl,'https://old/exec');
+  eq(app.googleSheetsApiToken,'B'.repeat(24));
+  eq(urlInput.value,'https://old/exec');
+  eq(tokenInput.value,'B'.repeat(24));
+});
+app.saveState=async()=>{};
 
 console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
 process.exit(fail?1:0);

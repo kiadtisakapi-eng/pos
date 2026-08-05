@@ -126,11 +126,41 @@ t('พนักงานกดกู้ข้อมูลไม่ได้',()=
 app.currentRole='owner';
 
 console.log('\n--- ออกบิลตอนยังไม่เปิดกะ ---');
-app.state.shift={active:false,startTime:null,startCash:0,startDetails:{},expenses:[],history:[]};
-app.state.cart=[{price:100,category:'barber',uniqueCartId:1}];
-toasts.length=0; app.openCheckoutModal();
-t('ยังไม่เปิดกะ ออกบิลไม่ได้',()=>ok(toasts.some(x=>/ยังไม่ได้เปิดกะ/.test(x.m))));
+  app.state.shift={active:false,startTime:null,startCash:0,startDetails:{},expenses:[],history:[]};
+  app.state.cart=[{price:100,category:'barber',uniqueCartId:1}];
+  toasts.length=0; app.openCheckoutModal();
+  t('ยังไม่เปิดกะ ออกบิลไม่ได้',()=>ok(toasts.some(x=>/ยังไม่ได้เปิดกะ/.test(x.m))));
 
-console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
+  console.log('\n--- IndexedDB เขียนไม่สำเร็จ: ห้ามออกบิล/ปิดกะหลอก ---');
+  const customer={id:'rollback-customer',name:'ลูกค้าทดสอบ',visitCount:4,tier:'ทั่วไป'};
+  app.state.customers=[customer];
+  app.state.categories=[{id:'barber',name:'ตัดผม',vat:false}];
+  app.state.transactions=[]; app.state.queue=[]; app.state.cloudOutbox=[];
+  app.state.shift={active:true,startTime:Date.now()-60000,startCash:100,startDetails:{},expenses:[],history:[]};
+  app.state.cart=[{name:'ตัดผม',price:100,duration:30,category:'barber',staffId:'s1',staffName:'ช่าง',commission:0,commissionType:'percent',uniqueCartId:'rollback-cart'}];
+  app.state.selectedPaymentMethod='cash';
+  set({'cart-discount':{value:'0'},'cart-customer-select':{value:'rollback-customer'},'cash-received':{value:'100'},'btn-complete-checkout':{disabled:false}});
+  let receiptCount=0, syncCount=0;
+  app.showThermalReceipt=()=>{receiptCount++;}; app.syncPendingTransactions=()=>{syncCount++;};
+  app.saveState=async()=>false;
+  await app.processCheckout();
+  t('เซฟบิลไม่สำเร็จ -> ไม่มีบิลหรือคิวเพิ่ม',()=>{eq(app.state.transactions.length,0);eq(app.state.queue.length,0);});
+  t('เซฟบิลไม่สำเร็จ -> จำนวนครั้งลูกค้าและตะกร้ากลับเหมือนเดิม',()=>{eq(customer.visitCount,4);eq(customer.tier,'ทั่วไป');eq(app.state.cart.length,1);});
+  t('เซฟบิลไม่สำเร็จ -> ไม่ออกใบเสร็จและไม่ส่งขึ้นคลาวด์',()=>{eq(receiptCount,0);eq(syncCount,0);});
+
+  const originalCart=app.cloneForRollback(app.state.cart);
+  const originalQueue=[{id:'rollback-q'}];
+  app.state.queue=app.cloneForRollback(originalQueue);
+  app.cashCounterMode='close';
+  let backupCount=0;
+  app.autoBackupToGoogleDrive=async()=>{backupCount++;return true;};
+  app.enqueueShiftCloseCloudOps=()=>app.state.cloudOutbox.push({id:'rollback-outbox',needSummary:true});
+  await app.confirmCashCount();
+  t('เซฟปิดกะไม่สำเร็จ -> กะยังเปิดและไม่เพิ่มประวัติกะ',()=>{eq(app.state.shift.active,true);eq(app.state.shift.history.length,0);});
+  t('เซฟปิดกะไม่สำเร็จ -> ตะกร้า/คิว/outbox คืนสภาพเดิม',()=>{eq(app.state.cart,originalCart);eq(app.state.queue,originalQueue);eq(app.state.cloudOutbox,[]);});
+  t('เซฟปิดกะไม่สำเร็จ -> ยังไม่สำรองคลาวด์',()=>eq(backupCount,0));
+  app.saveState=async()=>{};
+
+  console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
 process.exit(fail?1:0);
 })();

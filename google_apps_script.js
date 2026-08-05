@@ -3,13 +3,36 @@
  *
  * วิธีติดตั้ง:
  * 1. Extensions > Apps Script > วางโค้ดทั้งหมด > Save
- * 2. Deploy > New deployment > Web app
+ * 2. เลือกฟังก์ชัน setupPosApiToken > Run 1 ครั้ง > อนุญาตสิทธิ์ > คัดลอกรหัสจาก Execution log
+ * 3. Deploy > New deployment > Web app
  *    - Execute as: Me
  *    - Who has access: Anyone
- * 3. คัดลอก Web App URL ไปใส่ในหน้าตั้งค่า POS
- * 4. ⚠️ สำคัญ: Project Settings (ไอคอนเฟือง) > Time zone ต้องตั้งเป็น "(GMT+07:00) Bangkok"
+ * 4. คัดลอก Web App URL + รหัสจากข้อ 2 ไปใส่ในหน้าตั้งค่า POS ทุกเครื่อง
+ * 5. ⚠️ สำคัญ: Project Settings (ไอคอนเฟือง) > Time zone ต้องตั้งเป็น "(GMT+07:00) Bangkok"
  *    — แอปส่ง monthKey จากเวลาหน้าร้านมาให้แล้ว (บิลลงแท็บถูกเดือนแม้ timezone ผิด)
  *    แต่ timestamp "สร้างเมื่อ" ในชีตสรุป และการลบแท็บรายวันเก่า ยังอิง timezone ของโปรเจกต์นี้
+ *
+ * ─────────────────────────────────────────────
+ * ⚠️ อัปเกรดจากเวอร์ชันที่ยังใช้ API_SECRET ฝังในไฟล์ — อ่านก่อนทำ
+ * ─────────────────────────────────────────────
+ * เวอร์ชันนี้เปลี่ยนวิธียืนยันตัวตนทั้งสองฝั่งพร้อมกัน จึงมีช่วงที่ซิงก์หยุดชั่วคราวแน่นอน
+ * ทำตามลำดับนี้ ห้ามสลับ:
+ *
+ *   1) วางโค้ดนี้ทับใน Apps Script > Save
+ *   2) Run setupPosApiToken() > คัดลอกรหัสจาก Execution log เก็บไว้
+ *   3) Deploy > Manage deployments > แก้ deployment "เดิม" ให้ชี้เวอร์ชันใหม่
+ *      ⚠️ ต้องทับตัวเดิม ไม่ใช่สร้าง URL ใหม่ทิ้งของเก่าไว้ —
+ *      รหัสเก่า (ที่เคยฝังใน app.js) ถูก push ขึ้น GitHub ไปแล้วและลบออกจากประวัติไม่ได้
+ *      ถ้าปล่อย deployment เก่าไว้ ใครที่เคยเห็นไฟล์ก็ยังยิงเข้าชีตได้เหมือนเดิม
+ *   4) push frontend (app.js/index.html) ขึ้น GitHub Pages
+ *   5) เปิด POS ทุกเครื่อง > ตั้งค่า > Google Sheets > วางรหัสจากข้อ 2
+ *
+ * ระหว่างข้อ 1-5 ขายต่อได้ตามปกติ ไม่มีอะไรหาย:
+ *   บิลค้างเป็น syncStatus = pending และสรุปปิดกะค้างใน cloudOutbox
+ *   ทั้งสองอย่าง retry เองอัตโนมัติทันทีที่วางรหัสเสร็จ
+ *
+ * ก่อนเริ่ม: เปิดแท็บ "สรุปรายเดือน" เช็คว่าหัวคอลัมน์ไม่เคยถูกแก้ด้วยมือ
+ * เวอร์ชันนี้ fail-closed — หัวคอลัมน์ขาด/ซ้ำ/มีช่องว่างเกิน จะหยุดเขียนทั้งงานแทนการเดาช่อง
  *
  * Sheet structure:
  *   "สรุปรายเดือน"  — master monthly summary (sheet แรก)
@@ -19,11 +42,12 @@
  */
 
 // ─────────────────────────────────────────────
-//  ⚠️ SECRET TOKEN — เปลี่ยนเป็นรหัสลับของคุณเอง
-//  ต้องตรงกับค่า API_SECRET ในไฟล์ app.js ทุกตัวอักษร
-//  (ตั้งค่าเป็น "" เพื่อปิดการตรวจสอบ — ไม่แนะนำ)
+//  รหัสเชื่อมต่อ API เก็บใน Script Properties เท่านั้น
+//  ห้ามใส่รหัสลงไฟล์นี้หรือ app.js เพราะไฟล์อาจถูก commit ขึ้น GitHub ได้
+//  หลังวางโค้ด ให้รัน setupPosApiToken() 1 ครั้ง แล้วนำรหัสไปใส่ในหน้า ตั้งค่า → Google Sheets ของ POS
 // ─────────────────────────────────────────────
-var API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
+var POS_API_TOKEN_PROPERTY = "POS_API_TOKEN";
+var POS_BACKUP_FOLDER_ID_PROPERTY = "POS_BACKUP_FOLDER_ID";
 
 // ──────────────────────────────
 //  จำนวนวันที่เก็บแท็บ "สรุปรายวัน" (สรุป-YYYY-MM-DD) ไว้บน Sheets
@@ -36,9 +60,18 @@ var DAILY_SHEET_RETENTION_DAYS = 62;
 // ──────────────────────────────
 //  จำนวนวันที่เก็บไฟล์สำรอง (pos_backup_*.json) ใน Google Drive
 //  ระบบสร้างไฟล์ใหม่ทุกครั้งที่ปิดกะ — ถ้าไม่ลบเก่า ไฟล์จะสะสมไม่จำกัด
-//  ตั้งเป็น 0 เพื่อปิดการลบอัตโนมัติ
+//
+//  ⚠️ อย่าตั้งเป็น 0 (ไม่ลบเลย) แม้จะดูปลอดภัยกว่า เพราะไฟล์สำรองแต่ละไฟล์
+//  เก็บบิล "ทั้งหมดตั้งแต่เปิดร้าน" ไม่ใช่เฉพาะกะนั้น ไฟล์เดือน 12 จึงใหญ่กว่าไฟล์เดือน 1 หลายเท่า
+//  พื้นที่ที่ใช้จึงโตแบบกำลังสอง ไม่ใช่เชิงเส้น — ปิดกะวันละ 2 ครั้ง = ปีละ ~730 ไฟล์
+//  พอ Drive เต็ม การสำรองจะล้มเหลวเงียบ ๆ ซึ่งอันตรายกว่าการไม่มีไฟล์เก่าให้ย้อนดู
+//  90 วันครอบคลุมการกู้ข้อมูลจริงทุกกรณีที่เคยเจอ (ปกติกู้จากไฟล์ล่าสุดหรือไม่กี่วันก่อน)
+//
+//  หมายเหตุ: handleListBackups ส่งรายการกลับไม่เกิน 50 ไฟล์ล่าสุด
+//  ที่ 90 วันจะมี ~180 ไฟล์ ไฟล์ที่เก่ากว่า 50 อันดับแรกจึงไม่โผล่ในหน้ากู้ข้อมูล
+//  แต่ยังอยู่ใน Drive และเปิดเองได้ — ไม่ได้หาย
 // ──────────────────────────────
-var BACKUP_RETENTION_DAYS = 30;
+var BACKUP_RETENTION_DAYS = 90;
 
 // ชื่อโฟลเดอร์และคำนำหน้าไฟล์สำรองใน Google Drive
 // ใช้ร่วมกันทั้งตอนสำรอง (handleBackup) และตอนกู้คืน (handleListBackups / handleGetBackup)
@@ -52,6 +85,9 @@ var MASTER_TS_HEADER  = "อัปเดตล่าสุด";
 var MASTER_REV_HEADER = "รายได้รวม (฿)";
 var MASTER_EXP_HEADER = "ค่าใช้จ่าย (฿)";
 var MASTER_NET_HEADER = "กำไรสุทธิ (฿)";
+var MASTER_TYPE_HEADER = "ประเภท";
+var MASTER_PERIOD_HEADER = "ช่วงเวลา";
+var MASTER_BILL_HEADER = "บิล";
 // 4 คอลัมน์ VAT แทรกก่อน "รายได้รวม" — เรียงให้บวกจากซ้ายไปขวาแล้วได้รายได้รวมพอดี
 var MASTER_VAT_HEADERS = ["ไม่คิด VAT (฿)", "คิด VAT (฿)", "VAT (฿)", "ปัดเศษ (฿)"];
 
@@ -69,8 +105,12 @@ function doPost(e) {
 
     var data = JSON.parse(e.postData.contents);
 
-    // ตรวจสอบรหัสลับ — กันคนอื่นที่ได้ URL ไปยิง API เข้ามา
-    if (API_SECRET && data.secret !== API_SECRET) {
+    // ตรวจสอบรหัสเชื่อมต่อจาก Script Properties — ไม่ยอมให้ endpoint ทำงานถ้ายังไม่ได้ตั้งค่า
+    var expectedToken = getPosApiToken_();
+    if (!expectedToken) {
+      return json("error", "ยังไม่ได้ตั้งรหัสเชื่อมต่อ POS — ให้รัน setupPosApiToken() ใน Apps Script ก่อน");
+    }
+    if (!constantTimeEquals_(String(data.secret || ""), expectedToken)) {
       return json("error", "ไม่ได้รับอนุญาต (unauthorized)");
     }
 
@@ -95,6 +135,39 @@ function doPost(e) {
 }
 
 function doGet(e)     { return ContentService.createTextOutput("Erotica POS API v2 — active").setMimeType(ContentService.MimeType.TEXT); }
+
+// สร้างรหัสครั้งแรก: รันจาก Apps Script editor แล้วคัดลอกค่าที่ return ไปใส่ใน POS แต่ละเครื่อง
+function setupPosApiToken() {
+  var props = PropertiesService.getScriptProperties();
+  var token = String(props.getProperty(POS_API_TOKEN_PROPERTY) || "");
+  if (!token) {
+    token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+    props.setProperty(POS_API_TOKEN_PROPERTY, token);
+  }
+  Logger.log("POS API token: " + token);
+  return token;
+}
+
+// ใช้เมื่อต้องสงสัยว่ารหัสหลุด: รันฟังก์ชันนี้ แล้วเปลี่ยนรหัสใน POS ทุกเครื่องทันที
+function rotatePosApiToken() {
+  var token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  PropertiesService.getScriptProperties().setProperty(POS_API_TOKEN_PROPERTY, token);
+  Logger.log("New POS API token: " + token);
+  return token;
+}
+
+function getPosApiToken_() {
+  var token = String(PropertiesService.getScriptProperties().getProperty(POS_API_TOKEN_PROPERTY) || "");
+  return /^[A-Za-z0-9_-]{24,200}$/.test(token) ? token : "";
+}
+
+// ลดข้อมูล timing ที่ใช้เดารหัสทีละตัว (ไม่ใช่ตัวแทนระบบล็อกอินเต็มรูปแบบ)
+function constantTimeEquals_(left, right) {
+  if (left.length !== right.length) return false;
+  var mismatch = 0;
+  for (var i = 0; i < left.length; i++) mismatch |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return mismatch === 0;
+}
 
 // ─────────────────────────────────────────────
 //  BACKUP — สำรองข้อมูลเข้าระบบ Google Drive
@@ -132,13 +205,40 @@ function handleBackup(data, ss) {
 }
 
 
-// หาโฟลเดอร์สำรองใน Drive
-// หมายเหตุ: Google Drive ยอมให้มีโฟลเดอร์ชื่อซ้ำกันได้ — ที่นี่หยิบตัวแรกที่เจอเสมอ
-// ทั้งตอนเขียนและตอนอ่าน จึงชี้ไปที่โฟลเดอร์เดียวกันตลอด ไม่สลับไปมา
+// หาโฟลเดอร์สำรองใน Drive โดยจำ Folder ID ไว้ใน Script Properties
+// Google Drive อนุญาตชื่อซ้ำ จึงห้ามหยิบ "ตัวแรก" แบบเดา เพราะอาจอ่าน/เขียนคนละโฟลเดอร์
 function getBackupFolder_(createIfMissing) {
+  var props = PropertiesService.getScriptProperties();
+  var savedId = String(props.getProperty(POS_BACKUP_FOLDER_ID_PROPERTY) || "");
+  if (savedId) {
+    try {
+      return DriveApp.getFolderById(savedId);
+    } catch (err) {
+      // โฟลเดอร์ถูกลบหรือเจ้าของสิทธิ์เปลี่ยน: ล้าง ID เก่า แล้วตรวจชื่ออย่างเข้มงวดด้านล่าง
+      props.deleteProperty(POS_BACKUP_FOLDER_ID_PROPERTY);
+    }
+  }
+
   var folders = DriveApp.getFoldersByName(BACKUP_FOLDER_NAME);
-  if (folders.hasNext()) return folders.next();
-  return createIfMissing ? DriveApp.createFolder(BACKUP_FOLDER_NAME) : null;
+  var matches = [];
+  while (folders.hasNext()) matches.push(folders.next());
+  if (matches.length > 1) {
+    throw new Error("พบโฟลเดอร์สำรองชื่อ " + BACKUP_FOLDER_NAME + " มากกว่า 1 โฟลเดอร์ — กรุณาตั้งค่า Folder ID ที่ถูกต้องใน Script Properties ชื่อ " + POS_BACKUP_FOLDER_ID_PROPERTY);
+  }
+
+  var folder = matches.length === 1 ? matches[0] : null;
+  if (!folder && createIfMissing) folder = DriveApp.createFolder(BACKUP_FOLDER_NAME);
+  if (folder) props.setProperty(POS_BACKUP_FOLDER_ID_PROPERTY, folder.getId());
+  return folder;
+}
+
+// ใช้เฉพาะตอนมีโฟลเดอร์ชื่อซ้ำ: คัดลอก Folder ID จาก URL ของโฟลเดอร์ที่ถูกต้อง แล้วรันฟังก์ชันนี้ 1 ครั้ง
+function setPosBackupFolderId(folderId) {
+  var id = String(folderId || "").trim();
+  if (!id) throw new Error("กรุณาระบุ Folder ID");
+  var folder = DriveApp.getFolderById(id); // ตรวจสิทธิ์และความมีอยู่ก่อนบันทึก
+  PropertiesService.getScriptProperties().setProperty(POS_BACKUP_FOLDER_ID_PROPERTY, folder.getId());
+  return "ตั้งค่าโฟลเดอร์สำรองแล้ว: " + folder.getName();
 }
 
 // ─────────────────────────────────────────────
@@ -221,6 +321,22 @@ function handleGetBackup(data) {
 //  1. TRANSACTION — บันทึกบิลรายการ
 // ─────────────────────────────────────────────
 function handleTransaction(data, ss) {
+  var billId = String(data.id || "").trim();
+  if (!/^[A-Za-z0-9_-]{6,160}$/.test(billId)) {
+    return json("error", "เลขที่บิลไม่ถูกต้อง");
+  }
+  var subtotal, discount, total;
+  try {
+    subtotal = readFiniteNumber_(data.subtotal != null ? data.subtotal : data.total, "subtotal", true);
+    discount = readFiniteNumber_(data.discount, "discount", false);
+    total = readFiniteNumber_(data.total, "total", true);
+  } catch (err) {
+    return json("error", "ยอดเงินในบิลไม่ถูกต้อง: " + err.toString());
+  }
+  if (subtotal < 0 || discount < 0 || discount > subtotal || total < 0) {
+    return json("error", "ยอดเงินในบิลอยู่นอกช่วงที่ยอมรับได้");
+  }
+
   var txDate = (data.date) ? new Date(data.date) : new Date();
   if (isNaN(txDate.getTime())) {
     txDate = new Date();
@@ -238,16 +354,16 @@ function handleTransaction(data, ss) {
 
   var payText = payLabel(data.paymentMethod);
   var row = [
-    safeCell(data.id),
+    safeCell(billId),
     // เวลาบนบิลใช้ค่าจากเครื่องหน้าร้านถ้าส่งมา (รูปแบบถูกต้อง) — ตรงกับเวลาที่ลูกค้าเห็นบนใบเสร็จจริง
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(data.dateTimeStr || "") ? data.dateTimeStr : fmt(txDate, "yyyy-MM-dd HH:mm:ss"),
     safeCell(data.customerName),
-    safeCell((data.services||[]).join(", ")),
+    safeCell((Array.isArray(data.services) ? data.services : []).join(", ")),
     payText,
-    (data.subtotal != null ? data.subtotal : data.total),
-    data.discount || 0,
-    data.total,
-    safeCell((data.staffNames||[]).join(", "))
+    subtotal,
+    discount,
+    total,
+    safeCell((Array.isArray(data.staffNames) ? data.staffNames : []).join(", "))
   ];
 
   // ค้นหาบิลเก่าที่มี ID เดียวกันเพื่อแก้ไข (Upsert)
@@ -256,7 +372,7 @@ function handleTransaction(data, ss) {
   if (lastRow > 1) {
     var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
     for (var i = 0; i < ids.length; i++) {
-      if (ids[i][0] === data.id) {
+      if (ids[i][0] === billId) {
         foundRow = i + 2;
         break;
       }
@@ -267,13 +383,13 @@ function handleTransaction(data, ss) {
     // อัปเดตแถวเดิม
     sheet.getRange(foundRow, 1, 1, row.length).setValues([row]);
     sheet.getRange(foundRow, 6, 1, 3).setNumberFormat("#,##0.00");
-    return json("success", "อัปเดตข้อมูลบิลแล้ว", { billId: data.id, sheet: monthYear, updated: true });
+    return json("success", "อัปเดตข้อมูลบิลแล้ว", { billId: billId, sheet: monthYear, updated: true });
   } else {
     // เพิ่มแถวใหม่
     sheet.appendRow(row);
     var lr = sheet.getLastRow();
     sheet.getRange(lr, 6, 1, 3).setNumberFormat("#,##0.00");
-    return json("success", "บันทึกบิลแล้ว", { billId: data.id, sheet: monthYear, updated: false });
+    return json("success", "บันทึกบิลแล้ว", { billId: billId, sheet: monthYear, updated: false });
   }
 }
 
@@ -339,14 +455,15 @@ function handleDailySummary(data, ss) {
   var dateKey   = data.dateKey;          // "2026-06-06"
   if (!isValidDateKey_(dateKey))
     return json("error", "วันที่ไม่ถูกต้อง (" + dateKey + ") — ไม่สร้างแท็บสรุปเพื่อกันข้อมูลขยะในรายงาน");
+  try {
+    normalizeSummaryPayload_(data);
+  } catch (err) {
+    return json("error", "ข้อมูลสรุปรายวันไม่ถูกต้อง: " + err.toString());
+  }
   var sheetName = "สรุป-" + dateKey;
-  var sheet     = ss.getSheetByName(sheetName);
-  if (sheet) ss.deleteSheet(sheet);      // สร้างใหม่ทุกครั้ง (overwrite)
-  sheet = ss.insertSheet(sheetName);
-
-  writeSummarySheet(sheet, data, "รายวัน: " + dateKey);
-  updateMasterSummarySheet(ss, data, "day", dateKey);
+  replaceSummarySheet_(ss, sheetName, data, "รายวัน: " + dateKey, "day", dateKey);
   pruneOldDailySheets(ss, DAILY_SHEET_RETENTION_DAYS);
+  pruneOrphanSwapSheets_(ss);
 
   return json("success", "บันทึกสรุปรายวันแล้ว", { sheet: sheetName });
 }
@@ -358,15 +475,118 @@ function handleMonthlySummary(data, ss) {
   var monthKey  = data.monthKey;         // "06-2026"
   if (!isValidMonthKey_(monthKey))
     return json("error", "เดือนไม่ถูกต้อง (" + monthKey + ") — ไม่สร้างแท็บสรุปเพื่อกันข้อมูลขยะในรายงาน");
+  try {
+    normalizeSummaryPayload_(data);
+  } catch (err) {
+    return json("error", "ข้อมูลสรุปรายเดือนไม่ถูกต้อง: " + err.toString());
+  }
   var sheetName = "สรุป-" + monthKey;
-  var sheet     = ss.getSheetByName(sheetName);
-  if (sheet) ss.deleteSheet(sheet);
-  sheet = ss.insertSheet(sheetName);
-
-  writeSummarySheet(sheet, data, "รายเดือน: " + monthKey);
-  updateMasterSummarySheet(ss, data, "month", monthKey);
+  replaceSummarySheet_(ss, sheetName, data, "รายเดือน: " + monthKey, "month", monthKey);
+  pruneOrphanSwapSheets_(ss);
 
   return json("success", "บันทึกสรุปรายเดือนแล้ว", { sheet: sheetName });
+}
+
+// เก็บกวาดแท็บที่ค้างจากการสลับแท็บสรุป (replaceSummarySheet_)
+// ปกติไม่ควรมี — จะเหลือก็ต่อเมื่อ execution ถูกตัดกลางคัน (หมดเวลา 6 นาที / quota)
+// หรือ deleteSheet ของเก่าไม่สำเร็จ ถ้าไม่กวาด แท็บพวกนี้จะสะสมจนไฟล์อืดและหาแท็บจริงไม่เจอ
+//
+// อายุขั้นต่ำต่างกันโดยตั้งใจ:
+//   __POS_TMP_ = แท็บที่เขียนไม่จบ ไม่มีค่าใด ๆ ทิ้งได้หลัง 1 ชม.
+//   __POS_OLD_ = สรุปงวดเดิมที่ถูกแทนที่สำเร็จแล้ว (ข้อมูลใหม่กว่าอยู่ในแท็บจริงแล้ว)
+//                เก็บ 7 วันเผื่อเจ้าของร้านอยากเทียบย้อนหลังก่อนถูกลบ
+function pruneOrphanSwapSheets_(ss) {
+  var now = Date.now();
+  var TMP_MAX_AGE = 60 * 60 * 1000;            // 1 ชั่วโมง
+  var OLD_MAX_AGE = 7 * 24 * 60 * 60 * 1000;   // 7 วัน
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName();
+    var m = name.match(/^__POS_(TMP|OLD)_(\d{10,})_\d+$/);
+    if (!m) continue;
+    // stamp มาจาก new Date().getTime() ตอนสร้าง — ใช้ตัดสินอายุได้โดยไม่ต้องเรียก Drive API
+    var age = now - Number(m[2]);
+    if (age < 0) continue;                     // เวลาเครื่องเพี้ยน — ไม่เดา ปล่อยไว้ก่อน
+    if (age < (m[1] === "TMP" ? TMP_MAX_AGE : OLD_MAX_AGE)) continue;
+    // ห้ามลบจนเหลือ 0 แท็บ — Sheets ไม่ยอมและจะโยน error ทำให้ทั้งคำขอล้มทั้งที่สรุปเขียนสำเร็จแล้ว
+    if (ss.getSheets().length <= 1) break;
+    try { ss.deleteSheet(sheets[i]); }
+    catch (e) { Logger.log("ลบแท็บค้าง " + name + " ไม่สำเร็จ: " + e.toString()); }
+  }
+}
+
+// เขียนสรุปลงแท็บชั่วคราวก่อนเสมอ แล้วค่อยสลับชื่อหลังเขียนและอัปเดต master สำเร็จ
+// จึงไม่ลบแท็บสรุปเดิมตั้งแต่ต้น หาก payload หรือโครงสร้างชีตมีปัญหา
+function replaceSummarySheet_(ss, sheetName, data, periodLabel, periodType, periodKey) {
+  var stamp = new Date().getTime() + "_" + Math.floor(Math.random() * 1000000);
+  var stagingName = "__POS_TMP_" + stamp;
+  var staging = ss.insertSheet(stagingName);
+  var previous = ss.getSheetByName(sheetName);
+
+  try {
+    writeSummarySheet(staging, data, periodLabel);
+    updateMasterSummarySheet(ss, data, periodType, periodKey);
+  } catch (err) {
+    try { ss.deleteSheet(staging); } catch (cleanupErr) {}
+    throw err;
+  }
+
+  // สลับผ่านชื่อชั่วคราว แทน delete ของเก่าก่อน: ถ้าการเปลี่ยนชื่อพัง ยังคืนชื่อแท็บเดิมได้
+  var oldName = "__POS_OLD_" + stamp;
+  if (previous) {
+    try {
+      previous.setName(oldName);
+    } catch (renameOldErr) {
+      try { ss.deleteSheet(staging); } catch (cleanupErr2) {}
+      throw new Error("ไม่สามารถเตรียมแท็บสรุปเดิมเพื่อสลับได้: " + renameOldErr.toString());
+    }
+  }
+
+  try {
+    staging.setName(sheetName);
+  } catch (promoteErr) {
+    if (previous) {
+      try { previous.setName(sheetName); } catch (restoreErr) {}
+    }
+    try { ss.deleteSheet(staging); } catch (cleanupErr3) {}
+    throw new Error("ไม่สามารถเผยแพร่แท็บสรุปใหม่ได้: " + promoteErr.toString());
+  }
+
+  // ลบสำเนาเดิมหลังจากแท็บใหม่พร้อมใช้งานแล้วเท่านั้น; ลบไม่สำเร็จให้เก็บเป็นสำเนากู้คืน ไม่ทำข้อมูลหลักหาย
+  if (previous) {
+    try { ss.deleteSheet(previous); }
+    catch (deleteOldErr) { Logger.log("เก็บสำเนาสรุปเดิมไว้ที่ " + oldName + ": " + deleteOldErr.toString()); }
+  }
+  return staging;
+}
+
+// ทำให้ตัวเลขสรุปเป็น number จริงตั้งแต่จุดรับ API และคำนวณกำไรจากรายได้-ค่าใช้จ่ายเสมอ
+function normalizeSummaryPayload_(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("payload ต้องเป็น object");
+  data.totalRevenue = readFiniteNumber_(data.totalRevenue, "totalRevenue", true);
+  data.totalExpenses = readFiniteNumber_(data.totalExpenses, "totalExpenses", true);
+  data.billCount = readFiniteNumber_(data.billCount, "billCount", true);
+  if (data.totalRevenue < 0 || data.totalExpenses < 0 || data.billCount < 0 || Math.floor(data.billCount) !== data.billCount) {
+    throw new Error("รายได้ ค่าใช้จ่าย และจำนวนบิลต้องเป็นค่าที่ถูกต้อง");
+  }
+  data.netIncome = data.totalRevenue - data.totalExpenses;
+  data.avgBill = data.billCount > 0 ? data.totalRevenue / data.billCount : 0;
+
+  var nonNegative = ["cashRevenue", "qrRevenue", "creditRevenue", "shiftCount", "nonVatBase", "vatableBase", "vatAmount", "rounding", "vatRate"];
+  for (var i = 0; i < nonNegative.length; i++) {
+    var key = nonNegative[i];
+    data[key] = readFiniteNumber_(data[key], key, false);
+    if (data[key] < 0) throw new Error(key + " ต้องไม่ติดลบ");
+  }
+  if (Math.floor(data.shiftCount) !== data.shiftCount) throw new Error("shiftCount ต้องเป็นจำนวนเต็ม");
+  if (data.vatRate > 100) throw new Error("vatRate เกินช่วงที่ยอมรับได้");
+  data.cashVariance = readFiniteNumber_(data.cashVariance, "cashVariance", false);
+
+  if (!Array.isArray(data.shiftCash)) data.shiftCash = [];
+  if (!Array.isArray(data.vatCategories)) data.vatCategories = [];
+  if (!Array.isArray(data.services)) data.services = [];
+  if (!Array.isArray(data.expenses)) data.expenses = [];
+  return data;
 }
 
 // ─────────────────────────────────────────────
@@ -557,9 +777,11 @@ function writeSummarySheet(sheet, data, periodLabel) {
   } else {
     expenses.forEach(function(exp, i) {
       var bg = i%2===0 ? "#fff1f2" : "white";
+      var amount = readFiniteNumber_(exp && exp.amount, "expenses[" + i + "].amount", false);
+      if (amount < 0) throw new Error("expenses[" + i + "].amount ต้องไม่ติดลบ");
       sheet.getRange(r,1).setValue(i+1).setBackground(bg).setHorizontalAlignment("center");
-      sheet.getRange(r,2,1,2).merge().setValue(safeCell(exp.note)).setBackground(bg);       // col 2-3
-      sheet.getRange(r,4,1,2).merge().setValue(exp.amount).setBackground(bg).setNumberFormat("#,##0.00").setHorizontalAlignment("right"); // col 4-5
+      sheet.getRange(r,2,1,2).merge().setValue(safeCell(exp && exp.note)).setBackground(bg);       // col 2-3
+      sheet.getRange(r,4,1,2).merge().setValue(amount).setBackground(bg).setNumberFormat("#,##0.00").setHorizontalAlignment("right"); // col 4-5
       r++;
     });
     sheet.getRange(r,1).setBackground(LRED); // คอลัมน์ 1
@@ -623,7 +845,7 @@ function updateMasterSummarySheet(ss, data, periodType, periodKey) {
   var master = ss.getSheetByName(masterName);
   if (!master) {
     master = ss.insertSheet(masterName, 0);
-    var mh = ["ประเภท","ช่วงเวลา","บิล"]
+    var mh = [MASTER_TYPE_HEADER, MASTER_PERIOD_HEADER, MASTER_BILL_HEADER]
       .concat(MASTER_VAT_HEADERS)
       .concat([MASTER_REV_HEADER,"ค่าใช้จ่าย (฿)","กำไรสุทธิ (฿)", MASTER_VAR_HEADER, MASTER_TS_HEADER]);
     styleHeaderRow(master, 1, mh, "#1e293b", "#e2e8f0");
@@ -635,20 +857,27 @@ function updateMasterSummarySheet(ss, data, periodType, periodKey) {
     migrateMasterAddVatColumns(master);
     SpreadsheetApp.flush();
   }
+  var columns = masterColumnMap_(master);
+  var layoutProblem = validateMasterColumnMap_(columns);
+  if (layoutProblem) {
+    // หยุดก่อนเขียนเสมอ: ปลอดภัยกว่าการเดาคอลัมน์แล้วทำให้ยอดไปอยู่ช่องผิดแบบเงียบ ๆ
+    throw new Error("โครงสร้างชีต 'สรุปรายเดือน' ไม่ปลอดภัย: " + layoutProblem);
+  }
+
   var lastRow = master.getLastRow();
   var found   = false;
   // อ่านคอลัมน์ "ช่วงเวลา" ทั้งหมดครั้งเดียว (เดิมอ่านทีละเซลล์ใน loop — ช้าลงเรื่อยๆ เมื่อแถวสะสมเป็นร้อย)
   if (lastRow > 1) {
-    var keys = master.getRange(2, 2, lastRow - 1, 1).getDisplayValues();
+    var keys = master.getRange(2, columns.periodCol, lastRow - 1, 1).getDisplayValues();
     for (var i = 0; i < keys.length; i++) {
       if (String(keys[i][0]) === String(periodKey)) {
-        writeToMaster(master, i + 2, periodType, periodKey, data);
+        writeToMaster(master, i + 2, periodType, periodKey, data, columns);
         found = true;
         break;
       }
     }
   }
-  if (!found) writeToMaster(master, lastRow + 1, periodType, periodKey, data);
+  if (!found) writeToMaster(master, lastRow + 1, periodType, periodKey, data, columns);
   master.autoResizeColumns(1, Math.max(master.getLastColumn(), 1));
 }
 
@@ -658,21 +887,66 @@ function updateMasterSummarySheet(ss, data, periodType, periodKey) {
 // คืน 0 = ไม่พบคอลัมน์นั้น (ผู้เรียกต้องเช็คก่อนใช้เสมอ)
 function masterColumnMap_(sheet) {
   var lastCol = sheet.getLastColumn();
-  if (lastCol < 1) return { varCol: 0, tsCol: 0 };
+  if (lastCol < 1) return { typeCol: 0, periodCol: 0, billCol: 0, varCol: 0, tsCol: 0, revCol: 0, expCol: 0, netCol: 0, vatCols: [0, 0, 0, 0], duplicates: [] };
   var headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  var map = { varCol: 0, tsCol: 0, revCol: 0, expCol: 0, netCol: 0, vatCols: [0, 0, 0, 0] };
+  var map = { typeCol: 0, periodCol: 0, billCol: 0, varCol: 0, tsCol: 0, revCol: 0, expCol: 0, netCol: 0, vatCols: [0, 0, 0, 0], duplicates: [] };
+  var requiredHeaders = [
+    { key: "typeCol", label: MASTER_TYPE_HEADER },
+    { key: "periodCol", label: MASTER_PERIOD_HEADER },
+    { key: "billCol", label: MASTER_BILL_HEADER },
+    { key: "revCol", label: MASTER_REV_HEADER },
+    { key: "expCol", label: MASTER_EXP_HEADER },
+    { key: "netCol", label: MASTER_NET_HEADER },
+    { key: "varCol", label: MASTER_VAR_HEADER },
+    { key: "tsCol", label: MASTER_TS_HEADER }
+  ];
   for (var i = 0; i < headers.length; i++) {
     var h = String(headers[i]).trim();
-    if (h === MASTER_VAR_HEADER) map.varCol = i + 1;
-    if (h === MASTER_TS_HEADER)  map.tsCol  = i + 1;
-    if (h === MASTER_REV_HEADER) map.revCol = i + 1;
-    if (h === MASTER_EXP_HEADER) map.expCol = i + 1;
-    if (h === MASTER_NET_HEADER) map.netCol = i + 1;
+    for (var j = 0; j < requiredHeaders.length; j++) {
+      var spec = requiredHeaders[j];
+      if (h === spec.label) {
+        if (map[spec.key] > 0) map.duplicates.push(spec.label);
+        else map[spec.key] = i + 1;
+      }
+    }
     for (var k = 0; k < MASTER_VAT_HEADERS.length; k++) {
-      if (h === MASTER_VAT_HEADERS[k]) map.vatCols[k] = i + 1;
+      if (h === MASTER_VAT_HEADERS[k]) {
+        if (map.vatCols[k] > 0) map.duplicates.push(MASTER_VAT_HEADERS[k]);
+        else map.vatCols[k] = i + 1;
+      }
     }
   }
   return map;
+}
+
+// โครงสร้างหลักต้องมีหัวครบและไม่ซ้ำ จึงจะอนุญาตให้เขียนยอด
+function validateMasterColumnMap_(map) {
+  var required = [
+    ["typeCol", MASTER_TYPE_HEADER], ["periodCol", MASTER_PERIOD_HEADER], ["billCol", MASTER_BILL_HEADER],
+    ["revCol", MASTER_REV_HEADER], ["expCol", MASTER_EXP_HEADER], ["netCol", MASTER_NET_HEADER],
+    ["varCol", MASTER_VAR_HEADER], ["tsCol", MASTER_TS_HEADER]
+  ];
+  var missing = [];
+  for (var i = 0; i < required.length; i++) {
+    if (!map[required[i][0]]) missing.push(required[i][1]);
+  }
+  if (missing.length) return "ไม่พบหัวคอลัมน์: " + missing.join(", ");
+  if (map.duplicates && map.duplicates.length) return "พบหัวคอลัมน์ซ้ำ: " + map.duplicates.join(", ");
+  var vatCount = 0;
+  for (var j = 0; j < map.vatCols.length; j++) if (map.vatCols[j] > 0) vatCount++;
+  // VAT ต้องมีครบทั้ง 4 ช่องหรือไม่มีเลย: เจอเพียงบางช่องแปลว่า migration ค้าง/มีคนแก้หัวตาราง
+  // หยุดดีกว่าเขียนยอดส่วนหนึ่งแล้วทำให้รายงาน VAT ดูเหมือนถูกต้องทั้งที่ข้อมูลขาด
+  if (vatCount > 0 && vatCount < MASTER_VAT_HEADERS.length) {
+    return "พบหัวคอลัมน์ VAT ไม่ครบ (ต้องมีครบ 4 ช่อง หรือไม่มีเลย)";
+  }
+  return "";
+}
+
+// migration ทำได้เฉพาะ master เก่าที่รู้จักโครงสร้างครบและไม่มีหัวซ้ำ
+// ถ้าเป็นชีตที่คนทำเอง/เพี้ยน ให้ write หยุดด้วย error โดยไม่แทรกคอลัมน์เข้าไปเพิ่ม
+function isRecognizedLegacyMasterLayout_(map) {
+  if (map.duplicates && map.duplicates.length) return false;
+  return !!(map.typeCol && map.periodCol && map.billCol && map.revCol && map.expCol && map.netCol && map.tsCol);
 }
 
 // แทรกคอลัมน์ "เงินขาด/เกิน" ให้ชีต master ที่สร้างไว้ก่อนเวอร์ชันนี้
@@ -682,6 +956,7 @@ function masterColumnMap_(sheet) {
 // idempotent: เจอครบแล้วออกเลย · เจอบางส่วน = โครงสร้างเพี้ยน ไม่แตะดีกว่าทำข้อมูลพัง
 function migrateMasterAddVatColumns(master) {
   var cols = masterColumnMap_(master);
+  if (!isRecognizedLegacyMasterLayout_(cols)) return;
   var found = 0;
   for (var i = 0; i < cols.vatCols.length; i++) { if (cols.vatCols[i] > 0) found++; }
   if (found === MASTER_VAT_HEADERS.length) return;   // ครบแล้ว
@@ -701,7 +976,7 @@ function migrateMasterAddVatColumns(master) {
 function migrateMasterAddVarianceColumn(master) {
   var cols = masterColumnMap_(master);
   if (cols.varCol > 0) return;   // มีแล้ว
-  if (cols.tsCol === 0) return;  // ไม่รู้จักโครงสร้างชีตนี้ — ไม่แตะ ดีกว่าทำข้อมูลเพี้ยน
+  if (!isRecognizedLegacyMasterLayout_(cols)) return; // ไม่รู้จักโครงสร้างชีตนี้ — ไม่แตะ ดีกว่าทำข้อมูลเพี้ยน
   master.insertColumnBefore(cols.tsCol);
   master.getRange(1, cols.tsCol)
     .setValue(MASTER_VAR_HEADER)
@@ -709,21 +984,30 @@ function migrateMasterAddVarianceColumn(master) {
     .setFontWeight("bold").setHorizontalAlignment("center");
 }
 
-function writeToMaster(sheet, row, type, key, data) {
-  var colsRev = masterColumnMap_(sheet);
-  var net    = data.netIncome;
+function writeToMaster(sheet, row, type, key, data, columnMap) {
+  var colsRev = columnMap || masterColumnMap_(sheet);
+  var layoutProblem = validateMasterColumnMap_(colsRev);
+  if (layoutProblem) throw new Error("โครงสร้างชีต 'สรุปรายเดือน' ไม่ปลอดภัย: " + layoutProblem);
+
+  var totalRevenue = readFiniteNumber_(data.totalRevenue, "totalRevenue", true);
+  var totalExpenses = readFiniteNumber_(data.totalExpenses, "totalExpenses", true);
+  var billCount = readFiniteNumber_(data.billCount, "billCount", true);
+  if (totalRevenue < 0 || totalExpenses < 0 || billCount < 0 || Math.floor(billCount) !== billCount) {
+    throw new Error("ยอดสรุปต้องเป็นจำนวนที่ถูกต้องและจำนวนบิลต้องเป็นจำนวนเต็มไม่ติดลบ");
+  }
+  // กำไรสุทธิคำนวณในฝั่งเซิร์ฟเวอร์ ลดโอกาสที่ payload เก่าหรือผิดรูปแบบทำให้สรุปเพี้ยน
+  var net = totalRevenue - totalExpenses;
   var netBg  = net >= 0 ? "#dcfce7" : "#ffe4e6";
   var netClr = net >= 0 ? "#166534" : "#9f1239";
-  sheet.getRange(row,1).setValue(type === "month" ? "รายเดือน" : "รายวัน");
-  sheet.getRange(row,2).setNumberFormat("@").setValue(key).setFontWeight("bold");
-  sheet.getRange(row,3).setValue(data.billCount).setHorizontalAlignment("center");
+  sheet.getRange(row,colsRev.typeCol).setValue(type === "month" ? "รายเดือน" : "รายวัน");
+  sheet.getRange(row,colsRev.periodCol).setNumberFormat("@").setValue(key).setFontWeight("bold");
+  sheet.getRange(row,colsRev.billCol).setValue(billCount).setHorizontalAlignment("center");
   // รายได้รวม — หาคอลัมน์จากหัวตาราง (ชีตเก่าอยู่ช่อง 4 ชีตใหม่ถูกดัน 4 ช่องเพราะคอลัมน์ VAT)
-  var revCol = colsRev.revCol > 0 ? colsRev.revCol : 4;
-  sheet.getRange(row,revCol).setValue(data.totalRevenue).setNumberFormat("#,##0.00").setBackground("#fef9c3").setHorizontalAlignment("right");
+  sheet.getRange(row,colsRev.revCol).setValue(totalRevenue).setNumberFormat("#,##0.00").setBackground("#fef9c3").setHorizontalAlignment("right");
 
   // 4 ช่อง VAT — เขียนเมื่อหาคอลัมน์เจอเท่านั้น ห้ามเดาเลขคอลัมน์
   if (colsRev.vatCols[0] > 0 && colsRev.vatCols[1] > 0 && colsRev.vatCols[2] > 0 && colsRev.vatCols[3] > 0) {
-    var vals = [Number(data.nonVatBase)||0, Number(data.vatableBase)||0, Number(data.vatAmount)||0, Number(data.rounding)||0];
+    var vals = [readFiniteNumber_(data.nonVatBase, "nonVatBase", false), readFiniteNumber_(data.vatableBase, "vatableBase", false), readFiniteNumber_(data.vatAmount, "vatAmount", false), readFiniteNumber_(data.rounding, "rounding", false)];
     // งวดก่อนเปิด VAT: แอปส่ง nonVatBase = totalRevenue มาให้แล้ว ค่าที่เหลือเป็น 0 ตามจริง
     var bgs = ["#f8fafc", "#e6f1fb", "#fef3c7", "#f1f5f9"];
     var fgs = ["#475569", "#0c447c", "#854f0b", "#64748b"];
@@ -737,18 +1021,16 @@ function writeToMaster(sheet, row, type, key, data) {
   }
   // ⚠️ ค่าใช้จ่าย/กำไรสุทธิ ต้องหาจากหัวตารางเช่นกัน — พอแทรกคอลัมน์ VAT เข้ามา 4 ช่อง
   // สองคอลัมน์นี้เลื่อนจากช่อง 5-6 ไปเป็น 9-10 ถ้ายังเขียนตามเลขเดิมจะไปทับคอลัมน์ VAT
-  var expCol = colsRev.expCol > 0 ? colsRev.expCol : 5;
-  var netCol = colsRev.netCol > 0 ? colsRev.netCol : 6;
-  sheet.getRange(row,expCol).setValue(data.totalExpenses).setNumberFormat("#,##0.00").setBackground("#ffe4e6").setHorizontalAlignment("right");
-  sheet.getRange(row,netCol).setValue(net).setNumberFormat("#,##0.00").setBackground(netBg).setFontColor(netClr).setFontWeight("bold").setHorizontalAlignment("right");
+  sheet.getRange(row,colsRev.expCol).setValue(totalExpenses).setNumberFormat("#,##0.00").setBackground("#ffe4e6").setHorizontalAlignment("right");
+  sheet.getRange(row,colsRev.netCol).setValue(net).setNumberFormat("#,##0.00").setBackground(netBg).setFontColor(netClr).setFontWeight("bold").setHorizontalAlignment("right");
 
   // เงินขาด/เกิน — แยกสี 3 ระดับ: ขาด(แดง) / เกิน(เขียว) / ตรงพอดีหรือยังไม่ปิดกะ(เทา)
   // ใช้ "—" เมื่อยังไม่มีกะปิดในงวดนั้น เพื่อไม่ให้ 0 (ตรงพอดี) กับ "ยังไม่ปิดกะ" ดูเหมือนกัน
   // ⚠️ หาคอลัมน์จากหัวตาราง ถ้าไม่เจอ = ข้ามไปเลย ห้ามเดาเลขคอลัมน์แล้วเขียนทับของเดิม
   var cols = colsRev;
   if (cols.varCol > 0) {
-    var hasShift = Number(data.shiftCount || 0) > 0;
-    var varVal   = Number(data.cashVariance || 0);
+    var hasShift = readFiniteNumber_(data.shiftCount, "shiftCount", false) > 0;
+    var varVal   = readFiniteNumber_(data.cashVariance, "cashVariance", false);
     var varCell  = sheet.getRange(row, cols.varCol);
     if (!hasShift) {
       varCell.setValue("—").setBackground("#f8fafc").setFontColor("#94a3b8")
@@ -763,8 +1045,7 @@ function writeToMaster(sheet, row, type, key, data) {
   }
 
   // timestamp ลงคอลัมน์ "อัปเดตล่าสุด" ที่หาเจอ ถ้าหาไม่เจอค่อยต่อท้ายตาราง (ไม่ทับของใคร)
-  var tsCol = cols.tsCol > 0 ? cols.tsCol : Math.max(sheet.getLastColumn() + 1, 7);
-  sheet.getRange(row, tsCol).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm"));
+  sheet.getRange(row, cols.tsCol).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm"));
 }
 
 // ── HELPERS ───────────────────────────────────
@@ -816,6 +1097,17 @@ function payLabel(method) {
 function safeCell(v) {
   var s = (v == null) ? "" : String(v);
   return /^[=+\-@]/.test(s) ? ("'" + s) : s;
+}
+
+// รับเฉพาะตัวเลขจริงก่อนเขียนลงชีต ไม่แปลงค่าผิดเป็น 0 แบบเงียบ ๆ
+function readFiniteNumber_(value, fieldName, required) {
+  if (value === null || value === undefined || value === "") {
+    if (required) throw new Error("ไม่มีค่า " + fieldName + " ในข้อมูลสรุป");
+    return 0;
+  }
+  var n = Number(value);
+  if (!isFinite(n)) throw new Error("ค่า " + fieldName + " ต้องเป็นตัวเลข");
+  return n;
 }
 
 function json(status, message, details) {

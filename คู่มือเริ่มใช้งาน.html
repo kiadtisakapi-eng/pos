@@ -129,6 +129,7 @@
     <li>เปิด <b>Google Sheets</b> สร้างไฟล์ใหม่ 1 ไฟล์ (จะใช้เก็บข้อมูลทั้งหมด)</li>
     <li>เมนู <b>Extensions → Apps Script</b></li>
     <li>ลบโค้ดตัวอย่างที่มี แล้ว <b>วางโค้ดทั้งหมด</b> จากไฟล์ <code>google_apps_script.js</code> → กด <b>บันทึก</b> (รูปแผ่นดิสก์)</li>
+    <li>เลือกฟังก์ชัน <code>setupPosApiToken</code> ด้านบน → กด <b>Run</b> 1 ครั้ง → อนุญาตสิทธิ์ → คัดลอก <b>รหัสเชื่อมต่อ</b> ที่แสดงใน Execution log เก็บไว้</li>
     <li>กด <b>Deploy → New deployment</b></li>
     <li>กดรูปเฟือง ⚙️ ข้าง "Select type" → เลือก <b>Web app</b></li>
     <li>ตั้งค่าให้ตรงนี้ <b>เป๊ะ ๆ</b>:
@@ -139,7 +140,7 @@
       </table>
     </li>
     <li>กด <b>Deploy</b> → อนุญาตสิทธิ์ (Authorize) → เลือกบัญชี → "Advanced" → "Go to (project) (unsafe)" → Allow <span class="pill">ทำครั้งเดียว</span></li>
-    <li>คัดลอก <b>Web app URL</b> (ลงท้าย <code>/exec</code>) เก็บไว้ใช้ในขั้นตอนที่ 4</li>
+    <li>คัดลอก <b>Web app URL</b> (ลงท้าย <code>/exec</code>) เก็บไว้คู่กับรหัสเชื่อมต่อ ใช้ในขั้นตอนที่ 4</li>
   </ol>
   <div class="warn"><b>เมื่อแก้โค้ด GAS ภายหลัง:</b> ต้องไป <b>Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy</b> ทุกครั้ง ไม่งั้นของเก่าจะยังทำงานอยู่ (URL เดิมใช้ได้ต่อ)</div>
 </div>
@@ -153,7 +154,8 @@
     <tr><th>รายการ</th><th>ทำอะไร</th></tr>
     <tr><td>🔑 PIN เจ้าของร้าน</td><td>เปลี่ยนจาก <code>123456</code> เป็นรหัส 6 หลักของคุณ <b>(สำคัญมาก)</b></td></tr>
     <tr><td>💸 เลขพร้อมเพย์</td><td>ใส่เบอร์มือถือ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก → QR จะสแกนจ่ายเข้าบัญชีร้านจริง</td></tr>
-    <tr><td>☁️ Google Sheets URL</td><td>วาง Web App URL จากขั้นตอนที่ 3 → กดทดสอบ/บันทึก</td></tr>
+    <tr><td>☁️ Google Sheets URL</td><td>วาง Web App URL จากขั้นตอนที่ 3</td></tr>
+    <tr><td>🔐 รหัสเชื่อมต่อ Apps Script</td><td>วางรหัสจาก <code>setupPosApiToken</code> → ระบบจะเริ่มส่งบิลและสรุปที่ค้างไว้</td></tr>
     <tr><td>🔔 Telegram (ถ้าต้องการ)</td><td>ใส่ Bot Token + Chat ID เพื่อรับรายงานสรุปตอนปิดกะ</td></tr>
   </table>
 </div>
@@ -178,16 +180,16 @@
 <h2><span class="num">✓</span> สำรองข้อมูล &amp; แก้ปัญหาบน iPad</h2>
 <div class="warn"><b>ข้อมูลเก็บในเครื่อง iPad (ต่อเครื่อง):</b> iOS อาจล้างข้อมูลเว็บถ้าไม่ได้เปิดแอปนานหลายสัปดาห์ หรือพื้นที่เต็ม จึงควรป้องกันไว้ดังนี้</div>
 <ul>
-  <li>ตั้ง <b>Google Sheets URL</b> ให้ครบ → ทุกบิลจะ sync ขึ้นคลาวด์อัตโนมัติ</li>
+  <li>ตั้ง <b>Google Sheets URL + รหัสเชื่อมต่อ Apps Script</b> ให้ครบ → ทุกบิลจะ sync ขึ้นคลาวด์อัตโนมัติ</li>
   <li>กด <b>ส่งออกข้อมูล (Export JSON)</b> ในหน้าตั้งค่าเก็บไว้เป็นระยะ (เช่น สัปดาห์ละครั้ง)</li>
-  <li>ตอนปิดกะ ระบบสำรองขึ้น Google Drive ให้อัตโนมัติ (ถ้าตั้ง Sheets URL ไว้)</li>
+  <li>ตอนปิดกะ ระบบสำรองขึ้น Google Drive ให้อัตโนมัติ (เมื่อใส่ URL และรหัสครบ) ไฟล์เก่าไม่ถูกลบเอง จัดระเบียบใน Drive เป็นระยะ</li>
   <li>เปิดแอปจาก<b>ไอคอนหน้าจอโฮม</b>เป็นประจำ (ไม่ใช่เปิดผ่าน Safari ทุกครั้ง) เพื่อให้ iOS ถือว่าเป็นแอปที่ใช้งานอยู่</li>
 </ul>
 <table>
   <tr><th>ปัญหา</th><th>วิธีแก้</th></tr>
   <tr><td>อัปเดตโค้ดแล้วแอปยังเป็นของเก่า</td><td>ปิดแอปบน iPad (ปัดขึ้นออกจากมัลติทาสก์) แล้วเปิดใหม่ — Service Worker จะโหลดเวอร์ชันใหม่ (sw.js ปัจจุบัน <code>v16</code>)</td></tr>
   <tr><td>QR สแกนแล้วขึ้น error</td><td>ตรวจ "เลขพร้อมเพย์" ในหน้าตั้งค่า ว่าเป็นเบอร์ 10 หลัก หรือเลขบัตร 13 หลักที่ถูกต้อง</td></tr>
-  <tr><td>กดส่งสรุป/ซิงก์แล้วไม่ขึ้น Sheets</td><td>ตรวจว่า GAS deploy แบบ "Anyone" และวาง URL ที่ลงท้าย <code>/exec</code> ถูกต้อง; ถ้าเพิ่งแก้โค้ดให้ deploy เวอร์ชันใหม่</td></tr>
+  <tr><td>กดส่งสรุป/ซิงก์แล้วไม่ขึ้น Sheets</td><td>ตรวจว่า GAS deploy แบบ "Anyone", URL ลงท้าย <code>/exec</code> และรหัสเชื่อมต่อถูกต้อง; ถ้าเพิ่งแก้โค้ดให้ deploy เวอร์ชันใหม่</td></tr>
   <tr><td>เพิ่มลงหน้าจอโฮมไม่ได้</td><td>ตรวจว่าเปิดด้วย Safari และลิงก์เป็น <code>https://</code></td></tr>
 </table>
 
@@ -197,10 +199,10 @@
   <ul class="check">
     <li>นำไฟล์ขึ้นเว็บแล้ว เปิดลิงก์ HTTPS ได้</li>
     <li>เพิ่มแอปลงหน้าจอ iPad ผ่าน Safari แล้ว</li>
-    <li>Deploy Google Apps Script (Execute as Me / Anyone) และคัดลอก URL แล้ว</li>
+    <li>รัน <code>setupPosApiToken</code>, Deploy Google Apps Script (Execute as Me / Anyone) และคัดลอก URL + รหัสแล้ว</li>
     <li>เปลี่ยน PIN เจ้าของร้านจาก 123456 แล้ว</li>
     <li>ใส่เลขพร้อมเพย์ และทดสอบสแกน QR ด้วยแอปธนาคารแล้ว</li>
-    <li>วาง Google Sheets URL และทดสอบ sync ขึ้น Sheets แล้ว</li>
+    <li>วาง Google Sheets URL + รหัสเชื่อมต่อ และทดสอบ sync ขึ้น Sheets แล้ว</li>
     <li>ตรวจรายการบริการ/พนักงาน/ค่าคอมมิชชั่นให้ตรงกับร้านจริง</li>
     <li>ทดลองขาย 1 บิล → เปิดคิว → ปิดกะ ดูว่าครบถ้วน</li>
   </ul>

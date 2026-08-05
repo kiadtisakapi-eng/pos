@@ -27,15 +27,18 @@
 ### 3) Deploy Backend (Google Apps Script)
 1. เปิด Google Sheets ใหม่ → Extensions → Apps Script
 2. วางโค้ดจาก `google_apps_script.js` ทั้งหมด → Save
-3. Deploy → New deployment → **Web app**
+3. เลือกฟังก์ชัน `setupPosApiToken` → กด Run 1 ครั้ง → อนุญาตสิทธิ์ → คัดลอกรหัสที่แสดงใน Execution log
+4. Deploy → New deployment → **Web app**
    - Execute as: **Me**
    - Who has access: **Anyone**
-4. คัดลอก Web App URL → ใส่ในหน้า **ตั้งค่า** ของแอป
+5. คัดลอก Web App URL และรหัสจากข้อ 3 → ใส่ในหน้า **ตั้งค่า → Google Sheets** ของแอป
+
+> แม้ Web App ต้องเปิดเป็น `Anyone` เพื่อให้ iPad เรียกได้ แต่ทุกคำขอจะต้องมีรหัสที่เก็บใน Script Properties จึงไม่อยู่ในไฟล์เว็บหรือ GitHub หากสงสัยว่ารหัสรั่ว ให้รัน `rotatePosApiToken` แล้วเปลี่ยนรหัสใน iPad ทุกเครื่องทันที
 
 ### 4) ตั้งค่าครั้งแรกในแอป (หน้า "ตั้งค่า")
 - เปลี่ยน **PIN เจ้าของร้าน** (ค่าเริ่มต้น `123456`)
 - ใส่ **เลขพร้อมเพย์** (เบอร์ 10 หลัก หรือเลขบัตร 13 หลัก) → QR สแกนจ่ายได้จริง
-- วาง **Google Sheets URL**
+- วาง **Google Sheets URL** และ **รหัสเชื่อมต่อ Apps Script**
 - (ถ้าต้องการ) ใส่ **Telegram Token + Chat ID** สำหรับรายงานปิดกะ
 
 ---
@@ -54,6 +57,7 @@
 | `google_apps_script.js` | Backend บน Google Sheets |
 
 ## ข้อควรรู้
-- ข้อมูลเก็บในเครื่อง (per-device). ควรกด **ส่งออกข้อมูล (Export)** สำรองสม่ำเสมอ และตั้ง Google Sheets URL ให้ข้อมูลขึ้นคลาวด์
+- ข้อมูลเก็บในเครื่อง (per-device). ควรกด **ส่งออกข้อมูล (Export)** สำรองสม่ำเสมอ และตั้ง Google Sheets URL + รหัสเชื่อมต่อให้ข้อมูลขึ้นคลาวด์
+- รหัสเชื่อมต่อไม่อยู่ในไฟล์ Export/Backup: เมื่อนำข้อมูลไปกู้บน iPad เครื่องใหม่ ต้องกรอกรหัสนี้ใหม่ในหน้าตั้งค่า
 - แก้ไขโค้ด GAS ภายหลังต้อง **สร้าง deployment เวอร์ชันใหม่** ทุกครั้ง
 - เปลี่ยน Service Worker (`sw.js`) แล้วผู้ใช้ต้องปิด-เปิดแอปใหม่เพื่อรับเวอร์ชันล่าสุด

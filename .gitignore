@@ -1,13 +1,18 @@
 # ไฟล์สำรอง/ขยะ ไม่ต้องขึ้น GitHub
 backup/
+erotica_pos_backup_*.json
+pos_backup_*.json
+*.backup.json
+.env
+.env.*
+*.secret
 __pycache__/
 *.pyc
 refactor.py
 _backup_final_qa_*.js
 
-# local deploy scripts (เก็บไว้ในเครื่อง ไม่ต้องขึ้น repo)
+# local repair scripts (เก็บไว้ในเครื่อง ไม่ต้องขึ้น repo)
 deploy.bat
-deploy.ps1
 first-setup.bat
 fix-push.bat
 fix-push.ps1

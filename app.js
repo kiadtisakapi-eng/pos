@@ -34,9 +34,13 @@ const DEFAULT_CATEGORIES = [
   { id: 'drinks', name: 'เครื่องดื่ม (Drinks)', icon: 'fa-mug-hot', vat: true }
 ];
 
-// ⚠️ SECRET TOKEN — ต้องตรงกับค่า API_SECRET ในไฟล์ google_apps_script.js ทุกตัวอักษร
-//    เปลี่ยนเป็นรหัสลับของคุณเอง แล้ว re-deploy GAS ใหม่ด้วย
-const API_SECRET = 'epos_8iwcISy4RSQkymn8FdGupRP';
+// รหัสเชื่อมต่อ Google Apps Script ต้องไม่ฝังอยู่ใน source code เพราะไฟล์ JavaScript
+// ถูกส่งไปให้ทุก browser อ่านได้เสมอ รหัสถูกเก็บเฉพาะใน IndexedDB ของ iPad แต่ละเครื่อง
+// และต้องสร้างไว้ใน Script Properties ของ Apps Script ให้ตรงกัน
+const CLOUD_API_TOKEN_MIN_LENGTH = 24;
+
+// เวอร์ชันรูปแบบไฟล์สำรอง ใช้ตรวจว่าไฟล์มาจากระบบรุ่นที่รองรับจริง
+const BACKUP_SCHEMA_VERSION = 2;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
 const APP_VERSION = '1.5.0 (2026-08-03)';
@@ -110,6 +114,7 @@ class PosApp {
     this.currentRole = null;      // 'owner' | 'manager' | 'staff' | null (ยังไม่ล็อกอิน)
     this.currentUser = null;      // { id, name } ของผู้ที่ล็อกอินอยู่
     this.loginSelectedId = null;  // ผู้ใช้ที่เลือกในหน้าล็อกอิน
+    this.googleSheetsApiToken = ''; // รหัสต่อเครื่องสำหรับ Apps Script — ไม่ใส่ใน backup/export
   }
 
   // ==================== TOAST NOTIFICATION ====================
@@ -226,6 +231,14 @@ class PosApp {
   // (เวลาแสดงผลบนบิล/ใบเสร็จยังใช้เวลาจริง — เปลี่ยนเฉพาะการจัดกลุ่ม)
 
   // เลื่อน timestamp ถอยหลังตามชั่วโมงตัดวัน — ฐานของทุกฟังก์ชันด้านล่าง
+  // ตารางจำผลการแปลงวันที่ (timestamp -> "2026-08-03")
+  // ทุกครั้งที่จบบิล ระบบวนอ่านบิลทั้งหมดหลายรอบเพื่อกรองวัน/เดือน แต่ละรอบสร้างอ็อบเจกต์วันที่ใหม่ทีละใบ
+  // พอบิลสะสมหลักพัน งานนี้กินเวลาจนรู้สึกหน่วง — วันที่ของบิลไม่มีวันเปลี่ยน จำไว้ครั้งเดียวใช้ซ้ำได้ตลอด
+  // ต้องล้างทุกครั้งที่ข้อมูลถูกแทนที่ทั้งชุด (นำเข้าไฟล์ / กู้ข้อมูล / ล้างข้อมูล)
+  clearDateKeyCache() {
+    this._dkCache = { day: new Map(), month: new Map(), mkey: new Map() };
+  }
+
   getBusinessTime(dateVal) {
     // ⚠️ ต้องกัน null/undefined/'' ก่อน — new Date(null) ไม่ใช่ Invalid Date แต่เป็น 1 ม.ค. 1970
     // ถ้าปล่อยผ่าน บิลที่ไม่มีวันที่ (เช่นมาจากไฟล์สำรองที่เสียหาย) จะถูกจัดเข้าเดือน "01-1970"
@@ -254,18 +267,56 @@ class PosApp {
 
   // วันทำการแบบ "2026-07-18" (บิลตี 2 ของวันที่ 19 → "2026-07-18")
   getBusinessISODate(dateVal) {
+    // เขียนยาวหน่อยแต่ตั้งใจ — ไม่ใช้ callback เพราะการสร้างฟังก์ชันใหม่ทุกครั้งที่เรียก
+    // กินเวลาพอ ๆ กับงานที่พยายามจะประหยัด (วนอ่านบิลหลักพันคือเรียกหลักพันครั้ง)
+    if (typeof dateVal === 'number' && Number.isFinite(dateVal)) {
+      if (!this._dkCache) this.clearDateKeyCache();
+      const box = this._dkCache.day;
+      const hit = box.get(dateVal);
+      if (hit !== undefined) return hit;
+      const tc = this.getBusinessTime(dateVal);
+      const out = isNaN(tc) ? '' : this.getLocalISODate(tc);
+      if (box.size > 50000) box.clear();
+      box.set(dateVal, out);
+      return out;
+    }
     const t = this.getBusinessTime(dateVal);
     return isNaN(t) ? '' : this.getLocalISODate(t);
   }
 
   // เดือนทำการแบบ "2026-07"
   getBusinessISOMonth(dateVal) {
+    if (typeof dateVal === 'number' && Number.isFinite(dateVal)) {
+      if (!this._dkCache) this.clearDateKeyCache();
+      const box = this._dkCache.month;
+      const hit = box.get(dateVal);
+      if (hit !== undefined) return hit;
+      const tc = this.getBusinessTime(dateVal);
+      const out = isNaN(tc) ? '' : this.getLocalISOMonth(tc);
+      if (box.size > 50000) box.clear();
+      box.set(dateVal, out);
+      return out;
+    }
     const t = this.getBusinessTime(dateVal);
     return isNaN(t) ? '' : this.getLocalISOMonth(t);
   }
 
   // เดือนทำการรูปแบบแท็บชีต "07-2026"
   getBusinessMonthKey(dateVal) {
+    if (typeof dateVal === 'number' && Number.isFinite(dateVal)) {
+      if (!this._dkCache) this.clearDateKeyCache();
+      const box = this._dkCache.mkey;
+      const hit = box.get(dateVal);
+      if (hit !== undefined) return hit;
+      const out = this._monthKeyFrom(dateVal);
+      if (box.size > 50000) box.clear();
+      box.set(dateVal, out);
+      return out;
+    }
+    return this._monthKeyFrom(dateVal);
+  }
+
+  _monthKeyFrom(dateVal) {
     const t = this.getBusinessTime(dateVal);
     if (isNaN(t)) return '';
     const d = new Date(t);
@@ -340,7 +391,7 @@ class PosApp {
     this.applyTheme();         // ใช้ธีมสว่าง/มืดตามที่บันทึกไว้
     this.updateUserRoleUI();
     this.checkSyncStatus(); // ตรวจเช็คสถานะการซิงก์ข้อมูลเมื่อเปิดแอปพลิเคชัน
-    this.flushCloudOutbox(); // ส่งสรุป/Telegram ที่ค้างจากการปิดกะตอนออฟไลน์ (กรณีเปิดแอปใหม่ตอนเน็ตมาแล้ว)
+    this.resumePendingCloudWork(); // ส่งทั้งบิลและงานสรุปที่ค้างเมื่อเปิดแอปตอนมีเน็ตแล้ว
     
     // ตั้งเวลาสำหรับอัปเดตแถบเวลาของคิวงาน (คิวที่กำลังรับบริการอยู่)
     this.timerInterval = setInterval(() => this.updateQueueProgress(), 1000);
@@ -356,9 +407,9 @@ class PosApp {
     this.registerServiceWorker();
 
     // เน็ตกลับมา / สลับกลับมาที่แอป → ดันบิลที่ค้าง sync ขึ้นทันที (กันบิลที่ขายตอนออฟไลน์ค้าง)
-    window.addEventListener('online', () => { this.syncPendingTransactions(true); this.flushCloudOutbox(); });
+    window.addEventListener('online', () => this.resumePendingCloudWork());
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden && navigator.onLine) { this.syncPendingTransactions(true); this.flushCloudOutbox(); }
+      if (!document.hidden && navigator.onLine) this.resumePendingCloudWork();
     });
   }
 
@@ -402,6 +453,7 @@ class PosApp {
         const oldPromptPay = localStorage.getItem('jahn_pos_shop_promptpay') || '';
         const oldPin = localStorage.getItem('jahn_pos_shop_owner_pin') || '123456';
         const oldSheetsUrl = localStorage.getItem('jahn_pos_google_sheets_url') || '';
+        const oldSheetsApiToken = localStorage.getItem('jahn_pos_google_sheets_api_token') || '';
         const oldTelegramToken = localStorage.getItem('jahn_pos_telegram_token') || '';
         const oldTelegramChatId = localStorage.getItem('jahn_pos_telegram_chatid') || '';
 
@@ -416,6 +468,7 @@ class PosApp {
           { key: 'shopPromptPayId', value: oldPromptPay },
           { key: 'ownerPin', value: oldPin },
           { key: 'googleSheetsUrl', value: oldSheetsUrl },
+          { key: 'googleSheetsApiToken', value: oldSheetsApiToken },
           { key: 'telegramToken', value: oldTelegramToken },
           { key: 'telegramChatId', value: oldTelegramChatId },
           { key: 'db_migrated', value: true }
@@ -426,6 +479,7 @@ class PosApp {
         localStorage.removeItem('jahn_pos_shop_promptpay');
         localStorage.removeItem('jahn_pos_shop_owner_pin');
         localStorage.removeItem('jahn_pos_google_sheets_url');
+        localStorage.removeItem('jahn_pos_google_sheets_api_token');
         localStorage.removeItem('jahn_pos_telegram_token');
         localStorage.removeItem('jahn_pos_telegram_chatid');
         
@@ -451,6 +505,7 @@ class PosApp {
       const themeVal = await db.state.get('theme');
       const pinVal = await db.state.get('ownerPin');
       const sheetsUrlVal = await db.state.get('googleSheetsUrl');
+      const sheetsApiTokenVal = await db.state.get('googleSheetsApiToken');
       const telegramTokenVal = await db.state.get('telegramToken');
       const telegramChatIdVal = await db.state.get('telegramChatId');
 
@@ -551,6 +606,7 @@ class PosApp {
       }
 
       this.googleSheetsUrl = sheetsUrlVal ? sheetsUrlVal.value : '';
+      this.googleSheetsApiToken = sheetsApiTokenVal ? String(sheetsApiTokenVal.value || '').trim() : '';
       this.telegramToken = telegramTokenVal ? telegramTokenVal.value : '';
       this.telegramChatId = telegramChatIdVal ? telegramChatIdVal.value : '';
       this.currentRole = 'staff';
@@ -585,6 +641,7 @@ class PosApp {
       this.theme = 'dark';
       this.ownerPin = await this.hashPin('123456');
       this.googleSheetsUrl = '';
+      this.googleSheetsApiToken = '';
       this.telegramToken = '';
       this.telegramChatId = '';
       this.currentRole = 'staff';
@@ -638,6 +695,8 @@ class PosApp {
   }
 
   // Auto-archive: ลบ shift history เก่ากว่า 90 วัน + transactions เก่ากว่า 365 วันที่ synced แล้ว
+  // ไม่เรียกจาก saveState() โดยอัตโนมัติ เพราะการ "บันทึก" ต้องไม่มีสิทธิ์ลบประวัติ
+  // โดยเฉพาะหลัง restore ที่บิลเก่าจะถูกลบทิ้งทันทีโดยผู้ใช้ไม่รู้ตัว
   archiveOldData() {
     const now = Date.now();
     const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
@@ -675,13 +734,10 @@ class PosApp {
   async saveState() {
     // 🛑 กันข้อมูลหายถาวร — ถ้า loadState() ล้มเหลว state ในหน่วยความจำเป็นค่าว่าง
     // ไม่ใช่ข้อมูลจริง การเขียนลง DB ตอนนี้คือการทับข้อมูลจริงทิ้ง
-    // ต้องอยู่ก่อน archiveOldData() ด้วย — ไม่งั้น archive จะไปกรอง array ว่างแล้วไม่มีความหมาย
     if (this.loadFailed) {
       console.error('[GUARD] ปฏิเสธการบันทึก — โหลดข้อมูลไม่สำเร็จตอนเปิดแอป');
-      return;
+      return false;
     }
-
-    this.archiveOldData();
 
     try {
       await db.state.bulkPut([
@@ -703,24 +759,75 @@ class PosApp {
         { key: 'theme', value: this.theme || 'dark' },
         { key: 'ownerPin', value: this.ownerPin },
         { key: 'googleSheetsUrl', value: this.googleSheetsUrl },
+        { key: 'googleSheetsApiToken', value: this.googleSheetsApiToken || '' },
         { key: 'telegramToken', value: this.telegramToken },
         { key: 'telegramChatId', value: this.telegramChatId },
         { key: 'vatEnabled', value: !!this.vatEnabled },
         { key: 'vatRate', value: Number(this.vatRate) || 0 }
       ]);
+      return true;
     } catch (e) {
       console.error('IndexedDB save failure!', e);
       this.showToast('บันทึกข้อมูลหน้าร้านล้มเหลว!', 'error');
+      return false;
     }
+  }
+
+  // งานที่กระทบยอดขาย/ข้อมูลสำรองต้องไม่เดินหน้าต่อถ้า IndexedDB เขียนไม่สำเร็จ
+  // เช็คเฉพาะ false เพื่อให้ test/method เก่าที่ไม่ได้คืนค่า ยังทำงานร่วมกันได้
+  async saveStateOrThrow(actionLabel) {
+    const saved = await this.saveState();
+    if (saved === false) {
+      throw new Error(`ไม่สามารถบันทึก${actionLabel || 'ข้อมูล'}ลงในเครื่องได้ — ระบบยกเลิกเพื่อป้องกันข้อมูลหาย`);
+    }
+    return true;
+  }
+
+  // สำเนาสำหรับย้อนสถานะในหน่วยความจำเมื่อการเขียน IndexedDB ล้มเหลว
+  // ข้อมูล POS เป็น JSON-compatible ทั้งหมด จึงใช้ structuredClone เมื่อมี และมี fallback สำหรับ Safari รุ่นเก่า
+  cloneForRollback(value) {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  isValidCloudApiToken(token) {
+    // ใช้ token แบบสุ่มที่คัดลอกมาจาก Apps Script เท่านั้น; ไม่รับช่องว่างหรืออักขระแปลก
+    return typeof token === 'string' &&
+      new RegExp(`^[A-Za-z0-9_-]{${CLOUD_API_TOKEN_MIN_LENGTH},200}$`).test(token);
+  }
+
+  hasCloudSyncConfig() {
+    return !!this.googleSheetsUrl && this.isValidCloudApiToken(this.googleSheetsApiToken || '');
+  }
+
+  // ตั้งค่า URL หรือ token ไว้แล้ว แต่ยังไม่ครบ ก็ถือว่า "กำลังเริ่มเชื่อมคลาวด์"
+  // ใช้เก็บงานสรุปไว้ก่อนระหว่างอัปเดต Apps Script / วาง token เพื่อไม่ให้ปิดกะช่วงนั้นแล้วสรุปหาย
+  hasCloudSetupStarted() {
+    return !!this.googleSheetsUrl || !!this.googleSheetsApiToken;
+  }
+
+  getCloudSetupMessage() {
+    if (!this.googleSheetsUrl) return 'กรุณากรอก URL ของ Google Sheets Web App ก่อน';
+    if (!this.isValidCloudApiToken(this.googleSheetsApiToken || '')) {
+      return 'กรุณากรอกรหัสเชื่อมต่อ Apps Script ที่หน้า ตั้งค่า → Google Sheets';
+    }
+    return '';
+  }
+
+  buildCloudRequest(action, data = {}) {
+    return { secret: this.googleSheetsApiToken, action, ...data };
   }
 
   // สำรองข้อมูลขึ้น Google Drive
   // คืน true เมื่อไฟล์ขึ้น Drive สำเร็จจริง — resetData() ใช้ค่านี้ตัดสินว่าจะยอมลบข้อมูลไหม
   async autoBackupToGoogleDrive() {
-    if (!this.googleSheetsUrl) return false;
+    if (!this.hasCloudSyncConfig()) return false;
     if (this.loadFailed) return false; // state เป็นค่าว่าง — สำรองไปก็ได้ไฟล์เปล่าไปทับของดีบน Drive
 
     const backupData = {
+      backupSchemaVersion: BACKUP_SCHEMA_VERSION,
+      createdAt: new Date().toISOString(),
+      appVersion: APP_VERSION,
       services: this.state.services,
       categories: this.state.categories,
       staff: this.state.staff,
@@ -738,17 +845,13 @@ class PosApp {
       theme: this.theme || 'dark',
       vatEnabled: !!this.vatEnabled,
       vatRate: Number(this.vatRate) || 0,
-      // ownerPin is omitted for security since sending it over the network to Apps Script is vulnerable
+      // ownerPin และ googleSheetsApiToken ไม่ส่งออกไป — ต้องตั้งใหม่บนเครื่องที่กู้คืน
       googleSheetsUrl: this.googleSheetsUrl || '',
       // telegramToken ถูกตัดออกเพื่อความปลอดภัย (ตั้งค่าใหม่หลัง restore)
       telegramChatId: this.telegramChatId || ''
     };
 
-    const payload = {
-      secret: API_SECRET,
-      action: 'backup',
-      backupData: backupData
-    };
+    const payload = this.buildCloudRequest('backup', { backupData });
 
     this.showToast('กำลังสำรองข้อมูลไป Google Drive...', 'info');
 
@@ -827,9 +930,10 @@ class PosApp {
       await db.state.clear();
     } catch (e) { console.error(e); }
     localStorage.clear();
+    this.clearDateKeyCache();
     await this.loadState();
     await this.migratePinIfNeeded();
-    this.renderAll();
+    this.renderEveryScreen();
     this.showToast('คืนค่าเริ่มต้นข้อมูลเรียบร้อยแล้ว!', 'info');
   }
 
@@ -854,8 +958,9 @@ class PosApp {
         expenses: [],
         history: []
       };
+      this.clearDateKeyCache();   // บิลถูกล้างทั้งชุด — ผลที่จำไว้ไม่มีความหมายแล้ว
       await this.saveState();
-      this.renderAll();
+      this.renderEveryScreen();
       this.vibrateDevice(100);
       this.showToast('ล้างประวัติยอดขายและคิวงานทั้งหมดเรียบร้อยแล้ว พร้อมใช้งานจริง!', 'info');
       this.openCashCounter('open');
@@ -1021,7 +1126,27 @@ class PosApp {
 
   // ==================== RENDERS ====================
   
+  // วาดใหม่เฉพาะหน้าที่ผู้ใช้เปิดอยู่จริง
+  // เดิมวาดใหม่ทั้ง 6 หน้าทุกครั้งที่จบบิล รวมหน้ารายงานที่ต้องวนอ่านบิลทั้งเดือน
+  // ทั้งที่พนักงานยังยืนอยู่หน้าขาย ไม่ได้ดูหน้าพวกนั้นเลย
+  // ปลอดภัย: switchTab() วาดหน้าปลายทางให้ทุกครั้งที่สลับแท็บอยู่แล้ว ข้อมูลจึงไม่ค้างเก่า
   renderAll() {
+    const screen = (this.state && this.state.activeScreen) || 'dashboard';
+    switch (screen) {
+      case 'pos':
+        this.renderPos();
+        this.renderQueueScreen(); // หน้าขายโชว์คิวงานด้วย ต้องตรงเสมอ (ถูกกว่าวาดหน้ารายงานมาก)
+        break;
+      case 'queue':     this.renderQueueScreen();   break;
+      case 'customers': this.renderCustomerTable(); break;
+      case 'reports':   this.renderReports();       break;
+      case 'settings':  this.renderSettingsLists(); break;
+      default:          this.renderDashboard();     break;
+    }
+  }
+
+  // วาดใหม่ทุกหน้าจริง ๆ — ใช้เฉพาะตอนข้อมูลถูกแทนที่ทั้งชุด (นำเข้าไฟล์ / กู้ข้อมูล / ล้างข้อมูล)
+  renderEveryScreen() {
     this.renderDashboard();
     this.renderPos();
     this.renderQueueScreen();
@@ -1724,6 +1849,10 @@ class PosApp {
     if (sheetsUrlInput) {
       sheetsUrlInput.value = this.googleSheetsUrl || '';
     }
+    const sheetsApiTokenInput = document.getElementById('shop-sheets-api-token');
+    if (sheetsApiTokenInput) {
+      sheetsApiTokenInput.value = this.googleSheetsApiToken || '';
+    }
 
     // 5. แสดงโทเค็นและไอดีแชท Telegram ปัจจุบัน
     const telegramTokenInput = document.getElementById('shop-telegram-token');
@@ -2195,6 +2324,8 @@ class PosApp {
       const selectedCustId = customerSelect.value;
       
       let customerName = 'ลูกค้าทั่วไป (Walk-in)';
+      let updatedCustomer = null;
+      let customerBeforeCheckout = null;
       if (selectedCustId === 'google') {
         customerName = 'ลูกค้าทั่วไป (Google)';
       } else if (selectedCustId === 'returning') {
@@ -2203,6 +2334,11 @@ class PosApp {
         const customer = this.state.customers.find(c => c.id === selectedCustId);
         if (customer) {
           customerName = customer.name;
+          updatedCustomer = customer;
+          customerBeforeCheckout = {
+            visitCount: customer.visitCount,
+            tier: customer.tier
+          };
           customer.visitCount += 1; // เพิ่มประวัติการเข้าใช้งาน
           // อัปเกรดระดับสมาชิกอัตโนมัติ
           if (customer.visitCount >= 10) {
@@ -2283,8 +2419,20 @@ class PosApp {
 
       this.state.queue.push(newQueueItem);
 
-      // บันทึกความเปลี่ยนแปลง
-      await this.saveState();
+      // ต้องบันทึกยอดขาย/คิว/จำนวนครั้งลูกค้าในเครื่องให้สำเร็จก่อน
+      // ถ้า IndexedDB มีปัญหา ห้ามแสดงใบเสร็จหรือส่งขึ้นคลาวด์ เพราะผู้ใช้จะเข้าใจว่าบิลถูกเก็บแล้ว
+      try {
+        await this.saveStateOrThrow('รายการขาย');
+      } catch (saveErr) {
+        this.state.transactions = this.state.transactions.filter(tx => tx.id !== txId);
+        this.state.queue = this.state.queue.filter(item => item.id !== newQueueItem.id);
+        if (updatedCustomer && customerBeforeCheckout) {
+          updatedCustomer.visitCount = customerBeforeCheckout.visitCount;
+          updatedCustomer.tier = customerBeforeCheckout.tier;
+        }
+        this.clearDateKeyCache();
+        throw saveErr;
+      }
       
       // เรียกซิงก์ข้อมูลอัตโนมัติขึ้น Google Sheets (แบบเบื้องหลังไม่กวนใจผู้ใช้)
       this.syncPendingTransactions(true);
@@ -2953,9 +3101,7 @@ class PosApp {
     // แล้วยอดที่เคยยื่นสรรพากรไปแล้วจะไม่ตรงกับชีต โดยไม่มีร่องรอยว่าเปลี่ยนตอนไหน
     const vat = this.buildVatSummary(transactions);
 
-    const payload = {
-      secret:          API_SECRET,
-      action:          periodType === 'day' ? 'summary_day' : 'summary_month',
+    const payload = this.buildCloudRequest(periodType === 'day' ? 'summary_day' : 'summary_month', {
       dateKey:         periodType === 'day'   ? periodKey : undefined,
       monthKey:        periodType === 'month' ? periodKey : undefined,
       totalRevenue, cashRevenue, qrRevenue, creditRevenue,
@@ -2972,7 +3118,7 @@ class PosApp {
       services:         Object.values(svcMap),
       expenses:         (expenses || []).map(e => ({ note: e.note, amount: e.amount })),
       staffCommissions: Object.values(staffMap).filter(st => st.count > 0)
-    };
+    });
     return payload;
   }
 
@@ -2983,8 +3129,8 @@ class PosApp {
       if (!isSilent) this.showToast('วันที่ของข้อมูลใช้ไม่ได้ — ไม่ส่งขึ้นชีตเพื่อกันแท็บขยะ', 'error', 5000);
       return true; // คืน true เพื่อให้ outbox เลิกพยายาม ไม่วนลูป retry ตลอดไป
     }
-    if (!this.googleSheetsUrl) {
-      if (!isSilent) this.showToast('กรุณากรอก URL ของ Google Sheets Web App ในหน้าตั้งค่าก่อน', 'warning');
+    if (!this.hasCloudSyncConfig()) {
+      if (!isSilent) this.showToast(this.getCloudSetupMessage(), 'warning');
       return false;
     }
     try {
@@ -3017,8 +3163,8 @@ class PosApp {
       if (!isSilent) this.showToast('เดือนของข้อมูลใช้ไม่ได้ — ไม่ส่งขึ้นชีตเพื่อกันแท็บขยะ', 'error', 5000);
       return true;
     }
-    if (!this.googleSheetsUrl) {
-      if (!isSilent) this.showToast('กรุณากรอก URL ของ Google Sheets Web App ในหน้าตั้งค่าก่อน', 'warning');
+    if (!this.hasCloudSyncConfig()) {
+      if (!isSilent) this.showToast(this.getCloudSetupMessage(), 'warning');
       return false;
     }
     try {
@@ -3066,6 +3212,8 @@ class PosApp {
       // ยังไม่ตั้งค่า URL — ไม่ใช่สถานะ "ค้างซิงก์" (ไม่มีปลายทางให้ส่ง) แสดงเป็นออฟไลน์พร้อมจำนวนบิลในเครื่องแทน
       // เดิมโชว์ "ค้างซิงก์ ⚠️" ถาวรสำหรับร้านที่ตั้งใจใช้ออฟไลน์ล้วน ทำให้เข้าใจผิดว่าระบบมีปัญหา
       this.updateSyncBadgeStatus('offline', pendingTxs.length);
+    } else if (!this.isValidCloudApiToken(this.googleSheetsApiToken || '')) {
+      this.updateSyncBadgeStatus('setup', pendingTxs.length);
     } else if (pendingTxs.length > 0) {
       this.updateSyncBadgeStatus('warning', pendingTxs.length);
     } else {
@@ -3075,8 +3223,8 @@ class PosApp {
 
   // ส่งข้อมูลของรายการธุรกรรมเดียวไปยัง Google Sheets
   async syncSingleTransaction(tx) {
-    if (!this.googleSheetsUrl) {
-      throw new Error('ยังไม่ได้ระบุ URL ของ Google Sheets');
+    if (!this.hasCloudSyncConfig()) {
+      throw new Error(this.getCloudSetupMessage());
     }
 
     // monthKey = "เดือนทำการ" จากเวลาเครื่องหน้าร้าน — บิลตี 2 ของเช้าวันที่ 1 ลงแท็บเดือนของคืนสิ้นเดือน
@@ -3084,8 +3232,7 @@ class PosApp {
     // dateTimeStr = เวลาจริง (สำหรับแสดงในแถวบิล ไม่ใช่การจัดกลุ่ม)
     const txD = new Date(tx.date);
     const pad2 = (n) => String(n).padStart(2, '0');
-    const payload = {
-      secret: API_SECRET,
+    const payload = this.buildCloudRequest('transaction', {
       id: tx.id,
       date: tx.date,
       monthKey: this.getBusinessMonthKey(tx.date),
@@ -3097,7 +3244,7 @@ class PosApp {
       total: tx.total,
       paymentMethod: tx.paymentMethod,
       staffNames: tx.staffNames
-    };
+    });
 
     // ส่งแบบ simple request (text/plain) เพื่อข้าม CORS preflight แล้วอ่าน JSON ที่ตอบกลับมา
     let response;
@@ -3132,6 +3279,17 @@ class PosApp {
   }
 
   // ลูปส่งรายการธุรกรรมที่ค้างอยู่ทั้งหมด (Sync Queue)
+  // เรียกเมื่อเปิดแอป/เน็ตกลับมา/กลับเข้าหน้าแอป เพื่อไม่ให้บิลที่ขายตอนออฟไลน์ค้างจนลืม
+  resumePendingCloudWork() {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    if (!this.hasCloudSyncConfig()) {
+      this.checkSyncStatus();
+      return;
+    }
+    this.syncPendingTransactions(true);
+    this.flushCloudOutbox();
+  }
+
   async syncPendingTransactions(isSilent = false) {
     if (this.isSyncing) return; // Prevent duplicate syncs
     this.isSyncing = true;
@@ -3147,10 +3305,10 @@ class PosApp {
         return;
       }
 
-      if (!this.googleSheetsUrl) {
+      if (!this.hasCloudSyncConfig()) {
         this.checkSyncStatus();
         if (!isSilent) {
-          this.showToast('กรุณากรอก URL ของ Google Sheets Web App ในหน้าตั้งค่าก่อนเริ่มต้นซิงก์ข้อมูล', 'info');
+          this.showToast(this.getCloudSetupMessage(), 'info');
         }
         return;
       }
@@ -3235,6 +3393,10 @@ class PosApp {
       textStr = 'คลาวด์ออนไลน์ (ตรงกัน)';
       iconClass = 'fa-cloud';
       statusClass = 'synced';
+    } else if (status === 'setup') {
+      textStr = 'ตั้งค่ารหัสคลาวด์ไม่ครบ ⚠️';
+      iconClass = 'fa-key';
+      statusClass = 'sync-warning';
     } else {
       textStr = count > 0 ? `ออฟไลน์ (${count} บิลในเครื่อง)` : 'คลาวด์ออฟไลน์';
       iconClass = 'fa-cloud';
@@ -3257,6 +3419,11 @@ class PosApp {
           ? `ยังไม่ได้ตั้งค่า URL — มี ${count} บิลเก็บอยู่ในเครื่องเท่านั้น`
           : 'ยังไม่ได้เชื่อมต่อ Google Sheets (กรอก URL ด้านซ้ายเพื่อเปิดซิงก์)';
         settingsDetailsEl.style.color = 'var(--text-secondary)';
+      } else if (status === 'setup') {
+        settingsDetailsEl.innerText = count > 0
+          ? `มี ${count} บิลในเครื่อง — กรอกรหัสเชื่อมต่อ Apps Script เพื่อเริ่มซิงก์`
+          : 'กรอกรหัสเชื่อมต่อ Apps Script เพื่อเปิดการซิงก์อย่างปลอดภัย';
+        settingsDetailsEl.style.color = 'var(--accent-premium)';
       } else if (count > 0) {
         settingsDetailsEl.innerText = `มี ${count} รายการบิลค้างส่งขึ้นคลาวด์`;
         settingsDetailsEl.style.color = 'var(--accent-premium)';
@@ -3463,6 +3630,7 @@ class PosApp {
       
       if (this.cashCounterMode === 'open') {
         // เปิดกะใหม่
+        const previousShift = this.cloneForRollback(this.state.shift);
         this.state.shift = {
           active: true,
           startTime: Date.now(),
@@ -3472,7 +3640,12 @@ class PosApp {
           history: this.state.shift.history || []
         };
         
-        await this.saveState();
+        try {
+          await this.saveStateOrThrow('การเปิดกะ');
+        } catch (saveErr) {
+          this.state.shift = previousShift;
+          throw saveErr;
+        }
         this.closeModal('modal-cash-counter');
         this.renderAll();
         this.vibrateDevice(100);
@@ -3502,6 +3675,16 @@ class PosApp {
         const expectedTotal = startCash + cashSales - expensesTotal;
         const diff = total - expectedTotal;
         
+        // เก็บสถานะเดิมไว้ก่อน เพราะการปิดกะเปลี่ยนหลายส่วนพร้อมกัน
+        // หากเขียน IndexedDB ไม่สำเร็จ ต้องกลับมาเป็น "กะยังเปิด" ทั้งก้อน
+        const closeRollback = {
+          shift: this.cloneForRollback(this.state.shift),
+          cart: this.cloneForRollback(this.state.cart),
+          queue: this.cloneForRollback(this.state.queue),
+          cloudOutbox: this.cloneForRollback(this.state.cloudOutbox || [])
+        };
+
+        try {
         // บันทึกประวัติกะ
         const shiftLog = {
           startTime: startTime,
@@ -3527,9 +3710,6 @@ class PosApp {
         // → "การันตีส่ง" แม้ปิดกะตอนออฟไลน์ แล้ว retry เองเมื่อเน็ตกลับ/เปิดแอปใหม่
         this.enqueueShiftCloseCloudOps(shiftLog);
 
-        // ส่งสำรองข้อมูลอัตโนมัติขึ้น Google Drive ตอนปิดกะ (best-effort ครั้งเดียว)
-        await this.autoBackupToGoogleDrive();
-
         // สลับสถานะเป็นไม่ได้ทำงาน
         this.state.shift.active = false;
         this.state.shift.startTime = null;
@@ -3541,7 +3721,19 @@ class PosApp {
         this.state.cart = [];
         this.state.queue = [];
         
-        await this.saveState();
+        // บันทึกการปิดกะในเครื่องก่อน จึงค่อยสำรอง/ส่งคลาวด์
+        await this.saveStateOrThrow('การปิดกะ');
+        } catch (saveErr) {
+          this.state.shift = closeRollback.shift;
+          this.state.cart = closeRollback.cart;
+          this.state.queue = closeRollback.queue;
+          this.state.cloudOutbox = closeRollback.cloudOutbox;
+          throw saveErr;
+        }
+
+        // ส่งสำรองข้อมูลอัตโนมัติขึ้น Google Drive ตอนปิดกะ (best-effort ครั้งเดียว)
+        // ตอนนี้ข้อมูลในเครื่องถูกบันทึกแล้ว จึงไม่มีกรณีสำรองสำเร็จแต่การปิดกะหาย
+        await this.autoBackupToGoogleDrive();
 
         // ออนไลน์อยู่แล้วก็ส่ง outbox ทันที (ถ้าออฟไลน์ จะค้างไว้ retry เองตอนเน็ตกลับ/เปิดแอป)
         this.flushCloudOutbox();
@@ -4604,8 +4796,8 @@ class PosApp {
 
   // ─── ส่งสรุปไป Sheets แบบ manual จากหน้ารายงาน ──────────────────────────
   async syncSummaryNow() {
-    if (!this.googleSheetsUrl) {
-      this.showToast('กรุณาตั้งค่า Google Sheets URL ก่อน', 'info');
+    if (!this.hasCloudSyncConfig()) {
+      this.showToast(this.getCloudSetupMessage(), 'info');
       return;
     }
 
@@ -4637,9 +4829,24 @@ class PosApp {
   }
 
   async saveShopSettings() {
+    // การตั้งค่าบางส่วน (โดยเฉพาะ URL/token) เป็นเส้นทางกู้ข้อมูลและซิงก์ยอดขาย
+    // ถ้า IndexedDB เขียนไม่สำเร็จ ต้องคืนค่าเดิมในหน่วยความจำด้วย ไม่อย่างนั้นผู้ใช้จะเข้าใจว่าบันทึกแล้ว
+    const previous = {
+      shopPromptPayId: this.shopPromptPayId,
+      shopName: this.shopName,
+      shopTagline: this.shopTagline,
+      shopAddress: this.shopAddress,
+      shopPhone: this.shopPhone,
+      ownerPin: this.ownerPin,
+      googleSheetsUrl: this.googleSheetsUrl,
+      googleSheetsApiToken: this.googleSheetsApiToken,
+      telegramToken: this.telegramToken,
+      telegramChatId: this.telegramChatId
+    };
     const promptPayInput = document.getElementById('shop-promptpay-id');
     const pinInput = document.getElementById('shop-owner-pin');
     const sheetsUrlInput = document.getElementById('shop-sheets-sync-url');
+    const sheetsApiTokenInput = document.getElementById('shop-sheets-api-token');
     const telegramTokenInput = document.getElementById('shop-telegram-token');
     const telegramChatIdInput = document.getElementById('shop-telegram-chatid');
 
@@ -4684,7 +4891,15 @@ class PosApp {
     }
     if (sheetsUrlInput) {
       this.googleSheetsUrl = sheetsUrlInput.value.trim();
-      this.checkSyncStatus();
+    }
+    if (sheetsApiTokenInput) {
+      const token = sheetsApiTokenInput.value.trim();
+      if (token === '' || this.isValidCloudApiToken(token)) {
+        this.googleSheetsApiToken = token;
+      } else {
+        this.showToast(`รหัสเชื่อมต่อ Apps Script ต้องยาวอย่างน้อย ${CLOUD_API_TOKEN_MIN_LENGTH} ตัว และใช้ได้เฉพาะ a-z, A-Z, 0-9, _ หรือ -`, 'warning', 6000);
+        sheetsApiTokenInput.value = this.googleSheetsApiToken || '';
+      }
     }
     if (telegramTokenInput) {
       this.telegramToken = telegramTokenInput.value.trim();
@@ -4692,9 +4907,33 @@ class PosApp {
     if (telegramChatIdInput) {
       this.telegramChatId = telegramChatIdInput.value.trim();
     }
-    await this.saveState();
+
+    try {
+      await this.saveStateOrThrow('การตั้งค่า');
+    } catch (err) {
+      Object.assign(this, previous);
+      // คืนค่าที่เห็นบนจอให้ตรงกับค่าที่บันทึกอยู่จริง ไม่ปล่อยให้หน้าจอกับฐานข้อมูลคนละชุด
+      if (shopNameInput) shopNameInput.value = previous.shopName || 'Erotica Barber & Massage';
+      if (shopTaglineInput) shopTaglineInput.value = previous.shopTagline || 'BARBER & MASSAGE';
+      if (shopAddressInput) shopAddressInput.value = previous.shopAddress || '';
+      if (shopPhoneInput) shopPhoneInput.value = previous.shopPhone || '';
+      if (promptPayInput) promptPayInput.value = previous.shopPromptPayId || '';
+      if (sheetsUrlInput) sheetsUrlInput.value = previous.googleSheetsUrl || '';
+      if (sheetsApiTokenInput) sheetsApiTokenInput.value = previous.googleSheetsApiToken || '';
+      if (telegramTokenInput) telegramTokenInput.value = previous.telegramToken || '';
+      if (telegramChatIdInput) telegramChatIdInput.value = previous.telegramChatId || '';
+      this.checkSyncStatus();
+      this.updateUserRoleUI();
+      this.applyShopName();
+      this.showToast('บันทึกการตั้งค่าไม่สำเร็จ — ระบบคืนค่าเดิมแล้ว', 'error');
+      return false;
+    }
+    this.checkSyncStatus();
+    // ถ้าเพิ่งวาง token หลังอัปเดต ให้ดันบิล/สรุปที่ค้างอยู่ทันที ไม่ต้องรอเปิดแอปใหม่
+    this.resumePendingCloudWork();
     this.updateUserRoleUI();
     this.applyShopName();
+    return true;
   }
 
   // ==================== LOGIN / ROLES ====================
@@ -4922,6 +5161,9 @@ class PosApp {
   // ส่งออกข้อมูลเป็น JSON
   exportData() {
     const data = {
+      backupSchemaVersion: BACKUP_SCHEMA_VERSION,
+      createdAt: new Date().toISOString(),
+      appVersion: APP_VERSION,
       services: this.state.services,
       categories: this.state.categories,
       staff: this.state.staff,
@@ -4941,7 +5183,8 @@ class PosApp {
       vatRate: Number(this.vatRate) || 0,
       googleSheetsUrl: this.googleSheetsUrl || '',
       telegramChatId: this.telegramChatId || ''
-      // หมายเหตุ: ownerPin และ telegramToken ถูกตัดออกเพื่อความปลอดภัย — ตั้งค่าใหม่หลังนำเข้าข้อมูล
+      // หมายเหตุ: ownerPin, telegramToken และ googleSheetsApiToken ถูกตัดออกเพื่อความปลอดภัย
+      // เครื่องที่กู้คืนต้องตั้งรหัสเชื่อมต่อ Apps Script ใหม่เอง
     };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
     const dlAnchorElem = document.createElement('a');
@@ -4986,13 +5229,31 @@ class PosApp {
   }
 
   // ตรวจว่าอ็อบเจกต์นี้หน้าตาเหมือนไฟล์สำรองจริงไหม
-  // ตรวจชนิดข้อมูลจริง ไม่ใช่แค่ truthy — ไฟล์เพี้ยน (field เป็น string/object) เคยทำให้
-  // state พังตอน .map() แล้วพังค้างถาวรเพราะถูกบันทึกลง DB ไปแล้ว
+  // ตรวจชนิด, ขนาด และรายการย่อยก่อนเขียนทับ IndexedDB — ไฟล์เพี้ยนหรือไฟล์ที่ถูกแก้
+  // ต้องถูกปฏิเสธก่อน ไม่ใช่รอให้หน้า report พังหลังจากบันทึกลงเครื่องแล้ว
   isValidBackupObject(parsed) {
-    return !!parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      && Array.isArray(parsed.services)
-      && Array.isArray(parsed.staff)
-      && Array.isArray(parsed.transactions);
+    const isObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
+    const objectArray = (arr, max) => Array.isArray(arr) && arr.length <= max && arr.every(isObject);
+    if (!isObject(parsed)) return false;
+
+    // รองรับไฟล์เก่าที่ไม่มี version แต่ไม่รับไฟล์จากรุ่นใหม่กว่าที่แอปนี้ยังอ่านไม่เข้าใจ
+    if (parsed.backupSchemaVersion !== undefined &&
+        (!Number.isInteger(parsed.backupSchemaVersion) || parsed.backupSchemaVersion < 1 || parsed.backupSchemaVersion > BACKUP_SCHEMA_VERSION)) {
+      return false;
+    }
+
+    if (!objectArray(parsed.services, 10000) ||
+        !objectArray(parsed.staff, 2000) ||
+        !objectArray(parsed.transactions, 200000)) return false;
+
+    const optionalArrays = [
+      ['categories', 10000], ['customers', 100000], ['queue', 10000], ['voidLog', 100000]
+    ];
+    for (const [key, max] of optionalArrays) {
+      if (parsed[key] !== undefined && !objectArray(parsed[key], max)) return false;
+    }
+    if (parsed.shift !== undefined && !isObject(parsed.shift)) return false;
+    return true;
   }
 
   // เขียนข้อมูลจากไฟล์สำรองลง state + IndexedDB
@@ -5006,6 +5267,31 @@ class PosApp {
     if (this.loadFailed) {
       throw new Error('โหลดข้อมูลเดิมไม่สำเร็จ ระบบล็อกการบันทึกไว้ — ปิดแอปแล้วเปิดใหม่ก่อน');
     }
+    if (!this.isValidBackupObject(parsed)) {
+      throw new Error('ไฟล์สำรองมีโครงสร้างไม่ถูกต้องหรือมีข้อมูลมากผิดปกติ');
+    }
+
+    // เปลี่ยนข้อมูลทั้งก้อน: หากเขียน IndexedDB ไม่สำเร็จ ต้องกลับสู่ข้อมูลเดิมในหน่วยความจำด้วย
+    const rollback = {
+      state: this.cloneForRollback(this.state),
+      shopPromptPayId: this.shopPromptPayId,
+      shopName: this.shopName,
+      shopTagline: this.shopTagline,
+      shopAddress: this.shopAddress,
+      shopPhone: this.shopPhone,
+      shopLogo: this.shopLogo,
+      theme: this.theme,
+      ownerPin: this.ownerPin,
+      googleSheetsUrl: this.googleSheetsUrl,
+      googleSheetsApiToken: this.googleSheetsApiToken,
+      telegramToken: this.telegramToken,
+      telegramChatId: this.telegramChatId,
+      vatEnabled: this.vatEnabled,
+      vatRate: this.vatRate
+    };
+
+    let persisted = false;
+    try {
     this.state.services = parsed.services;
     this.state.staff = parsed.staff;
     if (Array.isArray(parsed.categories) && parsed.categories.length) this.state.categories = parsed.categories;
@@ -5037,18 +5323,19 @@ class PosApp {
     if (parsed.theme) this.theme = parsed.theme;
     if (typeof parsed.vatEnabled === 'boolean') this.vatEnabled = parsed.vatEnabled;
     if (Number.isFinite(Number(parsed.vatRate))) this.vatRate = Number(parsed.vatRate);
-    if (parsed.ownerPin) this.ownerPin = parsed.ownerPin;
+    // ไม่รับ ownerPin / telegramToken / googleSheetsApiToken จากไฟล์สำรอง
+    // เพราะไฟล์ที่ถูกแก้หรือหลุดออกไปต้องไม่มีสิทธิ์เปลี่ยนบัญชีหรือเข้าถึงคลาวด์ของเครื่องนี้
 
     // ⚠️ URL คลาวด์: ถ้าเครื่องนี้ตั้งค่าไว้แล้ว ให้ยึดของเครื่องเป็นหลัก
     // ไฟล์สำรองเก่าอาจเก็บ URL ของ deployment รุ่นก่อน — ถ้าทับลงไป แอปจะยิงไป URL ที่ตายแล้ว
     // แบบเงียบ ๆ (ไม่มี error ให้เห็นทันที) แล้วยอดขายจะไม่ขึ้นชีตโดยไม่มีใครรู้
     if (parsed.googleSheetsUrl && !this.googleSheetsUrl) this.googleSheetsUrl = parsed.googleSheetsUrl;
-    if (parsed.telegramToken) this.telegramToken = parsed.telegramToken;
     if (parsed.telegramChatId) this.telegramChatId = parsed.telegramChatId;
 
-    await this.migratePinIfNeeded();
-    await this.saveState();
-    this.renderAll();
+    this.clearDateKeyCache();   // ข้อมูลชุดใหม่ทั้งก้อน — ผลที่จำไว้ใช้ไม่ได้แล้ว
+    await this.saveStateOrThrow('ข้อมูลที่กู้คืน');
+    persisted = true;
+    this.renderEveryScreen();
     this.vibrateDevice(100);
 
     // เตือนถ้าไฟล์มีบิลที่วันที่ใช้ไม่ได้ — บิลพวกนี้จะไม่โผล่ในรายงานเดือนไหนเลย
@@ -5061,6 +5348,27 @@ class PosApp {
         `เตือน: มีบิล ${badDates.length} ใบในไฟล์นี้ที่วันที่ใช้ไม่ได้ ` +
         `บิลเหล่านี้จะไม่ถูกนับในรายงานรายวัน/รายเดือน — ตรวจสอบไฟล์สำรองอีกครั้ง`,
         'warning', 9000);
+    }
+    } catch (err) {
+      if (!persisted) {
+      this.state = rollback.state;
+      this.shopPromptPayId = rollback.shopPromptPayId;
+      this.shopName = rollback.shopName;
+      this.shopTagline = rollback.shopTagline;
+      this.shopAddress = rollback.shopAddress;
+      this.shopPhone = rollback.shopPhone;
+      this.shopLogo = rollback.shopLogo;
+      this.theme = rollback.theme;
+      this.ownerPin = rollback.ownerPin;
+      this.googleSheetsUrl = rollback.googleSheetsUrl;
+      this.googleSheetsApiToken = rollback.googleSheetsApiToken;
+      this.telegramToken = rollback.telegramToken;
+      this.telegramChatId = rollback.telegramChatId;
+      this.vatEnabled = rollback.vatEnabled;
+      this.vatRate = rollback.vatRate;
+      this.clearDateKeyCache();
+      }
+      throw err;
     }
   }
 
@@ -5076,8 +5384,8 @@ class PosApp {
       this.showToast('เฉพาะเจ้าของร้านเท่านั้นที่กู้ข้อมูลได้', 'warning');
       return;
     }
-    if (!this.googleSheetsUrl) {
-      this.showToast('ยังไม่ได้ตั้งค่า Google Sheets URL — กู้ข้อมูลจาก Drive ไม่ได้', 'warning', 5000);
+    if (!this.hasCloudSyncConfig()) {
+      this.showToast(this.getCloudSetupMessage() + ' — กู้ข้อมูลจาก Drive ไม่ได้', 'warning', 5000);
       return;
     }
     this.openModal('modal-restore');
@@ -5102,7 +5410,7 @@ class PosApp {
       const res = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ secret: API_SECRET, action: 'list_backups' })
+        body: JSON.stringify(this.buildCloudRequest('list_backups'))
       }, 20000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
@@ -5162,7 +5470,7 @@ class PosApp {
           const res = await this.fetchWithTimeout(this.googleSheetsUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({ secret: API_SECRET, action: 'get_backup', fileId: fileId })
+            body: JSON.stringify(this.buildCloudRequest('get_backup', { fileId }))
           }, 60000);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const d = await res.json();
@@ -5266,7 +5574,9 @@ class PosApp {
     const monthKeys = [...new Set([this.getBusinessMonthKey(openTs), this.getBusinessMonthKey(closeTs)])]
       .filter(k => this.isValidMonthKey(k));
     // กะที่ไม่มีเวลาเปิด/ปิดที่ใช้ได้เลย — ส่งสรุปไม่ได้ แต่ยังส่ง Telegram ได้
-    const needSummary  = !!this.googleSheetsUrl && (dateKeys.length > 0 || monthKeys.length > 0);
+    // ถ้าร้านตั้ง URL/token ไว้เพียงบางส่วน (เช่นเพิ่งอัปเดต Apps Script แต่ยังไม่วาง token)
+    // ต้องคิวสรุปไว้ก่อน มิฉะนั้นการปิดกะระหว่างนั้นจะหายจาก Sheets แบบถาวร
+    const needSummary  = this.hasCloudSetupStarted() && (dateKeys.length > 0 || monthKeys.length > 0);
     const needTelegram = !!(this.telegramToken && this.telegramChatId);
     if (!needSummary && !needTelegram) return; // ไม่ได้ตั้งค่าอะไรเลย ไม่ต้องคิว
     if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
@@ -5282,7 +5592,7 @@ class PosApp {
 
   // คิวรีเฟรชสรุปวัน/เดือนอย่างเดียว (ใช้หลังแก้ไขบิลย้อนหลัง — ให้ KPI บนชีตตรงกับบิลที่แก้)
   enqueueSummaryRefresh(dateVal) {
-    if (!this.googleSheetsUrl) return;
+    if (!this.hasCloudSetupStarted()) return;
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return;
     const dateKey  = this.getBusinessISODate(d);   // วันทำการของบิลที่ถูกแก้
@@ -5325,9 +5635,7 @@ class PosApp {
 
         // 0) ลบแถวบิลที่ void ในชีต (ทำก่อนรีเฟรชสรุป) — idempotent: ไม่พบแถว = ถือว่าลบแล้ว
         if (item.needVoidDelete) {
-          if (!this.googleSheetsUrl) {
-            item.needVoidDelete = false;
-          } else {
+          if (this.hasCloudSyncConfig()) {
             const okDel = await this.postVoidDelete(item.voidDelete);
             if (okDel) { item.needVoidDelete = false; delivered++; }
           }
@@ -5335,9 +5643,7 @@ class PosApp {
 
         // 1) สรุปวัน + เดือน — recompute จาก state ปัจจุบัน (ครบ + idempotent: GAS เขียนทับชีต)
         if (item.needSummary) {
-          if (!this.googleSheetsUrl) {
-            item.needSummary = false; // ไม่มี URL แล้ว เลิกพยายาม
-          } else {
+          if (this.hasCloudSyncConfig()) {
             let allOk = true;
             for (const dk of dateKeys) {
               const dayTxs = this.state.transactions.filter(tx => this.getBusinessISODate(tx.date) === dk);
@@ -5403,19 +5709,18 @@ class PosApp {
 
   // ส่งคำขอลบแถวบิลใน Sheets แล้วคืน true/false — idempotent: "ไม่พบแถว" = ถือว่าลบแล้ว
   async postVoidDelete(v) {
-    if (!this.googleSheetsUrl) return false;
+    if (!this.hasCloudSyncConfig()) return false;
     try {
       const r = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({
-          secret: API_SECRET, action: 'void_transaction',
+        body: JSON.stringify(this.buildCloudRequest('void_transaction', {
           id: v.id, date: v.date,
           // monthKey (เดือนทำการ) — ชี้แท็บเดือนเดียวกับตอนบันทึกแม้ timezone ฝั่ง GAS ตั้งผิด
           // (รายการเก่าที่ค้างใน outbox ก่อนอัปเดตไม่มีฟิลด์นี้ → คำนวณจาก date แทน)
           monthKey: v.monthKey || this.getBusinessMonthKey(v.date),
           voidedBy: v.voidedBy || ''
-        })
+        }))
       });
       const d = await r.json();
       if (d && (d.status === 'success' || (d.status === 'error' && /ไม่พบ/.test(d.message || '')))) return true;
@@ -5432,9 +5737,9 @@ class PosApp {
     const monthKey = this.getBusinessMonthKey(tx.date);  // ต้องชี้แท็บเดือนเดียวกับตอนบันทึกบิล
     const okDate   = this.isValidDateKey(dateKey);
     const okMonth  = this.isValidMonthKey(monthKey);
-    const hasUrl       = !!this.googleSheetsUrl;
+    const cloudSetupStarted = this.hasCloudSetupStarted();
     const needTelegram = !!(this.telegramToken && this.telegramChatId);
-    if (!hasUrl && !needTelegram) return;
+    if (!cloudSetupStarted && !needTelegram) return;
     if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
     // ส่งคำสั่งลบแถว "เสมอ" เมื่อมี URL — แม้บิลจะดูเป็น pending อยู่ (เช่นเพิ่งถูกแก้ไข)
     // เพราะแถวอาจขึ้นชีตไปแล้วก่อนหน้า; postVoidDelete เป็น idempotent (ไม่พบแถว = สำเร็จ) จึงส่งเกินได้ ไม่มีผลเสีย
@@ -5443,9 +5748,9 @@ class PosApp {
       createdAt: Date.now(),
       dateKeys: okDate ? [dateKey] : [], monthKeys: okMonth ? [monthKey] : [],
       // บิลที่วันที่เพี้ยน: ยังส่งคำสั่งลบแถวได้ (GAS ค้นจากเลขบิลได้) แต่ห้ามสั่งสร้างแท็บสรุปของวันขยะ
-      needVoidDelete: hasUrl && okMonth,
-      voidDelete: (hasUrl && okMonth) ? { id: tx.id, date: tx.date, monthKey: monthKey, voidedBy: voidRecord.by || '' } : null,
-      needSummary: hasUrl && (okDate || okMonth),
+      needVoidDelete: cloudSetupStarted && okMonth,
+      voidDelete: (cloudSetupStarted && okMonth) ? { id: tx.id, date: tx.date, monthKey: monthKey, voidedBy: voidRecord.by || '' } : null,
+      needSummary: cloudSetupStarted && (okDate || okMonth),
       needTelegram,
       telegramMessage: needTelegram ? this.buildVoidAlertMessage(voidRecord) : '',
       tries: 0

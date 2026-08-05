@@ -1,0 +1,15 @@
+# บังคับ line ending ให้เป็น LF ใน repo (checkout บน Windows ยังได้ CRLF ตามปกติ)
+#
+# ทำไมต้องมี: ก่อนหน้านี้ app.js เป็น CRLF ปนกับ LF พอ editor คนละตัวบันทึกทับ
+# git มองว่าทั้งไฟล์เปลี่ยน — เคยได้ diff 11,000 บรรทัดทั้งที่แก้จริง 461 บรรทัด
+# ทำให้ review ก่อน deploy แทบเป็นไปไม่ได้ ซึ่งอันตรายกับโค้ดที่จับเงินร้าน
+#
+# ⚠️ commit แรกหลังเพิ่มไฟล์นี้จะมี diff ใหญ่ 1 ครั้ง (git normalize ทั้ง repo) — หลังจากนั้นสะอาดตลอด
+#    ให้ commit การ normalize แยกจาก commit ที่แก้โค้ดจริง จะได้ย้อนดูง่าย
+* text=auto eol=lf
+
+# ไฟล์ไบนารี ห้ามแตะ
+*.png binary
+*.pdf binary
+*.jpg binary
+*.ico binary

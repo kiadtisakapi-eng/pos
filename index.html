@@ -615,6 +615,13 @@
                   วาง URL ที่ได้จากการ Deploy Web App ใน Google Sheets เพื่อเปิดระบบซิงก์ข้อมูลอัตโนมัติ
                 </p>
               </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label">รหัสเชื่อมต่อ Apps Script *</label>
+                <input type="password" class="form-input" id="shop-sheets-api-token" autocomplete="off" placeholder="วางรหัสที่สร้างจาก Apps Script" onchange="app.saveShopSettings()">
+                <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
+                  ใช้ยืนยันว่าเครื่องนี้ได้รับอนุญาต รหัสนี้ไม่ถูกเก็บในไฟล์สำรอง ต้องตั้งใหม่เมื่อกู้ลงเครื่องใหม่
+                </p>
+              </div>
               <div class="form-group" style="margin: 0; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                   <label class="form-label">สถานะบิลค้างซิงก์ในเครื่อง</label>

@@ -29,14 +29,27 @@ function FakeSheet(headers, rows){
   };
   return api;
 }
-const ctx={console,Date,JSON,String,Number,Math,Array,Object,isNaN,parseInt,parseFloat};
+const ctx={console,Date,JSON,String,Number,Math,Array,Object,isNaN,isFinite,parseInt,parseFloat};
 ctx.SpreadsheetApp={flush:()=>{}, getActiveSpreadsheet:()=>null};
 ctx.ContentService={createTextOutput:(s)=>({setMimeType:()=>s}),MimeType:{JSON:'json',TEXT:'text'}};
 ctx.MimeType={PLAIN_TEXT:'text/plain'};
-ctx.Utilities={formatDate:()=>'2026-07-31 12:00'};
+let uuidCounter=0;
+ctx.Utilities={formatDate:()=>'2026-07-31 12:00',getUuid:()=>`00000000-0000-4000-8000-${String(++uuidCounter).padStart(12,'0')}`};
 ctx.Session={getScriptTimeZone:()=>'Asia/Bangkok'};
 ctx.LockService={getScriptLock:()=>({waitLock(){},releaseLock(){}})};
-ctx.DriveApp={_folders:{},getFoldersByName(n){const f=this._folders[n];let done=!f;return{hasNext:()=>!done,next:()=>{done=true;return f}}},createFolder(n){return this._folders[n]}};
+ctx.Logger={log:()=>{}};
+const scriptProps={};
+ctx.PropertiesService={getScriptProperties:()=>({
+  getProperty:k=>scriptProps[k]||null,
+  setProperty:(k,v)=>{scriptProps[k]=String(v);},
+  deleteProperty:k=>{delete scriptProps[k];}
+})};
+ctx.DriveApp={
+  _folders:{}, _foldersById:{},
+  getFoldersByName(n){const found=this._folders[n];const list=found?(Array.isArray(found)?found:[found]):[];let i=0;return{hasNext:()=>i<list.length,next:()=>list[i++]};},
+  getFolderById(id){const f=this._foldersById[id];if(!f)throw new Error('folder not found');return f;},
+  createFolder(n){const id='created-'+Object.keys(this._foldersById).length;const f={getId:()=>id,getName:()=>n,getFiles:()=>({hasNext:()=>false}),getFilesByType:()=>({hasNext:()=>false}),createFile:()=>({getId:()=>''})};this._folders[n]=f;this._foldersById[id]=f;return f;}
+};
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(SRC,'utf8'),ctx,{filename:'gas.js'});
 const g=ctx;
@@ -62,27 +75,47 @@ t('*** เคสที่เคยพัง: ชีต 7 คอลัมน์�
   g.migrateMasterAddVarianceColumn(sh);
   const m=g.masterColumnMap_(sh);
   ok(m.varCol>0,'ต้อง migrate ได้แม้ getLastColumn()>=8');
-  g.writeToMaster(sh,2,'เดือน','07-2026',{totalRevenue:1000,totalExpenses:100,transactionCount:10,shiftCount:2,cashVariance:-50});
+  g.writeToMaster(sh,2,'month','07-2026',{totalRevenue:1000,totalExpenses:100,billCount:10,shiftCount:2,cashVariance:-50});
   eq(sh._grid[1][m.varCol-1],-50,'เงินขาด/เกินลงคอลัมน์ถูก');
   eq(sh._grid[1][m.tsCol-1],'2026-07-31 12:00','timestamp ลงคอลัมน์ถูก');
   eq(sh._grid[1][8],'ok','คอลัมน์ของคนอื่นต้องเลื่อนตาม ไม่ถูกทับ');
 });
-t('ชีตโครงสร้างแปลก (ไม่มีหัว "อัปเดตล่าสุด") -> ไม่แตะ ไม่ทับ',()=>{
+t('ชีตโครงสร้างแปลก -> หยุดทันทีและไม่แตะข้อมูลเดิม',()=>{
   const sh=FakeSheet(['aaa','bbb','ccc'],[['1','2','3']]);
+  const before=JSON.stringify(sh._grid);
   g.migrateMasterAddVarianceColumn(sh);
   eq(g.masterColumnMap_(sh).varCol,0);
-  g.writeToMaster(sh,2,'เดือน','07-2026',{totalRevenue:1,totalExpenses:0,transactionCount:1,shiftCount:1,cashVariance:-9});
-  eq(sh._grid[1][0],'รายวัน'); // คอลัมน์ 1-6 เป็นของ writeToMaster อยู่แล้ว
-  ok(!sh._grid[1].includes(-9),'ห้ามยัดเงินขาด/เกินลงคอลัมน์มั่ว');
+  let threw=false;
+  try { g.writeToMaster(sh,2,'month','07-2026',{totalRevenue:1,totalExpenses:0,billCount:1,shiftCount:1,cashVariance:-9}); }
+  catch(e) { threw=true; }
+  ok(threw,'ต้องแจ้งว่าโครงสร้างชีตไม่ปลอดภัย');
+  eq(JSON.stringify(sh._grid),before,'ห้ามเขียนทับคอลัมน์ใดเลย');
+});
+t('หัวคอลัมน์สำคัญซ้ำ -> หยุดทันทีและไม่เขียนยอด',()=>{
+  const sh=FakeSheet(['ประเภท','ช่วงเวลา','บิล','รายได้รวม (฿)','รายได้รวม (฿)','ค่าใช้จ่าย (฿)','กำไรสุทธิ (฿)',V,TS],[]);
+  const before=JSON.stringify(sh._grid);
+  const map=g.masterColumnMap_(sh);
+  ok(map.duplicates.includes('รายได้รวม (฿)'));
+  let threw=false;
+  try { g.writeToMaster(sh,2,'month','07-2026',{totalRevenue:1,totalExpenses:0,billCount:1,shiftCount:0,cashVariance:0}); }
+  catch(e) { threw=true; }
+  ok(threw); eq(JSON.stringify(sh._grid),before);
+});
+t('หัวคอลัมน์สำคัญซ้ำ -> migration ต้องไม่แทรกคอลัมน์เพิ่ม',()=>{
+  const sh=FakeSheet(['ประเภท','ช่วงเวลา','บิล','รายได้รวม (฿)','รายได้รวม (฿)','ค่าใช้จ่าย (฿)','กำไรสุทธิ (฿)',TS],[]);
+  const before=JSON.stringify(sh._grid);
+  g.migrateMasterAddVarianceColumn(sh);
+  g.migrateMasterAddVatColumns(sh);
+  eq(JSON.stringify(sh._grid),before);
 });
 t('ยังไม่ปิดกะ -> โชว์ "—" ไม่ใช่ 0',()=>{
   const sh=FakeSheet(['ประเภท','ช่วงเวลา','บิล','รายได้รวม (฿)','ค่าใช้จ่าย (฿)','กำไรสุทธิ (฿)',V,TS],[]);
-  g.writeToMaster(sh,2,'เดือน','07-2026',{totalRevenue:1,totalExpenses:0,transactionCount:1,shiftCount:0,cashVariance:0});
+  g.writeToMaster(sh,2,'month','07-2026',{totalRevenue:1,totalExpenses:0,billCount:1,shiftCount:0,cashVariance:0});
   eq(sh._grid[1][6],'—');
 });
 t('ปิดกะแล้วตรงพอดี -> เลข 0 ไม่ใช่ "—"',()=>{
   const sh=FakeSheet(['ประเภท','ช่วงเวลา','บิล','รายได้รวม (฿)','ค่าใช้จ่าย (฿)','กำไรสุทธิ (฿)',V,TS],[]);
-  g.writeToMaster(sh,2,'เดือน','07-2026',{totalRevenue:1,totalExpenses:0,transactionCount:1,shiftCount:1,cashVariance:0});
+  g.writeToMaster(sh,2,'month','07-2026',{totalRevenue:1,totalExpenses:0,billCount:1,shiftCount:1,cashVariance:0});
   eq(sh._grid[1][6],0);
 });
 
@@ -107,6 +140,15 @@ t('ชีตโครงสร้างแปลก (ไม่มี "ราย�
   const sh=FakeSheet(['aaa','bbb'],[['1','2']]);
   g.migrateMasterAddVatColumns(sh);
   eq(sh._grid[0].length,2);
+});
+t('พบหัว VAT แค่บางช่อง -> หยุดและไม่เขียนยอด',()=>{
+  const sh=FakeSheet(OLD8.concat([g.MASTER_VAT_HEADERS[0]]),[]);
+  const before=JSON.stringify(sh._grid);
+  let threw=false;
+  try { g.writeToMaster(sh,2,'day','2026-08-01',{billCount:1,totalRevenue:100,totalExpenses:0,shiftCount:0,cashVariance:0}); }
+  catch(e) { threw=true; }
+  ok(threw,'ต้องปฏิเสธโครงสร้าง VAT ที่ไม่ครบ');
+  eq(JSON.stringify(sh._grid),before);
 });
 t('เขียน 4 ช่อง VAT ลงคอลัมน์ที่ถูก และบวกได้เท่ารายได้รวม',()=>{
   const sh=FakeSheet(OLD8,[]);
@@ -143,9 +185,22 @@ console.log('\n--- ความปลอดภัยของ get_backup ---');
 function FakeFile(id,name,content,created){return{getId:()=>id,getName:()=>name,getSize:()=>content.length,
   getDateCreated:()=>created||new Date('2026-07-27T14:40:00Z'),getBlob:()=>({getDataAsString:()=>content}),setTrashed(){}}}
 const good=JSON.stringify({services:[],staff:[],transactions:[{id:1}]});
-function setFolder(files){ g.DriveApp._folders[g.BACKUP_FOLDER_NAME]={
-  getFiles(){let i=0;return{hasNext:()=>i<files.length,next:()=>files[i++]}},
-  getFilesByType(){return this.getFiles()},createFile(){}}; }
+function clearBackupFolder(){
+  delete scriptProps[g.POS_BACKUP_FOLDER_ID_PROPERTY];
+  delete g.DriveApp._folders[g.BACKUP_FOLDER_NAME];
+  Object.keys(g.DriveApp._foldersById).forEach(k=>delete g.DriveApp._foldersById[k]);
+}
+function setFolder(files, id){
+  clearBackupFolder();
+  const folderId=id||'folder-test';
+  const folder={
+    getId:()=>folderId, getName:()=>g.BACKUP_FOLDER_NAME,
+    getFiles(){let i=0;return{hasNext:()=>i<files.length,next:()=>files[i++]}},
+    getFilesByType(){return this.getFiles()},createFile(){}}
+  g.DriveApp._folders[g.BACKUP_FOLDER_NAME]=folder;
+  g.DriveApp._foldersById[folderId]=folder;
+  return folder;
+}
 const parse=(r)=>JSON.parse(r);
 
 t('ไฟล์ที่อยู่นอกโฟลเดอร์สำรอง -> ปฏิเสธ',()=>{
@@ -185,8 +240,44 @@ t('เรียงใหม่สุดขึ้นก่อน + กรอง�
   eq(r.details.files[0].id,'c','ไฟล์ใหม่สุดต้องอยู่บน');
 });
 t('ยังไม่มีโฟลเดอร์ -> คืนลิสต์ว่าง ไม่ error',()=>{
-  delete g.DriveApp._folders[g.BACKUP_FOLDER_NAME];
+  clearBackupFolder();
   const r=parse(g.handleListBackups()); eq(r.status,'success'); eq(r.details.files,[]);
+});
+t('โฟลเดอร์สำรองชื่อซ้ำ -> ไม่เดาเลือกโฟลเดอร์',()=>{
+  clearBackupFolder();
+  const a=setFolder([], 'folder-a');
+  const b={getId:()=> 'folder-b',getName:()=>g.BACKUP_FOLDER_NAME,getFiles:()=>({hasNext:()=>false}),getFilesByType:()=>({hasNext:()=>false})};
+  g.DriveApp._folders[g.BACKUP_FOLDER_NAME]=[a,b];
+  g.DriveApp._foldersById['folder-b']=b;
+  let threw=false; try { g.getBackupFolder_(false); } catch(e) { threw=true; }
+  ok(threw);
+});
+t('ตั้ง Folder ID แล้วเลือกโฟลเดอร์นั้นแม้ชื่อซ้ำ',()=>{
+  clearBackupFolder();
+  const a=setFolder([], 'folder-a');
+  const b={getId:()=> 'folder-b',getName:()=>g.BACKUP_FOLDER_NAME,getFiles:()=>({hasNext:()=>false}),getFilesByType:()=>({hasNext:()=>false})};
+  g.DriveApp._folders[g.BACKUP_FOLDER_NAME]=[a,b];
+  g.DriveApp._foldersById['folder-b']=b;
+  g.setPosBackupFolderId('folder-b');
+  eq(g.getBackupFolder_(false).getId(),'folder-b');
+});
+
+console.log('\n--- รหัสเชื่อมต่อ Apps Script ---');
+t('endpoint ที่ยังไม่ตั้งรหัส -> ปฏิเสธ',()=>{
+  delete scriptProps[g.POS_API_TOKEN_PROPERTY];
+  const r=parse(g.doPost({postData:{contents:JSON.stringify({action:'list_backups'})}}));
+  eq(r.status,'error'); ok(/setupPosApiToken/.test(r.message));
+});
+t('endpoint ที่รหัสผิด -> ปฏิเสธ',()=>{
+  scriptProps[g.POS_API_TOKEN_PROPERTY]='A'.repeat(24);
+  const r=parse(g.doPost({postData:{contents:JSON.stringify({secret:'B'.repeat(24),action:'list_backups'})}}));
+  eq(r.status,'error'); ok(/unauthorized/.test(r.message));
+});
+t('setupPosApiToken สร้างรหัสที่ไม่อยู่ใน source code',()=>{
+  delete scriptProps[g.POS_API_TOKEN_PROPERTY];
+  const token=g.setupPosApiToken();
+  ok(/^[A-Za-z0-9_-]{24,200}$/.test(token));
+  eq(scriptProps[g.POS_API_TOKEN_PROPERTY],token);
 });
 
 console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
