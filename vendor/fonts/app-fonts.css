@@ -1,0 +1,147 @@
+/* ฟอนต์ของแอป — เก็บไว้ในโปรเจกต์เอง ห้ามเปลี่ยนกลับไป @import จาก fonts.googleapis.com
+ *
+ * เหตุผลเดียวกับ Font Awesome: เครื่องขายหน้าร้านเคยขอไฟล์ฟอนต์จากเว็บภายนอกทุกครั้งที่เปิดแอป
+ * ถ้าเว็บนั้นถูกแฮกหรือถูกบล็อก ตัวอักษรไทยทั้งแอปจะเปลี่ยนหรือกลายเป็นฟอนต์ระบบทันที
+ * และวิธีเดิมล็อกลายเซ็นไฟล์ไม่ได้ เพราะสิ่งที่ Google ส่งกลับมาเปลี่ยนไปตามเบราว์เซอร์ที่ขอ
+ *
+ * ที่มา: npm @fontsource/sarabun@5.3.0 + @fontsource/outfit@5.3.0 (ไฟล์ต้นฉบับ ไม่ได้ดัดแปลง)
+ * เอาเฉพาะน้ำหนักที่เคยขอจาก Google เป๊ะ ๆ — Sarabun (ไทย+ละติน) 300-800 · Outfit (ละติน) 300-900
+ * font-display:swap = ตัวหนังสือขึ้นทันทีด้วยฟอนต์ระบบ แล้วค่อยสลับเมื่อฟอนต์จริงพร้อม (ไม่มีจอว่างรอ)
+ *
+ * วิธีอัปเกรด: npm pack @fontsource/sarabun แล้วคัดลอก package/files/*.woff2 มาทับ
+ * จากนั้นบัมพ์ CACHE_NAME ใน sw.js ด้วย ไม่งั้นเครื่องที่ร้านยังใช้ของเก่าในแคช
+ */
+
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('outfit-latin-300-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('outfit-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('outfit-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('outfit-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('outfit-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('outfit-latin-800-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('outfit-latin-900-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('sarabun-latin-300-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('sarabun-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('sarabun-latin-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('sarabun-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('sarabun-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('sarabun-latin-800-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('sarabun-thai-300-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('sarabun-thai-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('sarabun-thai-500-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('sarabun-thai-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('sarabun-thai-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('sarabun-thai-800-normal.woff2') format('woff2');
+}

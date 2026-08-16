@@ -67,20 +67,17 @@ t('นับได้มากกว่า = เงินเกิน (บวก
 t('ค่าใช้จ่ายมากกว่าเงินสด -> ควรมีติดลบได้จริง (ควักเงินตัวเองจ่าย)',()=>eq(expected(0,100,500),-400));
 
 console.log('\n--- เก็บข้อมูลย้อนหลัง (archive) ---');
-const day=86400000;
-app.state.transactions=[
-  {id:'a',date:Date.now()-400*day,syncStatus:'synced'},
-  {id:'b',date:Date.now()-400*day,syncStatus:'pending'},
-  {id:'c',date:Date.now()-10*day, syncStatus:'synced'}];
-app.state.shift={active:false,history:[
-  {endTime:Date.now()-100*day},{endTime:Date.now()-80*day}],expenses:[]};
-app.state.voidLog=[{date:Date.now()-400*day},{date:Date.now()-10*day}];
-app.archiveOldData();
-t('บิลเก่าเกิน 1 ปีที่ซิงก์แล้ว ถูกลบ',()=>ok(!app.state.transactions.find(x=>x.id==='a')));
-t('บิลเก่าเกิน 1 ปีที่ยังไม่ซิงก์ ห้ามลบ (ข้อมูลจะหายถาวร)',()=>ok(app.state.transactions.find(x=>x.id==='b')));
-t('บิลใหม่ไม่ถูกแตะ',()=>ok(app.state.transactions.find(x=>x.id==='c')));
-t('ประวัติกะเกิน 90 วันถูกลบ เหลือ 1',()=>eq(app.state.shift.history.length,1));
-t('ประวัติยกเลิกบิลเกิน 1 ปีถูกลบ เหลือ 1',()=>eq(app.state.voidLog.length,1));
+// archiveOldData() ถูกลบออกจากแอปในเวอร์ชัน 1.5.2 — ไม่มีที่ไหนเรียกมันแล้ว
+// (เคยเป็นตัวลบประวัติเก่าอัตโนมัติ แต่ถูกปิดไว้นานแล้วเพื่อกันบิลเก่าหายหลังกู้ข้อมูล)
+// เทสต์ชุดนี้จึงถูกถอดตามไปด้วย — เหลือไว้จะทดสอบโค้ดที่ไม่มีอยู่จริง
+t('ระบบต้องไม่มีตัวลบประวัติอัตโนมัติหลงเหลืออยู่',()=>ok(typeof app.archiveOldData!=='function'));
+t('บิลทุกใบต้องอยู่ครบเสมอ ไม่มีอะไรลบให้เอง',()=>{
+  const day=86400000;
+  app.state.transactions=[
+    {id:'a',date:Date.now()-400*day,syncStatus:'synced'},
+    {id:'b',date:Date.now()-400*day,syncStatus:'pending'},
+    {id:'c',date:Date.now()-10*day, syncStatus:'synced'}];
+  eq(app.state.transactions.length,3);});
 
 console.log('\n--- ยอดรวมตะกร้า ---');
 app.state.categories=[{id:'x',name:'x',vat:false}];

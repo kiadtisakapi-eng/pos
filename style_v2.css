@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Sarabun:wght@300;400;500;600;700;800&display=swap');
+/* ฟอนต์ย้ายไปโหลดจาก vendor/fonts/app-fonts.css (ประกาศไว้ใน index.html)
+ * เดิมบรรทัดนี้ @import จาก fonts.googleapis.com ทุกครั้งที่เปิดแอป — ดูเหตุผลในไฟล์นั้น
+ * ⚠️ ห้ามใส่ @import กลับมา: มันบล็อกการวาดหน้าจอจนกว่าจะได้คำตอบจากเน็ต
+ *    เน็ตร้านช้าเมื่อไหร่ หน้าขาวค้างทั้งแอป */
 
 /* ============================================================
    DESIGN TOKENS — Dark Premium Glassmorphism Edition
@@ -185,15 +188,27 @@ body {
   font-family: 'Outfit', sans-serif;
 }
 
+/* ชื่อร้านบนแถบข้าง
+ * เดิม white-space:nowrap + ไม่มี overflow → ชื่อยาวกว่าแถบข้างจะถูก "ตัดหาย" เฉย ๆ
+ * "Erotica Barber & Massage" โดนตัดเหลือ "Erotica Barber &" โดยไม่มีอะไรบอกว่ายังมีต่อ
+ * ตอนนี้ให้ตัดบรรทัดได้ 2 บรรทัด และย่อขนาดตัวอักษรตามความกว้างแถบข้างที่มีจริง
+ * เกิน 2 บรรทัดค่อยใส่จุดไข่ปลา — เจ้าของที่ตั้งชื่อยาวมากจะได้รู้ว่ายังมีต่อ */
+.brand-info { min-width: 0; }
 .brand-info h2 {
-  font-size: 1.1rem;
+  font-size: clamp(0.92rem, 1.35vw, 1.1rem);
+  line-height: 1.25;
   font-weight: 800;
   letter-spacing: 0.2px;
   font-family: 'Outfit', sans-serif;
   background: linear-gradient(135deg, #ffffff 40%, #94a3b8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .brand-info p {
@@ -204,6 +219,10 @@ body {
   text-transform: uppercase;
   margin-top: 2px;
   font-family: 'Outfit', sans-serif;
+  /* คำโปรยก็โดนตัดแบบเดียวกัน — ยอมให้เล็กลงและตัดบรรทัดแทนที่จะหายไปเงียบ ๆ */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  letter-spacing: 1.2px;
 }
 
 /* Navigation items in sidebar */
@@ -697,6 +716,18 @@ body {
   flex-direction: column;
   gap: 1.5rem;
 }
+/* ⚠️ ห้ามลบบรรทัดนี้ — เป็นตัวกันตะกร้าหลุดออกนอกจอบน iPad แนวนอน
+ *
+ * ช่องในกริด/เฟล็กซ์มี "ความกว้างต่ำสุด" เท่ากับความกว้างของเนื้อหาข้างในโดยอัตโนมัติ
+ * พอหน้าขายกลายเป็น 2 คอลัมน์ (บริการ | ตะกร้า) แถบหมวดหมู่ที่เรียงยาวเกินจอ
+ * จะทำให้คอลัมน์ซ้าย "ไม่ยอมหด" แล้วดันคอลัมน์ขวา (ตะกร้า + ปุ่มเก็บเงิน) ตกขอบไปทั้งอัน
+ * วัดจริงแล้ว: iPad mini แนวนอนล้น 497px · iPad 10.9 แนวนอนล้น 341px · โน้ตบุ๊ก 1280 ล้น 242px
+ * ผลคือพนักงานต้องเลื่อนจอไปขวาทุกครั้งที่จะกดเก็บเงิน
+ *
+ * min-width:0 คือการบอกว่า "หดได้นะ" ส่วนแถบหมวดมี overflow-x:auto อยู่แล้ว
+ * มันจึงเลื่อนดูในตัวเองแทนที่จะดันทั้งหน้า */
+.pos-layout > * { min-width: 0; }
+.category-tabs { min-width: 0; }
 
 .pos-services-section {
   display: flex;
@@ -892,10 +923,15 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;              /* แคบมากให้ปุ่ม "ล้างตะกร้า" ตกบรรทัดใหม่ */
+  gap: 8px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 14px;
 }
+/* ห้ามหักบรรทัดกลางคำ — ของเดิมบนตะกร้าแคบจะกลายเป็น "ตะกร้าบริการ (" / "2 )" คนละบรรทัด */
+.cart-title, .clear-cart-btn { white-space: nowrap; }
+.clear-cart-btn { flex-shrink: 0; }
 
 .cart-title {
   font-size: 1.15rem;
@@ -924,7 +960,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 300px;
+  /* เดิมตายตัวที่ 300px — บน iPad แนวนอนที่จอสูง 820px เห็นได้แค่ 2 รายการทั้งที่มีที่ว่างเหลือเพียบ
+   * บิลที่มี 4-5 รายการต้องเลื่อนดูทีละนิด ตรวจก่อนเก็บเงินลำบาก
+   * clamp = อย่างน้อย 220px (จอเตี้ย) มากสุด 520px และแปรตามความสูงจอจริง */
+  max-height: clamp(220px, 38vh, 520px);
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -957,6 +996,7 @@ body {
 
 .cart-item-staff {
   display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;              /* ช่องแคบ ๆ ให้ช่องเลือกตกลงบรรทัดใหม่เต็มความกว้าง */
   font-size: 0.82rem;
   color: var(--text-secondary);
   background: rgba(255,255,255,0.015);
@@ -964,6 +1004,9 @@ body {
   border-radius: var(--r-sm);
   border: 1px solid var(--border-subtle);
 }
+/* คำว่า "ผู้ให้บริการ:" ห้ามหักกลางคำ — บนตะกร้าที่แคบมันเคยแตกเป็น 2 บรรทัดจนอ่านยาก */
+.cart-item-staff > i, .cart-item-staff { white-space: nowrap; }
+.cart-item-staff select { white-space: normal; }
 
 .cart-item-staff select {
   background: transparent;
@@ -974,7 +1017,10 @@ body {
   font-size: 0.85rem;
   outline: none;
   cursor: pointer;
-  flex: 1;
+  /* flex:1 เดิมทำให้ช่องบีบจนชื่อพนักงานยาว ๆ อ่านไม่ออกบนตะกร้าแคบ
+   * 140px คือความกว้างขั้นต่ำที่พออ่านชื่อไทยเต็ม ๆ ได้ ถ้าไม่พอก็ตกบรรทัดใหม่ (flex-wrap ด้านบน) */
+  flex: 1 1 140px;
+  min-width: 0;
 }
 .cart-item-staff select option { background: var(--bg-surface-solid); color: var(--text-primary); }
 
@@ -1363,9 +1409,30 @@ body {
    จำกัดเฉพาะจอสัมผัส (pointer: coarse) เดสก์ท็อปยังได้ขนาดกะทัดรัดเดิม
    หมายเหตุ: ช่องที่ตั้ง font-size แบบ inline เฉพาะจุด (เช่น select ใน modal แก้บิล) inline ชนะ — ยอมรับได้ */
 @media (pointer: coarse) {
+  /* 16px = ขนาดต่ำสุดที่ iOS ไม่ซูมหน้าจอเข้าเองตอนแตะช่องกรอก */
   .form-input, .customer-select, .discount-input, .search-input {
     font-size: 16px;
   }
+
+  /* ── ขนาดขั้นต่ำที่นิ้วกดโดนจริง ────────────────────────────────────────
+   * วัดของเดิมบน iPad แล้วเจอ: ช่องเลือกพนักงานในตะกร้าสูง 20px · ปุ่มลบรายการ 23x25px
+   * · ปุ่มลบค่าใช้จ่าย 20x22px · ปุ่มในหน้าคิว 35px — เล็กกว่ามาตรฐานสัมผัส 44px ทั้งหมด
+   * พนักงานต้องเล็งกดตอนร้านยุ่ง พลาดทีเสียเวลาทั้งคิว และเสี่ยงกดโดนปุ่มข้าง ๆ
+   *
+   * ตั้งใจครอบเฉพาะ pointer:coarse (นิ้ว/ปากกา) — จอคอมที่ใช้เมาส์ยังหน้าตาเดิมทุกอย่าง
+   * ใช้ min-height ไม่ใช่ height เพื่อไม่ไปทับปุ่มที่สูงพออยู่แล้ว */
+  button, select,
+  .btn-small, .btn-icon, .quick-cash-btn, .remove-item-btn, .clear-cart-btn,
+  .form-input, .customer-select, .discount-input, .search-input,
+  .modal-close, .tab-btn, .denom-input {
+    min-height: 44px;
+  }
+  /* ปุ่มไอคอนล้วน ๆ ต้องกว้างพอด้วย ไม่ใช่แค่สูง (ของเดิมกว้าง 20-23px) */
+  .btn-icon, .remove-item-btn, .modal-close {
+    min-width: 44px;
+  }
+  /* ช่องเลือกพนักงานในตะกร้า — ของเดิมสูง 20px กดยากที่สุดในแอป */
+  .cart-item-staff select { min-height: 44px; padding: 8px 10px; }
 }
 
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1382,6 +1449,7 @@ body {
   display: none;
   align-items: center; justify-content: center;
   padding: 1.25rem;
+  overflow-y: auto;   /* ตาข่ายชั้นสุดท้าย เผื่อกล่องข้างในยังสูงเกินจอ */
 }
 .modal-overlay.active { display: flex; }
 
@@ -1395,6 +1463,17 @@ body {
   box-shadow: var(--shadow-xl), 0 0 0 1px rgba(255,255,255,0.03);
   position: relative;
   overflow: hidden;
+  /* ── กล่องต้องไม่สูงเกินจอ และต้องเลื่อนดูข้างในได้ ────────────────────────
+   * ของเดิมไม่มีเพดานความสูง บนจอเตี้ย (มือถือแนวนอน 390px, โน้ตบุ๊กจอ 768px)
+   * หน้าต่าง "ชำระเงิน" / "เพิ่มพนักงาน" / "เพิ่มบริการ" จะยาวเลยขอบจอทั้งบนและล่าง
+   * แล้วเลื่อนไม่ได้เลย = กดปุ่มยืนยันไม่ได้ ต้องหมุนเครื่องอย่างเดียว
+   * 2.5rem = ระยะขอบบน+ล่างของ .modal-overlay
+   * เขียน vh ก่อน dvh เพื่อให้เบราว์เซอร์เก่าที่ไม่รู้จัก dvh ยังได้ค่าที่ใช้ได้ */
+  max-height: calc(100vh - 2.5rem);
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;                 /* คู่กับ overflow:hidden ด้านบน = แนวนอนซ่อน แนวตั้งเลื่อนได้ */
+  overscroll-behavior: contain;     /* เลื่อนสุดแล้วไม่ลากหน้าเว็บข้างหลังตามไปด้วย */
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-card::before {
@@ -1645,7 +1724,12 @@ body {
 /* ============================================================
    RESPONSIVE DESIGN CONTROLS (Media Queries)
    ============================================================ */
-@media (min-width: 1024px), (min-width: 768px) and (orientation: landscape) {
+/* ⚠️ ทุกเงื่อนไขที่ "เปิดแถบเมนูข้าง" ต้องมี min-height ด้วยเสมอ
+ * มือถือแนวนอน (เช่น 844x390) กว้างพอตามเงื่อนไขเดิม เลยได้แถบข้างแบบคอมมา
+ * แต่จอสูงแค่ 390px — วัดจริงแล้วเมนู "ตั้งค่า" ตกไปอยู่ที่ y=501 คือใต้ขอบจอ กดไม่ได้เลย
+ * และแถบล่างก็ถูกซ่อนไปแล้ว = ไม่มีทางเปลี่ยนหน้าได้เลยจนกว่าจะหมุนเครื่องกลับ */
+@media (min-width: 1024px) and (min-height: 500px),
+       (min-width: 768px) and (orientation: landscape) and (min-height: 500px) {
   .mobile-role-header { display: none !important; }
 }
 
@@ -1655,8 +1739,9 @@ body {
   .queue-grid { grid-template-columns: 1fr 1.4fr; }
 }
 
-/* Tablet landscape / Desktop layout (show sidebar) */
-@media (min-width: 1024px), (min-width: 768px) and (orientation: landscape) {
+/* Tablet landscape / Desktop layout (show sidebar) — ต้องสูงพอด้วย ดูเหตุผลด้านบน */
+@media (min-width: 1024px) and (min-height: 500px),
+       (min-width: 768px) and (orientation: landscape) and (min-height: 500px) {
   .sidebar { display: flex; width: 225px; }
   .bottom-nav { display: none; }
   .main-content { margin-left: 225px; padding: 1.75rem 2rem; padding-bottom: 1.75rem; }
@@ -1668,12 +1753,20 @@ body {
   .glass-card:hover { transform: translateY(-4px); }
 }
 
-/* Desktop wide layouts (large viewport adjustments) */
-@media (min-width: 1024px) {
-  .sidebar { width: var(--sidebar-width); }
-  .main-content { margin-left: var(--sidebar-width); padding: 2.5rem 3rem; padding-bottom: 2.5rem; }
+/* จอกลาง (iPad แนวนอนเกือบทุกรุ่น + iPad Pro 12.9 แนวตั้ง) — 1024-1279px
+ * ตั้งใจ "ไม่" ขยายแถบข้างเป็น 270px ที่ช่วงนี้: บนจอ 1024 แถบข้างจะกินพื้นที่ถึง 26% ของจอ
+ * วัดจริงแล้วการ์ดบริการเหลือกว้าง 188px ชื่อบริการภาษาไทยตกบรรทัดที่ 3 อ่านยากตอนขายเร็ว ๆ
+ * คงไว้ที่ 225px แล้วเอาพื้นที่ที่ได้คืนไปให้การ์ด (257px, ชื่อเหลือ 2 บรรทัด) และตะกร้ากว้างขึ้น */
+@media (min-width: 1024px) and (min-height: 500px) {
+  .main-content { padding: 2rem 2.25rem; padding-bottom: 2rem; }
   .pos-layout { grid-template-columns: 1.65fr 1fr; gap: 1.75rem; }
   .services-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+}
+
+/* จอใหญ่จริง (โน้ตบุ๊ก/จอคอม) ค่อยขยายแถบข้างและระยะขอบให้โปร่ง */
+@media (min-width: 1280px) and (min-height: 500px) {
+  .sidebar { width: var(--sidebar-width); }
+  .main-content { margin-left: var(--sidebar-width); padding: 2.5rem 3rem; padding-bottom: 2.5rem; }
 }
 
 @media (min-width: 1280px) {

@@ -50,6 +50,10 @@ Object.assign(h.document._els,{
 h.document.querySelectorAll=()=>[];
 
 (async()=>{
+// v1.5.1+ หน้าต่างแก้บิลทำงานบน "ร่าง" (_editTxDraft) ที่สร้างตอนเปิดหน้าต่าง
+// เดิมเทสต์ลัดเรียก saveTransactionEdit() ตรง ๆ ซึ่งเป็นเส้นทางที่ผู้ใช้ทำไม่ได้
+// (ปุ่มบันทึกอยู่ในหน้าต่าง ต้องเปิดก่อนเสมอ) — เรียก openTransactionEdit ก่อนให้ตรงกับของจริง
+app.openTransactionEdit('TX1');
 await app.saveTransactionEdit();
 let tx=app.state.transactions[0];
 t('แก้บิลแล้วยอดรวมยังเป็น 386 (ไม่หล่นกลับเป็น 380)',()=>eq(tx.total,386));
@@ -57,6 +61,7 @@ t('4 ช่องยังบวกได้เท่ายอดรวม',()=>
 
 // แก้โดยใส่ส่วนลด 80
 app.state.transactions=[mkTx()];
+app.openTransactionEdit('TX1');
 h.document._els['edit-tx-discount'].value='80';
 await app.saveTransactionEdit();
 tx=app.state.transactions[0];
@@ -68,6 +73,7 @@ t('ใส่ส่วนลด 80 -> คิด VAT จากยอดหลั�
 
 console.log('\n--- แก้บิลเก่าตอนที่ค่าตั้งค่าเปลี่ยนไปแล้ว ---');
 app.state.transactions=[mkTx()];
+app.openTransactionEdit('TX1');
 h.document._els['edit-tx-discount'].value='0';
 app.vatEnabled=false; app.vatRate=10;   // เจ้าของปิดสวิตช์ + เปลี่ยนอัตราไปแล้ว
 await app.saveTransactionEdit();
@@ -78,6 +84,7 @@ app.vatEnabled=true; app.vatRate=7;
 
 console.log('\n--- ยอดตัวอย่างในหน้าต่างแก้ไข ต้องตรงกับที่บันทึกจริง ---');
 app.state.transactions=[mkTx()];
+app.openTransactionEdit('TX1');
 h.document._els['edit-tx-discount'].value='0';
 app.recalculateEditTxTotal();
 t('ช่องยอดรวมโชว์ 386 ไม่ใช่ 380',()=>ok(/386/.test(h.document._els['edit-tx-total'].value),

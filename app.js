@@ -43,7 +43,7 @@ const CLOUD_API_TOKEN_MIN_LENGTH = 24;
 const BACKUP_SCHEMA_VERSION = 2;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.5.0 (2026-08-03)';
+const APP_VERSION = '1.5.3 (2026-08-16)';
 
 // ─────────────────────────────────────────────
 //  วันทำการ (Business Date) — ร้านเปิด 11:00 น. ถึงตี 3 ของวันถัดไป
@@ -62,9 +62,24 @@ function escapeHtml(str) {
 }
 
 // เริ่มต้นฐานข้อมูล IndexedDB ด้วย Dexie.js
-const SESSION_TTL_HOURS = 20; // จำการล็อกอินไว้กี่ชั่วโมงก่อนต้องใส่ PIN ใหม่
+const SESSION_TTL_HOURS = 20; // จำการล็อกอินไว้กี่ชั่วโมงก่อนต้องใส่ PIN ใหม่ (พนักงาน/ผู้จัดการ)
 // (20 ชม. ครอบคลุมกะเต็ม 11:00 → ตี 3 + เผื่อเปิดเครื่องก่อนเปิดร้าน — เดิม 12 ชม. หมดอายุ 23:00 กลางกะ
 //  ถ้า iPad รีเฟรช/อัปเดตแอปหลังจากนั้นจะเด้งหน้า login ทั้งที่กำลังขายอยู่)
+
+// ─────────────────────────────────────────────
+//  เจ้าของร้าน: ออกจากระบบอัตโนมัติเมื่อไม่มีการแตะหน้าจอครบ 5 นาที
+//
+//  ทำไมต้องสั้นกว่าคนอื่นมาก: สิทธิ์เจ้าของเปิดได้ทุกอย่าง — หน้าตั้งค่า, รายงานยอดทั้งร้าน,
+//  ลบบิล, รีเซ็ตข้อมูล, กู้ข้อมูลทับ ถ้าค้างไว้ 20 ชม. เหมือนคนอื่น ใครหยิบ iPad ที่ปลดล็อกไป
+//  ในช่วงนั้นก็ได้สิทธิ์เต็มไปด้วย
+//
+//  ⚠️ ตั้งใจนับจาก "การแตะครั้งสุดท้าย" ไม่ใช่นับตั้งแต่ตอนล็อกอิน
+//  ถ้านับตั้งแต่ล็อกอิน เจ้าของที่นั่งทำบัญชียาว ๆ จะโดนเตะออกกลางคันทุก 5 นาที
+//  แบบนี้วาง iPad ทิ้งไว้ 5 นาทีเมื่อไหร่ถึงหลุด ระหว่างที่มือยังทำงานอยู่ไม่โดนรบกวน
+// ─────────────────────────────────────────────
+const OWNER_IDLE_TIMEOUT_MINUTES = 5;
+const OWNER_IDLE_TIMEOUT_MS = OWNER_IDLE_TIMEOUT_MINUTES * 60 * 1000;
+const IDLE_CHECK_INTERVAL_MS = 15 * 1000;   // ความละเอียดในการเช็ค — คลาดได้ไม่เกิน 15 วิ
 const db = new Dexie('EroticaPosDatabase');
 db.version(1).stores({
   state: 'key, value'
@@ -115,6 +130,13 @@ class PosApp {
     this.currentUser = null;      // { id, name } ของผู้ที่ล็อกอินอยู่
     this.loginSelectedId = null;  // ผู้ใช้ที่เลือกในหน้าล็อกอิน
     this.googleSheetsApiToken = ''; // รหัสต่อเครื่องสำหรับ Apps Script — ไม่ใส่ใน backup/export
+    this._lastActivityTs = Date.now();  // เวลาที่แตะหน้าจอครั้งล่าสุด (ใช้กับ auto-logout ของเจ้าของร้าน)
+    this._lastSessionSaveTs = 0;        // กันเขียนเซสชันลง IndexedDB รัวเกินไปตอนกดขายเร็ว ๆ
+    this._idleInterval = null;
+    // ร่างรายการของหน้าต่าง "แก้ไขบิล" — เป็นสำเนาแยก ห้ามผูกกับบิลจริง
+    // เดิมหน้าต่างนี้เขียนทับ tx.details ทันทีที่เปิดดู ทำให้แค่กดดูบิลเก่าแล้วกดยกเลิก
+    // ยอดของบิลใบนั้นก็เปลี่ยนไปแล้ว (ดูคอมเมนต์ที่ buildEditableDetails)
+    this._editTxDraft = null;
   }
 
   // ==================== TOAST NOTIFICATION ====================
@@ -150,7 +172,9 @@ class PosApp {
 
   // ==================== CUSTOM MODALS ====================
 
-  showConfirm(message, callback) {
+  // onCancel เพิ่มเข้ามาเพื่อให้เขียนแบบ await ได้ (ดู askConfirm ด้านล่าง)
+  // ถ้าไม่มีทางรู้ว่าผู้ใช้กด "ยกเลิก" โค้ดที่รออยู่จะค้างตลอดไป เช่นธง restoreBusy ที่ไม่มีวันคืนค่า
+  showConfirm(message, callback, onCancel) {
     const modal = document.getElementById('modal-confirm');
     const msgEl = document.getElementById('confirm-modal-msg');
     const btnYes = document.getElementById('btn-confirm-yes');
@@ -159,6 +183,8 @@ class PosApp {
     if (!modal || !msgEl || !btnYes || !btnCancel) {
       if (confirm(message)) {
         if (callback) callback();
+      } else if (onCancel) {
+        onCancel();
       }
       return;
     }
@@ -168,12 +194,18 @@ class PosApp {
 
     btnCancel.onclick = () => {
       modal.classList.remove('active');
+      if (onCancel) onCancel();
     };
 
     btnYes.onclick = () => {
       modal.classList.remove('active');
       if (callback) callback();
     };
+  }
+
+  // เวอร์ชันที่ await ได้ — true = กดยืนยัน, false = กดยกเลิก
+  askConfirm(message) {
+    return new Promise(resolve => this.showConfirm(message, () => resolve(true), () => resolve(false)));
   }
 
   showPromptModal(message, defaultValue, callback) {
@@ -396,6 +428,9 @@ class PosApp {
     // ตั้งเวลาสำหรับอัปเดตแถบเวลาของคิวงาน (คิวที่กำลังรับบริการอยู่)
     this.timerInterval = setInterval(() => this.updateQueueProgress(), 1000);
     
+    // เริ่มจับเวลาไม่ใช้งาน — เจ้าของร้านจะถูกออกจากระบบอัตโนมัติเมื่อวางเครื่องทิ้งไว้
+    this.startIdleWatch();
+
     // จำการล็อกอินเดิมถ้ายังไม่หมดอายุ ไม่งั้นแสดงหน้าเข้าสู่ระบบ
     if (await this.tryRestoreSession()) {
       this.afterLogin();
@@ -694,42 +729,11 @@ class PosApp {
     else document.addEventListener('DOMContentLoaded', build, { once: true });
   }
 
-  // Auto-archive: ลบ shift history เก่ากว่า 90 วัน + transactions เก่ากว่า 365 วันที่ synced แล้ว
-  // ไม่เรียกจาก saveState() โดยอัตโนมัติ เพราะการ "บันทึก" ต้องไม่มีสิทธิ์ลบประวัติ
-  // โดยเฉพาะหลัง restore ที่บิลเก่าจะถูกลบทิ้งทันทีโดยผู้ใช้ไม่รู้ตัว
-  archiveOldData() {
-    const now = Date.now();
-    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
-    const oneYearMs = 365 * 24 * 60 * 60 * 1000;
-
-    // ลบ shift history เก่ากว่า 90 วัน
-    if (this.state.shift && Array.isArray(this.state.shift.history)) {
-      const before = this.state.shift.history.length;
-      this.state.shift.history = this.state.shift.history.filter(sh => {
-        const ts = sh.endTime || sh.startTime || 0;
-        return (now - ts) < ninetyDaysMs;
-      });
-      if (this.state.shift.history.length < before) {
-        console.log(`[Archive] ลบ shift history ${before - this.state.shift.history.length} รายการ (เก่ากว่า 90 วัน)`);
-      }
-    }
-
-    // ลบ transactions ที่ synced แล้วและเก่ากว่า 365 วัน (ยังเก็บที่ Google Sheets อยู่)
-    const beforeTx = this.state.transactions.length;
-    this.state.transactions = this.state.transactions.filter(tx => {
-      const age = now - (typeof tx.date === 'number' ? tx.date : new Date(tx.date).getTime());
-      return tx.syncStatus !== 'synced' || age < oneYearMs;
-    });
-    if (this.state.transactions.length < beforeTx) {
-      console.log(`[Archive] ลบ transactions ${beforeTx - this.state.transactions.length} รายการ (synced + เก่ากว่า 365 วัน)`);
-    }
-
-    // ลบประวัติการยกเลิกบิล (voidLog) ที่เก่ากว่า 1 ปี
-    if (Array.isArray(this.state.voidLog)) {
-      this.state.voidLog = this.state.voidLog.filter(v => (now - (v.date || 0)) < oneYearMs);
-    }
-  }
-
+  // ⚠️ archiveOldData() ถูกลบออกในเวอร์ชัน 1.5.2
+  // เคยเป็นตัวลบประวัติเก่าอัตโนมัติ แต่ถูกปิดการเรียกใช้ไปนานแล้ว (กันบิลเก่าหายหลังกู้ข้อมูล)
+  // เหลือไว้เฉย ๆ ทำให้คนอ่านโค้ดเข้าใจผิดว่าระบบยังลบข้อมูลเก่าให้เอง จึงลบทิ้ง
+  // ถ้าวันหนึ่งต้องจัดการข้อมูลที่บวม ให้ทำเป็นฟีเจอร์ "ส่งออกแล้วเก็บถาวร" ที่มีปุ่มให้เจ้าของกดเอง
+  // ไม่ใช่ลบเงียบ ๆ เบื้องหลัง
   // เซฟข้อมูลลงใน IndexedDB
   async saveState() {
     // 🛑 กันข้อมูลหายถาวร — ถ้า loadState() ล้มเหลว state ในหน่วยความจำเป็นค่าว่าง
@@ -818,13 +822,10 @@ class PosApp {
     return { secret: this.googleSheetsApiToken, action, ...data };
   }
 
-  // สำรองข้อมูลขึ้น Google Drive
-  // คืน true เมื่อไฟล์ขึ้น Drive สำเร็จจริง — resetData() ใช้ค่านี้ตัดสินว่าจะยอมลบข้อมูลไหม
-  async autoBackupToGoogleDrive() {
-    if (!this.hasCloudSyncConfig()) return false;
-    if (this.loadFailed) return false; // state เป็นค่าว่าง — สำรองไปก็ได้ไฟล์เปล่าไปทับของดีบน Drive
-
-    const backupData = {
+  // ── ก้อนข้อมูลสำรองมาตรฐาน — ใช้ร่วมกันทุกทาง (Drive / ไฟล์ .json / สำเนาก่อนกู้) ──
+  // ต้องเป็นตัวเดียวกันทั้งหมด ไม่งั้นแก้ที่หนึ่งแล้วลืมอีกที่เมื่อไหร่ ไฟล์สำรองจะมีข้อมูลไม่ครบเท่ากัน
+  buildBackupPayload() {
+    return {
       backupSchemaVersion: BACKUP_SCHEMA_VERSION,
       createdAt: new Date().toISOString(),
       appVersion: APP_VERSION,
@@ -850,6 +851,15 @@ class PosApp {
       // telegramToken ถูกตัดออกเพื่อความปลอดภัย (ตั้งค่าใหม่หลัง restore)
       telegramChatId: this.telegramChatId || ''
     };
+  }
+
+  // สำรองข้อมูลขึ้น Google Drive
+  // คืน true เมื่อไฟล์ขึ้น Drive สำเร็จจริง — resetData() ใช้ค่านี้ตัดสินว่าจะยอมลบข้อมูลไหม
+  async autoBackupToGoogleDrive() {
+    if (!this.hasCloudSyncConfig()) return false;
+    if (this.loadFailed) return false; // state เป็นค่าว่าง — สำรองไปก็ได้ไฟล์เปล่าไปทับของดีบน Drive
+
+    const backupData = this.buildBackupPayload();
 
     const payload = this.buildCloudRequest('backup', { backupData });
 
@@ -1866,6 +1876,9 @@ class PosApp {
 
     // อัปเดตรายละเอียดบิลค้างซิงก์ในหน้าตั้งค่า
     this.checkSyncStatus();
+
+    // แสดงปุ่ม "ย้อนกลับไปก่อนกู้ข้อมูล" ถ้ามีสำเนาเก็บไว้ (อ่านจากฐานข้อมูล จึงเป็น async)
+    this.refreshPreRestoreUI();
   }
 
   // ==================== CART ACTIONS ====================
@@ -2928,35 +2941,78 @@ class PosApp {
   // ==================== MODALS HELPERS ====================
 
   openModal(modalId) {
-    document.getElementById(modalId).classList.add('active');
+    const el = document.getElementById(modalId);
+    if (el) el.classList.add('active');
   }
 
   closeModal(modalId) {
-    document.getElementById(modalId).classList.remove('active');
+    const el = document.getElementById(modalId);
+    if (el) el.classList.remove('active');
+    // ปิดหน้าต่างแก้ไขบิลเมื่อไหร่ = ทิ้งร่างที่ยังไม่ได้กดบันทึกทันที
+    // (กดกากบาท/กดยกเลิก/void ก็ผ่านทางนี้ทั้งหมด)
+    if (modalId === 'modal-edit-transaction') this._editTxDraft = null;
   }
 
   // ==================== GOOGLE SHEETS SYNC ====================
 
-  // ─── รวมค่าใช้จ่ายของ "วันทำการ" หนึ่งๆ: กะที่ปิดแล้ว (ตามวันทำการที่ปิดกะ) + กะที่ยังเปิดอยู่ (ตามเวลาของรายการ) ───
-  // กะปกติ 11:00 → ตี 3: วันทำการของเวลาปิดกะ = วันเดียวกับบิลทั้งกะ → รายได้กับค่าใช้จ่ายอยู่วันเดียวกันเสมอ
-  // ถ้าไม่รวมกะที่ยังเปิด สรุปที่ส่งกลางกะ (กดส่งเอง หรือ refresh หลัง void/แก้บิล) จะโชว์กำไรสูงเกินจริงจนกว่าจะปิดกะ
-  getExpensesForDate(dateKey) {
-    const closed = (this.state.shift.history || [])
-      .filter(sh => this.getBusinessISODate(sh.endTime || sh.startTime) === dateKey)
-      .flatMap(sh => sh.expenses || []);
-    const active = (this.state.shift.active && Array.isArray(this.state.shift.expenses))
-      ? this.state.shift.expenses.filter(e => this.getBusinessISODate(e.time) === dateKey)
-      : [];
-    return closed.concat(active);
+  // ─── รวมค่าใช้จ่ายของงวดหนึ่ง (วันทำการ หรือเดือนทำการ) ───────────────────
+  // ⚠️ ยึด "เวลาที่จ่ายเงินออกจากลิ้นชักจริง" ของแต่ละรายการ — เกณฑ์เดียวกับบิลขายเป๊ะ ๆ
+  //
+  // เดิมยึด "เวลาปิดกะ" แล้วเหมาค่าใช้จ่ายทั้งกะไปเป็นของวันนั้นทั้งก้อน
+  // กะปกติ 11:00 → ตี 3 ไม่มีปัญหาเพราะวันทำการเดียวกันหมด
+  // แต่คืนไหนลากยาวปิด 07:00 (ข้ามเวลาตัดวัน 06:00) ค่าใช้จ่ายทั้งกะจะโดดไปเป็นของวันถัดไป
+  // ทั้งที่บิลขายยังนับเป็นวันเดิม → กำไรสุทธิผิดทั้งสองวัน (วันหนึ่งกำไรเกิน อีกวันขาดทุนเทียม)
+  //
+  // รายการเก่าที่ไม่มีเวลา (ไฟล์สำรองที่ field หาย) ให้ยึดเวลาของกะแทน — ดีกว่าหายจากรายงานเงียบ ๆ
+  //
+  // หมายเหตุ: ตารางนับเงินปิดกะ (buildShiftCashSummary) ยังใช้ยอดรวมทั้งกะเหมือนเดิม
+  // เพราะเงินก้อนนั้นออกจากลิ้นชักของ "กะนั้น" จริง — ตัวเลขสองที่จึงอาจต่างกันได้เฉพาะกะข้ามวัน
+  collectExpenses(periodType, periodKey) {
+    const keyOf = ts => periodType === 'month'
+      ? this.getBusinessMonthKey(ts)
+      : this.getBusinessISODate(ts);
+
+    const out = [];
+    const take = (list, fallbackTs) => {
+      (Array.isArray(list) ? list : []).forEach(e => {
+        if (!e || typeof e !== 'object') return;
+        let k = keyOf(e.time);
+        if (!k && fallbackTs != null) k = keyOf(fallbackTs); // รายการไม่มีเวลา → ใช้เวลาของกะ
+        if (k && k === periodKey) out.push(e);
+      });
+    };
+
+    const history = (this.state.shift && Array.isArray(this.state.shift.history)) ? this.state.shift.history : [];
+    history.forEach(sh => take(sh.expenses, sh.startTime || sh.endTime));
+
+    // ต้องรวมกะที่ยังเปิดอยู่ด้วย ไม่งั้นสรุปที่ส่งกลางกะ (กดส่งเอง / refresh หลัง void หรือแก้บิล)
+    // จะโชว์กำไรสูงเกินจริงจนกว่าจะปิดกะ
+    if (this.state.shift && this.state.shift.active) {
+      take(this.state.shift.expenses, this.state.shift.startTime);
+    }
+    return out;
   }
 
-  // ─── กะที่ปิดแล้วของงวดหนึ่งๆ (ใช้เกณฑ์ "วันทำการที่ปิดกะ" เดียวกับ getExpensesForDate) ───
-  // ต้องใช้เกณฑ์เดียวกัน ไม่งั้นค่าใช้จ่ายกับเงินขาด/เกินของกะเดียวกันจะไปโผล่คนละวัน
+  // ทางลัดสำหรับ "วันทำการ" — ใช้กันแพร่หลายในโค้ดเดิม
+  getExpensesForDate(dateKey) {
+    return this.collectExpenses('day', dateKey);
+  }
+
+  // ─── กะที่ปิดแล้วของงวดหนึ่งๆ ────────────────────────────────────────────
+  // ⚠️ ยึด "เวลาเปิดกะ" ไม่ใช่เวลาปิด — กะหนึ่งคือ "คืนของวันที่เปิดร้าน" เสมอ
+  //
+  // ทำไมไม่ใช้เวลาปิด: ร้านเปิด 11:00 ปิดตี 3 ปกติแล้วได้วันเดียวกันทั้งคู่
+  // แต่คืนไหนปิดช้าเลย 06:00 (เวลาตัดวัน) เวลาปิดจะข้ามไปเป็นวันถัดไป
+  // แถวกะเลยไปโผล่ในสรุปวันที่ไม่มีบิลขายสักใบ ส่วนวันที่ขายจริงกลับไม่มีแถวกะ
+  // คืนสิ้นเดือนที่ปิดสายยิ่งหนัก — กะกระโดดข้ามไปอยู่สรุปเดือนถัดไปทั้งที่ยอดขายอยู่เดือนเดิม
+  // เวลาเปิดร้านอยู่ช่วง 11:00 เสมอ จึงไม่มีทางคาบเกี่ยวเวลาตัดวัน = จัดกลุ่มได้นิ่งกว่า
+  //
+  // ใช้เกณฑ์นี้แล้วทั้ง 3 บล็อกในสรุปวัน (บิลขาย / ค่าใช้จ่าย / ตารางนับเงิน) ตรงกันหมด
   // กะที่ยังเปิดอยู่ไม่นับ — ยังไม่มีการนับเงินปิดกะ จึงยังไม่มีตัวเลขขาด/เกิน
   getClosedShiftsForPeriod(periodType, periodKey) {
     const history = (this.state.shift && Array.isArray(this.state.shift.history)) ? this.state.shift.history : [];
     return history.filter(sh => {
-      const ts = sh.endTime || sh.startTime;
+      const ts = sh.startTime || sh.endTime;
       if (!ts) return false;
       return periodType === 'month'
         ? this.getBusinessMonthKey(ts) === periodKey
@@ -3172,16 +3228,10 @@ class PosApp {
       const txs = this.state.transactions.filter(tx => {
         return this.getBusinessISOMonth(tx.date) === monthStr.slice(3) + '-' + monthStr.slice(0, 2);
       });
-      // รวม expenses ของทุกกะในเดือนทำการนั้น
-      const expenses = (this.state.shift.history || [])
-        .filter(sh => this.getBusinessMonthKey(sh.endTime || sh.startTime) === monthStr)
-        .flatMap(sh => sh.expenses || []);
-      // รวมค่าใช้จ่ายของกะที่ยังเปิดอยู่ในเดือนเดียวกันด้วย — ไม่งั้นสรุปเดือนที่ส่งก่อนปิดกะขาดยอดค่าใช้จ่าย
-      if (this.state.shift.active && Array.isArray(this.state.shift.expenses)) {
-        this.state.shift.expenses.forEach(e => {
-          if (this.getBusinessMonthKey(e.time) === monthStr) expenses.push(e);
-        });
-      }
+      // รวมค่าใช้จ่ายของเดือนทำการนั้น — ยึดเวลาที่จ่ายเงินจริงของแต่ละรายการ
+      // (เกณฑ์เดียวกับ txs ด้านบน ไม่งั้นบิลกับค่าใช้จ่ายของคืนคาบเกี่ยวสิ้นเดือนจะไปคนละเดือน)
+      // ครอบคลุมทั้งกะที่ปิดแล้วและกะที่ยังเปิดอยู่ในตัว
+      const expenses = this.collectExpenses('month', monthStr);
 
       const payload = this.buildSummaryPayload(txs, expenses, 'month', monthStr);
       const response = await this.fetchWithTimeout(this.googleSheetsUrl, {
@@ -3542,22 +3592,35 @@ class PosApp {
     this.openModal('modal-cash-counter');
   }
 
+  // ── อ่านจำนวนใบ/เหรียญจากช่องกรอกแบบปลอดภัย ────────────────────────────
+  // `min="0"` ใน HTML กันแค่ปุ่มลูกศร — พิมพ์ "-5" เองได้ ยอดรวมจะติดลบ
+  // แล้วเงินขาด/เกินตอนปิดกะเพี้ยนทั้งกะโดยไม่มีอะไรเตือน
+  // clamp ตรงนี้ที่เดียวไม่พอ ต้องเรียกจากทั้งตอนคำนวณโชว์และตอนกดยืนยัน (ใช้ตัวเดียวกัน)
+  // ถ้าค่าที่กรอกอยู่นอกช่วง จะเขียนค่าที่ clamp แล้วกลับลงช่องให้เห็นทันที ไม่แก้เงียบ ๆ
+  readCashQty(input) {
+    const raw = parseInt(input.value, 10);
+    if (!Number.isFinite(raw)) return 0;                       // ช่องว่าง/พิมพ์ค้าง
+    const qty = Math.max(0, Math.min(99999, Math.floor(raw))); // ไม่ติดลบ ไม่เกินจริง ไม่มีเศษ
+    if (qty !== raw) input.value = String(qty);
+    return qty;
+  }
+
   updateCashSum() {
     let total = 0;
     const inputs = document.querySelectorAll('#form-cash-counter .cash-qty-input');
-    
+
     inputs.forEach(input => {
       const denom = parseInt(input.getAttribute('data-denom'), 10);
-      const qty = parseInt(input.value, 10) || 0;
+      const qty = this.readCashQty(input);
       const subtotal = denom * qty;
       total += subtotal;
-      
+
       const label = document.getElementById(`denom-total-${denom}`);
       if (label) {
         label.innerText = `฿${subtotal.toLocaleString('th-TH')}`;
       }
     });
-    
+
     const totalEl = document.getElementById('cash-counter-total');
     if (totalEl) {
       totalEl.innerText = `฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
@@ -3623,7 +3686,7 @@ class PosApp {
       
       inputs.forEach(input => {
         const denom = parseInt(input.getAttribute('data-denom'), 10);
-        const qty = parseInt(input.value, 10) || 0;
+        const qty = this.readCashQty(input); // clamp ชุดเดียวกับตอนแสดงผล — ยอดที่เห็นกับที่บันทึกตรงกันเสมอ
         total += denom * qty;
         details[denom] = qty;
       });
@@ -4420,15 +4483,16 @@ class PosApp {
     if (shiftTableBody) {
       let filteredShifts = [];
       if (this.state.shift.history && Array.isArray(this.state.shift.history)) {
+        // ยึด "วันทำการที่เปิดกะ" ให้ตรงกับ getClosedShiftsForPeriod ที่ส่งขึ้นชีต
+        // (เดิมยึดเวลาปิด → คืนที่ปิดช้าเลย 06:00 แถวกะบนหน้ารายงานกับบนชีตจะคนละวันกัน)
         if (type === 'daily') {
-          // ใช้วันทำการ — กะที่ปิดตี 3 โผล่ใต้วันที่เปิดกะ (คืนเดียวกัน)
           filteredShifts = this.state.shift.history.filter(sh => {
-            const shDateStr = this.getBusinessISODate(sh.endTime || sh.startTime);
+            const shDateStr = this.getBusinessISODate(sh.startTime || sh.endTime);
             return shDateStr === dateVal;
           });
         } else {
           filteredShifts = this.state.shift.history.filter(sh => {
-            const shMonthStr = this.getBusinessISOMonth(sh.endTime || sh.startTime);
+            const shMonthStr = this.getBusinessISOMonth(sh.startTime || sh.endTime);
             return shMonthStr === monthVal;
           });
         }
@@ -4568,53 +4632,151 @@ class PosApp {
     }
   }
 
+  // ── บิลใบนี้ออกก่อนระบบ VAT/ปัดเศษ (v1.5) หรือเปล่า ──────────────────────
+  // บิลรุ่นใหม่จะมีฟิลด์พวกนี้เสมอ แม้ปิดสวิตช์ VAT ไว้ (ค่าเป็น 0)
+  // ต้องแยกให้ออก เพราะบิลรุ่นเก่าไม่เคยถูก "ปัดขึ้นเต็มบาท" ถ้าเผลอเอากฎใหม่ไปคิดตอนแก้ไข
+  // ยอดของบิลเก่าจะขยับเองเงียบ ๆ (เช่น 287.50 → 288.00) ทั้งที่ลูกค้าจ่ายไปแล้ว
+  isLegacyBill(tx) {
+    return tx.vatRate == null && tx.vatAmount == null &&
+           tx.rounding == null && tx.nonVatBase == null && tx.vatableBase == null;
+  }
+
+  // ปัดชุดตัวเลขเป็นทศนิยม 2 ตำแหน่ง แล้วเกลี่ยเศษให้ผลรวมเท่ากับ target เป๊ะ
+  // (หลักการเดียวกับ distributeDiscount — ยัดเศษที่เหลือลงรายการที่ใหญ่ที่สุด)
+  roundToTotal(values, target) {
+    const r2 = v => Math.round((Number(v) || 0) * 100) / 100;
+    const out = (values || []).map(r2);
+    if (out.length === 0) return out;
+    const goal = r2(target);
+    const sum = r2(out.reduce((s, n) => s + n, 0));
+    const diff = r2(goal - sum);
+    if (diff !== 0) {
+      let idx = 0;
+      for (let i = 1; i < out.length; i++) if (out[i] > out[idx]) idx = i;
+      out[idx] = r2(Math.max(0, out[idx] + diff));
+    }
+    return out;
+  }
+
+  // ── สร้าง "ร่าง" รายการในบิล สำหรับหน้าต่างแก้ไขเท่านั้น ────────────────────
+  // ⚠️ ต้องคืนสำเนาใหม่เสมอ ห้ามคืนอ็อบเจกต์ตัวเดียวกับในบิลจริง
+  // เดิมฟังก์ชันนี้เขียนผลลัพธ์ลง tx.details ทันทีที่เปิดหน้าต่าง แปลว่าแค่ "กดดู"
+  // บิลเก่าแล้วกดยกเลิก บิลใบนั้นก็ถูกแก้ไปแล้ว และจะถูกบันทึกลงเครื่องตอนเซฟครั้งถัดไป
+  //
+  // บิลเก่าไม่ได้เก็บราคาต่อรายการไว้ จึงต้องเดา — แต่ห้ามเดาแล้วทำให้ "ยอดรวมของบิล" เปลี่ยน
+  // เพราะตอนกดบันทึก ระบบจะคิด subtotal ใหม่จากผลรวมราคารายชิ้น ถ้าเดาด้วยราคาวันนี้
+  // บิลปีที่แล้วจะถูกเขียนทับด้วยราคาปัจจุบันทันที (ขึ้นราคา 20% = ยอดบิลเก่าขึ้นตาม)
+  // วิธีที่ใช้: เอาราคาปัจจุบันมาเป็นแค่ "สัดส่วน" แล้วย่อ/ขยายให้ผลรวมเท่ากับ subtotal เดิมเป๊ะ
+  // ถ้าเทียบชื่อบริการไม่เจอสักตัว (ถูกลบไปแล้ว) → หารเท่ากันทุกรายการ
+  buildEditableDetails(tx) {
+    if (Array.isArray(tx.details) && tx.details.length > 0) {
+      return tx.details.map(d => ({ ...d }));   // สำเนาตื้นพอ — ทุกฟิลด์เป็นค่าพื้นฐาน
+    }
+
+    const names = Array.isArray(tx.services) ? tx.services.slice() : [];
+    if (names.length === 0) return [];
+
+    const subtotal = (typeof tx.subtotal === 'number' && isFinite(tx.subtotal) && tx.subtotal >= 0)
+      ? tx.subtotal : 0;
+    const matched = names.map(n => this.state.services.find(s => s.name === n) || null);
+    const weights = matched.map(s => (s && Number(s.price) > 0) ? Number(s.price) : 0);
+    const wSum = weights.reduce((a, b) => a + b, 0);
+    const raw = names.map((n, i) => wSum > 0
+      ? (subtotal * weights[i] / wSum)
+      : (subtotal / names.length));
+    const prices = this.roundToTotal(raw, subtotal);
+
+    const fallbackStaffName = (tx.staffNames && tx.staffNames[0]) ? tx.staffNames[0] : 'ไม่ระบุ';
+    const matchedStaff = this.state.staff.find(st => st.name === fallbackStaffName);
+    const fallbackStaffId = matchedStaff ? matchedStaff.id : 'unknown';
+
+    // ราคาหลังหักส่วนลด — ต้องมีติดไปด้วย ไม่งั้นรายงานกับสรุปที่ส่งขึ้นชีตจะใช้ราคาเต็ม
+    // แล้วยอดขายกับค่าคอมจะโป่งเกินจริงในบิลที่มีส่วนลด
+    const nets = this.distributeDiscount(prices, subtotal, Math.min(Math.max(0, Number(tx.discount) || 0), subtotal));
+
+    return names.map((sName, i) => {
+      const svc = matched[i];
+      const commVal  = svc ? (Number(svc.commission) || 0) : 10;
+      const commType = svc ? (svc.commissionType || 'percent') : 'percent';
+      const netPrice = nets[i];
+      return {
+        name: sName,
+        price: prices[i],
+        netPrice: netPrice,
+        staffId: fallbackStaffId,
+        staffName: fallbackStaffName,
+        commission: commVal,
+        commissionType: commType,
+        commissionAmount: commType === 'fixed' ? commVal : Math.round(netPrice * commVal) / 100,
+        category: svc ? (svc.category || '') : '',
+        // บิลรุ่นเก่าออกก่อนมีระบบ VAT — ห้ามติ๊ก vatable ย้อนหลังเด็ดขาด
+        // ไม่งั้นแก้ชื่อลูกค้าในบิลปีที่แล้วแล้วระบบจะยัด VAT เข้าไป ทำให้ยอดที่ยื่นสรรพากรไม่ตรง
+        vatable: false
+      };
+    });
+  }
+
+  // ── คิดยอดของบิลที่กำลังแก้ไข ────────────────────────────────────────────
+  // ใช้ตัวเดียวกันทั้งตอนพรีวิวสด ๆ และตอนกดบันทึก ตัวเลขบนจอกับที่บันทึกจริงจึงตรงกันเสมอ
+  computeEditTotals(tx, details, rawDiscount) {
+    const list = Array.isArray(details) ? details : [];
+    const subtotal = Math.round(list.reduce((s, d) => s + (Number(d.price) || 0), 0) * 100) / 100;
+    const discount = Math.min(Math.max(0, Number(rawDiscount) || 0), subtotal); // clamp กันพิมพ์ติดลบ/เกินยอด
+    const nets = this.distributeDiscount(list.map(d => Number(d.price) || 0), subtotal, discount);
+
+    if (this.isLegacyBill(tx)) {
+      // บิลรุ่นเก่า: คิดแบบเดิมเป๊ะ ๆ (ยอด = รวม − ส่วนลด) ไม่ปัดขึ้นเต็มบาท ไม่มี VAT
+      const plain = Math.round(Math.max(0, subtotal - discount) * 100) / 100;
+      return {
+        subtotal, discount, nets, legacy: true,
+        totals: { vatRate: 0, nonVatBase: plain, vatableBase: 0, vatAmount: 0, rounding: 0, total: plain }
+      };
+    }
+
+    // บิลรุ่นใหม่: คิด VAT ด้วย "อัตราและธง vatable ที่ล็อกไว้ในบิลใบนี้" ไม่ใช่ค่าตั้งค่าปัจจุบัน
+    return {
+      subtotal, discount, nets, legacy: false,
+      totals: this.computeTotalsAtRate(
+        list.map((d, i) => ({ netPrice: nets[i], vatable: !!d.vatable })),
+        Number(tx.vatRate) || 0
+      )
+    };
+  }
+
   // เปิดโมเดลแก้ไขรายการขายย้อนหลัง
   openTransactionEdit(txId) {
     const tx = this.state.transactions.find(t => t.id === txId);
     if (!tx) return;
 
+    // สร้างร่างแยกจากบิลจริง — ตั้งแต่จุดนี้จนถึงกดบันทึก ห้ามแตะ tx เลย
+    const draftDetails = this.buildEditableDetails(tx);
+    this._editTxDraft = { txId: tx.id, details: draftDetails };
+
     document.getElementById('edit-tx-id').value = tx.id;
     document.getElementById('edit-tx-id-display').value = tx.id;
-    document.getElementById('edit-tx-customer').value = tx.customerName;
-    document.getElementById('edit-tx-payment').value = tx.paymentMethod;
-    document.getElementById('edit-tx-discount').value = tx.discount || 0;
-    document.getElementById('edit-tx-total').value = `฿${tx.total.toLocaleString('th-TH')}`;
-
-    // แปลงรายการบริการให้มีรายละเอียดหากเป็นบิลเก่าหรือบิลที่ต้องการจัดโครงสร้างใหม่
-    if (!tx.details || !Array.isArray(tx.details)) {
-      tx.details = tx.services.map(sName => {
-        const matchedService = this.state.services.find(s => s.name === sName);
-        const price = matchedService ? matchedService.price : (tx.subtotal / tx.services.length);
-        const commissionPercent = matchedService ? (matchedService.commission || 10) : 10;
-        const commType = matchedService ? (matchedService.commissionType || 'percent') : 'percent';
-        const commAmt = commType === 'fixed' ? commissionPercent : (price * commissionPercent) / 100;
-        
-        const fallbackStaffName = tx.staffNames && tx.staffNames[0] ? tx.staffNames[0] : 'ไม่ระบุ';
-        const matchedStaff = this.state.staff.find(st => st.name === fallbackStaffName);
-        const staffId = matchedStaff ? matchedStaff.id : 'unknown';
-
-        return {
-          name: sName,
-          price: price,
-          staffId: staffId,
-          staffName: fallbackStaffName,
-          commissionAmount: commAmt,
-          commission: commissionPercent,
-          commissionType: commType
-        };
-      });
-    }
+    document.getElementById('edit-tx-customer').value = tx.customerName || '';
+    document.getElementById('edit-tx-payment').value = tx.paymentMethod || 'cash';
+    document.getElementById('edit-tx-discount').value = Number(tx.discount) || 0;
+    document.getElementById('edit-tx-total').value = `฿${(Number(tx.total) || 0).toLocaleString('th-TH')}`;
 
     const servicesContainer = document.getElementById('edit-tx-services-list');
-    servicesContainer.innerHTML = tx.details.map((item, idx) => {
+    const money2 = v => (Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    servicesContainer.innerHTML = draftDetails.map((item, idx) => {
+      // พนักงานคนเดิมอาจถูกลบออกจากระบบไปแล้ว — ต้องมีตัวเลือก "คงไว้ตามเดิม" ให้เลือกอยู่
+      // ไม่งั้น dropdown จะเด้งไปเลือกพนักงานคนแรกให้เอง แล้วพอกดบันทึก ค่าคอมของบิลนี้
+      // จะย้ายไปเข้ากระเป๋าคนอื่นโดยไม่มีใครสั่ง
+      const staffExists = this.state.staff.some(st => st.id === item.staffId);
+      const keepOption = staffExists ? '' :
+        `<option value="__keep__" selected>${escapeHtml(item.staffName || 'ไม่ระบุ')} (ไม่อยู่ในระบบแล้ว)</option>`;
       return `
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px; border: 1px solid var(--border-color);">
           <div style="flex: 1; min-width: 0;">
             <div style="font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary);">${escapeHtml(item.name)}</div>
-            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">฿${item.price}</div>
+            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">฿${money2(item.price)}</div>
           </div>
           <div style="width: 150px;">
             <select class="form-input edit-tx-service-staff-select" data-index="${idx}" style="font-size: 0.85rem; padding: 4px 8px; height: 34px; background: var(--bg-surface-solid); border-radius: var(--border-radius-sm);">
+              ${keepOption}
               ${this.state.staff.map(st => `<option value="${st.id}" ${st.id === item.staffId ? 'selected' : ''}>${escapeHtml(st.name)}</option>`).join('')}
             </select>
           </div>
@@ -4625,101 +4787,127 @@ class PosApp {
     this.openModal('modal-edit-transaction');
   }
 
-  // คำนวณยอดรวมสุทธิระหว่างแก้ไขแบบเรียลไทม์
+  // คำนวณยอดรวมสุทธิระหว่างแก้ไขแบบเรียลไทม์ (อ่านจาก "ร่าง" ไม่ใช่บิลจริง)
   recalculateEditTxTotal() {
-    const txId = document.getElementById('edit-tx-id').value;
-    const tx = this.state.transactions.find(t => t.id === txId);
+    const draft = this._editTxDraft;
+    if (!draft) return;
+    const tx = this.state.transactions.find(t => t.id === draft.txId);
     if (!tx) return;
 
-    let subtotal = 0;
-    tx.details.forEach(item => {
-      subtotal += item.price;
-    });
-
-    const rawDiscount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
-    const discount = Math.min(Math.max(0, rawDiscount), subtotal); // clamp เหมือนตอนบันทึกจริง
-
-    // ต้องโชว์ยอดรวม VAT + ปัดเศษ ให้ตรงกับที่จะบันทึกจริง
+    // ต้องโชว์ยอดให้ตรงกับที่จะบันทึกจริง (รวม VAT + ปัดเศษ ถ้าบิลใบนี้มี)
     // ไม่งั้นเจ้าของร้านเห็น 380 ในหน้าต่างแก้ไข แต่กดบันทึกแล้วได้ 386
-    const nets = this.distributeDiscount(tx.details.map(d => d.price), subtotal, discount);
-    const preview = this.computeTotalsAtRate(
-      tx.details.map((d, i) => ({ netPrice: nets[i], vatable: !!d.vatable })),
-      Number(tx.vatRate) || 0
-    );
+    const rawDiscount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
+    const calc = this.computeEditTotals(tx, draft.details, rawDiscount);
 
-    document.getElementById('edit-tx-total').value = `฿${preview.total.toLocaleString('th-TH')}`;
+    document.getElementById('edit-tx-total').value = `฿${calc.totals.total.toLocaleString('th-TH')}`;
   }
 
   // บันทึกการแก้ไขธุรกรรมย้อนหลัง
+  // ⚠️ จุดเดียวในระบบที่ได้รับอนุญาตให้เขียนทับข้อมูลบิลที่ออกไปแล้ว
+  // ทุกอย่างก่อนหน้านี้ทำงานบน "ร่าง" (this._editTxDraft) เท่านั้น
   async saveTransactionEdit() {
     if (this.currentRole !== 'owner') {
       this.showToast('การแก้ไขบิลทำได้เฉพาะเจ้าของร้าน', 'warning');
       return;
     }
+    const draft = this._editTxDraft;
     const txId = document.getElementById('edit-tx-id').value;
+    // ร่างต้องตรงกับบิลที่เปิดอยู่ — กันกรณีหน้าต่างค้างจากบิลใบก่อน
+    if (!draft || draft.txId !== txId) {
+      this.showToast('หน้าต่างแก้ไขไม่ตรงกับบิลที่เลือก — ปิดแล้วเปิดใหม่อีกครั้ง', 'warning', 5000);
+      return;
+    }
     const tx = this.state.transactions.find(t => t.id === txId);
-    if (!tx) return;
+    if (!tx) {
+      this.showToast('ไม่พบบิลใบนี้แล้ว (อาจถูกยกเลิกไปก่อนหน้า)', 'warning');
+      this.closeModal('modal-edit-transaction');
+      return;
+    }
 
-    // 1. อัปเดตข้อมูลทั่วไป
-    tx.customerName = document.getElementById('edit-tx-customer').value.trim() || 'ลูกค้าทั่วไป';
-    tx.paymentMethod = document.getElementById('edit-tx-payment').value;
-
-    // 2. อัปเดตพนักงานในแต่ละบริการของบิล
-    const staffSelects = document.querySelectorAll('.edit-tx-service-staff-select');
-    staffSelects.forEach(select => {
+    // ── 1. อัปเดตพนักงานลง "ร่าง" ก่อน ──────────────────────────────────
+    document.querySelectorAll('.edit-tx-service-staff-select').forEach(select => {
       const idx = parseInt(select.getAttribute('data-index'), 10);
-      const staffId = select.value;
-      const staffMember = this.state.staff.find(st => st.id === staffId);
-      if (tx.details[idx] && staffMember) {
-        tx.details[idx].staffId = staffMember.id;
-        tx.details[idx].staffName = staffMember.name;
+      if (!draft.details[idx]) return;
+      if (select.value === '__keep__') return;   // พนักงานเดิมถูกลบไปแล้ว — คงชื่อเดิมไว้ ไม่โยนค่าคอมให้คนอื่น
+      const staffMember = this.state.staff.find(st => st.id === select.value);
+      if (staffMember) {
+        draft.details[idx].staffId = staffMember.id;
+        draft.details[idx].staffName = staffMember.name;
       }
     });
 
-    // อัปเดตรายชื่อพนักงานสำหรับหน้าประวัติทั่วไป
-    tx.staffNames = [...new Set(tx.details.map(d => d.staffName))];
-
-    // 3. คำนวณยอดเงินและส่วนลดใหม่
-    let subtotal = 0;
-    tx.details.forEach(item => {
-      subtotal += item.price;
-    });
+    // ── 2. คิดยอดใหม่จากร่าง (ตัวคำนวณเดียวกับที่ใช้พรีวิว) ────────────────
     const rawDiscount = parseFloat(document.getElementById('edit-tx-discount').value) || 0;
-    const discount = Math.min(Math.max(0, rawDiscount), subtotal); // clamp — กันพิมพ์ค่าติดลบ/เกินยอด
-    const total = Math.max(0, subtotal - discount);
+    const calc = this.computeEditTotals(tx, draft.details, rawDiscount);
 
     // คำนวณราคาหลังหักส่วนลด + ค่าคอมใหม่ต่อรายการ (สูตรเดียวกับตอนขาย รวมเกลี่ยเศษสตางค์)
-    const netPrices = this.distributeDiscount(tx.details.map(d => d.price), subtotal, discount);
-    tx.details.forEach((item, i) => {
-      item.netPrice = netPrices[i];
-      const commType = item.commissionType || 'percent';
-      const commVal = item.commission || 0;
-      item.commissionAmount = commType === 'fixed' ? commVal : Math.round(item.netPrice * commVal) / 100;
+    const finalDetails = draft.details.map((d, i) => {
+      const commType = d.commissionType || 'percent';
+      const commVal  = Number(d.commission) || 0;
+      const netPrice = calc.nets[i];
+      return {
+        ...d,
+        netPrice: netPrice,
+        // ค่าคอมคิดจาก netPrice ซึ่งเป็นยอด "ก่อน VAT" เสมอ
+        commissionAmount: commType === 'fixed' ? commVal : Math.round(netPrice * commVal) / 100
+      };
     });
 
-    // คิด VAT ใหม่ด้วย "อัตราและธง vatable ที่ล็อกไว้ในบิลใบนี้" ไม่ใช่ค่าตั้งค่าปัจจุบัน
-    // ถ้าไม่คิดใหม่ ยอด total จะกลับไปเป็นยอดก่อน VAT ทั้งที่ลูกค้าจ่ายรวม VAT ไปแล้ว
-    // → เงินในลิ้นชักไม่ตรงกับระบบ และ 4 ช่องในชีตจะบวกไม่เท่ารายได้รวม
-    const editVat = this.computeTotalsAtRate(
-      tx.details.map(d => ({ netPrice: d.netPrice, vatable: !!d.vatable })),
-      Number(tx.vatRate) || 0
-    );
+    // ── 3. เก็บค่าเดิมไว้ย้อนกลับ ถ้าเขียนลงเครื่องไม่สำเร็จ ────────────────
+    // การแก้บิลกระทบยอดขาย/ค่าคอม/ชีต ถ้า IndexedDB เขียนพลาดแล้วปล่อยค่าใหม่ค้างในหน่วยความจำ
+    // หน้าจอจะโชว์ยอดใหม่ทั้งที่ในเครื่องยังเป็นยอดเก่า — คนละชุดกันแบบไม่มีใครรู้
+    const rollback = this.cloneForRollback({
+      customerName: tx.customerName, paymentMethod: tx.paymentMethod,
+      details: tx.details, staffNames: tx.staffNames,
+      subtotal: tx.subtotal, discount: tx.discount,
+      nonVatBase: tx.nonVatBase, vatableBase: tx.vatableBase,
+      vatAmount: tx.vatAmount, rounding: tx.rounding, vatRate: tx.vatRate,
+      total: tx.total, rev: tx.rev, syncStatus: tx.syncStatus,
+      cloudOutbox: this.state.cloudOutbox || []
+    });
 
-    tx.subtotal = subtotal;
-    tx.discount = discount;
-    tx.nonVatBase  = editVat.nonVatBase;
-    tx.vatableBase = editVat.vatableBase;
-    tx.vatAmount   = editVat.vatAmount;
-    tx.rounding    = editVat.rounding;
-    tx.total = editVat.total;
-    tx.rev = (tx.rev || 0) + 1; // เวอร์ชันการแก้ไข — ให้รอบ sync ที่กำลังส่งข้อมูลเก่าอยู่รู้ว่าห้าม mark synced ทับ
-    tx.syncStatus = 'pending'; // ตั้งค่าเป็น pending เพื่อให้ระบบซิงก์ใหม่
+    try {
+      // ── 4. เขียนลงบิลจริง (ถึงบรรทัดนี้เท่านั้น) ────────────────────────
+      tx.customerName  = document.getElementById('edit-tx-customer').value.trim() || 'ลูกค้าทั่วไป';
+      tx.paymentMethod = document.getElementById('edit-tx-payment').value;
+      tx.details       = finalDetails;
+      tx.staffNames    = [...new Set(finalDetails.map(d => d.staffName))];
+      tx.subtotal      = calc.subtotal;
+      tx.discount      = calc.discount;
+      tx.total         = calc.totals.total;
+      if (!calc.legacy) {
+        // บิลรุ่นใหม่: อัปเดต 4 ช่อง VAT ให้บวกกันแล้วเท่ายอดรวมเสมอ
+        tx.nonVatBase  = calc.totals.nonVatBase;
+        tx.vatableBase = calc.totals.vatableBase;
+        tx.vatAmount   = calc.totals.vatAmount;
+        tx.rounding    = calc.totals.rounding;
+      }
+      // บิลรุ่นเก่า: ไม่เติมฟิลด์ VAT เข้าไป — ปล่อยให้ยังเป็นบิลรุ่นเก่าเหมือนเดิม
+      tx.rev = (tx.rev || 0) + 1; // เวอร์ชันการแก้ไข — ให้รอบ sync ที่กำลังส่งข้อมูลเก่าอยู่รู้ว่าห้าม mark synced ทับ
+      tx.syncStatus = 'pending';  // ตั้งค่าเป็น pending เพื่อให้ระบบซิงก์ใหม่
 
-    // รีเฟรชชีตสรุปวัน/เดือนของวันที่บิลนั้น (ผ่าน outbox — retry เองถ้าออฟไลน์) ให้ KPI บนชีตตรงกับบิลที่แก้
-    this.enqueueSummaryRefresh(tx.date);
+      // รีเฟรชชีตสรุปวัน/เดือนของวันที่บิลนั้น (ผ่าน outbox — retry เองถ้าออฟไลน์) ให้ KPI บนชีตตรงกับบิลที่แก้
+      this.enqueueSummaryRefresh(tx.date);
 
-    await this.saveState();
-    this.closeModal('modal-edit-transaction');
+      await this.saveStateOrThrow('การแก้ไขบิล');
+    } catch (saveErr) {
+      Object.assign(tx, {
+        customerName: rollback.customerName, paymentMethod: rollback.paymentMethod,
+        staffNames: rollback.staffNames, subtotal: rollback.subtotal, discount: rollback.discount,
+        total: rollback.total, rev: rollback.rev, syncStatus: rollback.syncStatus
+      });
+      // details/ฟิลด์ VAT อาจไม่เคยมีมาก่อน — ต้องลบทิ้ง ไม่ใช่ตั้งเป็น undefined ค้างไว้
+      if (rollback.details === undefined) delete tx.details; else tx.details = rollback.details;
+      ['nonVatBase', 'vatableBase', 'vatAmount', 'rounding', 'vatRate'].forEach(k => {
+        if (rollback[k] === undefined) delete tx[k]; else tx[k] = rollback[k];
+      });
+      this.state.cloudOutbox = rollback.cloudOutbox;
+      console.error('saveTransactionEdit failed:', saveErr);
+      this.showToast('บันทึกการแก้ไขไม่สำเร็จ — ระบบคืนค่าเดิมของบิลแล้ว: ' + (saveErr.message || saveErr), 'error', 7000);
+      return;
+    }
+
+    this.closeModal('modal-edit-transaction'); // เคลียร์ร่างให้ด้วยในตัว
     this.filterReports(); // โหลดตารางใหม่
     this.syncPendingTransactions(true); // ซิงก์ขึ้น Google Sheets อัตโนมัติ (เบื้องหลัง)
     this.flushCloudOutbox(); // ส่งสรุปที่คิวไว้ทันทีถ้าออนไลน์
@@ -4951,8 +5139,47 @@ class PosApp {
     return lvl === 'owner' ? 'เจ้าของร้าน' : (lvl === 'manager' ? 'ผู้จัดการ' : 'พนักงาน');
   }
 
+  // ── นาฬิกาจับเวลาไม่ใช้งาน (เฉพาะเจ้าของร้าน) ───────────────────────────
+  // ใช้ interval ตัวเดียวเช็คเป็นระยะ แทนการตั้ง timer ใหม่ทุกครั้งที่แตะจอ
+  // (แตะจอทีนึงตั้ง timer ใหม่ที = ตอนกดขายรัว ๆ จะสร้าง-ทิ้ง timer เป็นร้อยครั้งต่อนาที)
+  startIdleWatch() {
+    if (this._idleInterval) return;
+    const bump = () => this.markActivity();
+    // capture:true เพื่อให้จับได้แม้อีเวนต์ถูกหยุดกลางทาง · passive:true เพื่อไม่หน่วงการเลื่อนจอ
+    ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(ev =>
+      document.addEventListener(ev, bump, { passive: true, capture: true }));
+    // กลับมาที่แอปหลังสลับไปทำอย่างอื่น: ต้องเช็คทันที ไม่ใช่รอ interval รอบถัดไป
+    // (เบราว์เซอร์หน่วง timer ของแท็บที่ไม่ได้อยู่หน้าจอ จะเช็คช้ากว่าที่ควร)
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.checkIdleTimeout();
+    });
+    this._idleInterval = setInterval(() => this.checkIdleTimeout(), IDLE_CHECK_INTERVAL_MS);
+  }
+
+  markActivity() {
+    this._lastActivityTs = Date.now();
+    if (!this.currentRole) return;
+    // ต่ออายุเซสชันที่เก็บไว้ด้วย ไม่งั้นเจ้าของทำงานยาว ๆ แล้วแอปรีเฟรช (SW อัปเดต)
+    // จะเด้งหน้าล็อกอินทั้งที่เพิ่งแตะจอไปเมื่อกี้
+    if (Date.now() - this._lastSessionSaveTs > 30000) {
+      this._lastSessionSaveTs = Date.now();
+      this.saveSession();
+    }
+  }
+
+  checkIdleTimeout() {
+    if (this.currentRole !== 'owner') return;   // พนักงาน/ผู้จัดการใช้ TTL 20 ชม. ตามเดิม
+    if (Date.now() - this._lastActivityTs < OWNER_IDLE_TIMEOUT_MS) return;
+    const who = this.currentUser ? this.currentUser.id : null;
+    this.logout(
+      `ไม่มีการใช้งานเกิน ${OWNER_IDLE_TIMEOUT_MINUTES} นาที — ออกจากระบบเจ้าของร้านอัตโนมัติ กรุณาใส่ PIN ใหม่`,
+      who
+    );
+  }
+
   // แสดงหน้าเข้าสู่ระบบ (ล็อกเอาต์สถานะปัจจุบัน)
-  requireLogin() {
+  // preselectUid: เลือกผู้ใช้คนเดิมไว้ให้เลย — คนที่เพิ่งโดนเตะออกจะได้แค่พิมพ์ PIN ต่อ ไม่ต้องเลือกใหม่
+  requireLogin(preselectUid) {
     this.currentRole = null;
     this.currentUser = null;
     this.loginSelectedId = null;
@@ -4961,6 +5188,7 @@ class PosApp {
     const pinEl = document.getElementById('login-pin-input');
     if (pinEl) pinEl.value = '';
     this.openModal('modal-login');
+    if (preselectUid) this.selectLoginUser(preselectUid);
   }
 
   // สร้างรายชื่อผู้ใช้ให้เลือก (เจ้าของร้าน + พนักงานที่ตั้ง PIN ไว้)
@@ -5043,6 +5271,9 @@ class PosApp {
     this._loginFails = 0;
     this._loginLockUntil = 0;
     try { localStorage.removeItem('epos_login_guard'); } catch (e) {}
+    // เริ่มนับเวลาไม่ใช้งานใหม่ตั้งแต่วินาทีที่ล็อกอินสำเร็จ
+    this._lastActivityTs = Date.now();
+    this._lastSessionSaveTs = Date.now();
     this.loginSelectedId = null;
     const pinEl = document.getElementById('login-pin-input');
     if (pinEl) pinEl.value = '';
@@ -5067,7 +5298,12 @@ class PosApp {
       const rec = await db.state.get('session');
       const sess = rec ? rec.value : null;
       if (!sess || !sess.ts) return false;
-      if (Date.now() - sess.ts > SESSION_TTL_HOURS * 3600 * 1000) { await db.state.delete('session'); return false; }
+      // อายุเซสชันขึ้นกับสิทธิ์: เจ้าของร้าน 5 นาทีนับจากแตะจอครั้งสุดท้าย (markActivity ต่ออายุ ts ให้)
+      // ที่เหลือ 20 ชม. ตามเดิม — ไม่งั้นพนักงานจะโดนถาม PIN ทุกครั้งที่แอปอัปเดตกลางกะ
+      const ttlMs = (sess.role === 'owner')
+        ? OWNER_IDLE_TIMEOUT_MS
+        : SESSION_TTL_HOURS * 3600 * 1000;
+      if (Date.now() - sess.ts > ttlMs) { await db.state.delete('session'); return false; }
       if (sess.uid === '__owner__') {
         this.currentUser = { id: '__owner__', name: 'เจ้าของร้าน' };
         this.currentRole = 'owner';
@@ -5077,6 +5313,9 @@ class PosApp {
         this.currentUser = { id: st.id, name: st.name };
         this.currentRole = st.accessLevel || 'staff';
       }
+      // กู้เซสชันสำเร็จ = ถือว่าเพิ่งมีการใช้งาน เริ่มนับเวลาไม่ใช้งานใหม่
+      this._lastActivityTs = Date.now();
+      this._lastSessionSaveTs = Date.now();
       this.updateUserRoleUI();
       return true;
     } catch (e) { console.warn('restore session failed', e); return false; }
@@ -5096,11 +5335,11 @@ class PosApp {
   }
 
   // ออกจากระบบ / สลับผู้ใช้
-  logout() {
+  logout(reason, preselectUid) {
     try { db.state.delete('session'); } catch (e) {}
-    this.requireLogin();
+    this.requireLogin(preselectUid);
     this.vibrateDevice(50);
-    this.showToast('ออกจากระบบแล้ว กรุณาเข้าสู่ระบบใหม่', 'info');
+    this.showToast(reason || 'ออกจากระบบแล้ว กรุณาเข้าสู่ระบบใหม่', reason ? 'warning' : 'info', reason ? 8000 : 3000);
   }
 
   lockOwnerAccess() {
@@ -5158,40 +5397,114 @@ class PosApp {
     if (closeStoreBtn) closeStoreBtn.style.display = (role === 'owner' || role === 'manager') ? 'flex' : 'none';
   }
 
-  // ส่งออกข้อมูลเป็น JSON
+  // ส่งออกข้อมูลเป็นไฟล์ JSON — คืน true เมื่อสั่งดาวน์โหลดได้สำเร็จ
+  //
+  // ⚠️ เดิมยัดข้อมูลทั้งก้อนลงใน "ลิงก์" อันเดียว (data: URL) ซึ่งเบราว์เซอร์จำกัดความยาวไว้ราว 2 MB
+  // พอบิลสะสมเกินนั้น (ประมาณ 1 ปี) ปุ่มจะกดแล้วเงียบ ไม่มีไฟล์ ไม่มี error ให้เห็น
+  // ที่อันตรายกว่าคือหน้ากู้ข้อมูลเรียกฟังก์ชันนี้เป็น "สำเนาก่อนกู้" — เงียบ = ไม่มีอะไรให้ย้อนกลับ
+  // Blob ไม่มีเพดานแบบนั้น และถ้าสร้างไม่สำเร็จจะโยน error ออกมาให้จับได้จริง
   exportData() {
-    const data = {
-      backupSchemaVersion: BACKUP_SCHEMA_VERSION,
-      createdAt: new Date().toISOString(),
-      appVersion: APP_VERSION,
-      services: this.state.services,
-      categories: this.state.categories,
-      staff: this.state.staff,
-      customers: this.state.customers,
-      queue: this.state.queue,
-      transactions: this.state.transactions,
-      voidLog: this.state.voidLog || [], // ประวัติการยกเลิกบิล — audit trail ต้องติดไปกับไฟล์สำรองด้วย
-      shift: this.state.shift,
-      shopPromptPayId: this.shopPromptPayId || '',
-      shopName: this.shopName || 'Erotica Barber & Massage',
-      shopTagline: this.shopTagline || 'BARBER & MASSAGE',
-      shopAddress: this.shopAddress || '',
-      shopPhone: this.shopPhone || '',
-      shopLogo: this.shopLogo || '',
-      theme: this.theme || 'dark',
-      vatEnabled: !!this.vatEnabled,
-      vatRate: Number(this.vatRate) || 0,
-      googleSheetsUrl: this.googleSheetsUrl || '',
-      telegramChatId: this.telegramChatId || ''
-      // หมายเหตุ: ownerPin, telegramToken และ googleSheetsApiToken ถูกตัดออกเพื่อความปลอดภัย
-      // เครื่องที่กู้คืนต้องตั้งรหัสเชื่อมต่อ Apps Script ใหม่เอง
-    };
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
-    const dlAnchorElem = document.createElement('a');
-    dlAnchorElem.setAttribute("href", dataStr);
-    dlAnchorElem.setAttribute("download", `erotica_pos_backup_${this.getLocalISODate(new Date())}.json`);
-    dlAnchorElem.click();
-    this.vibrateDevice(50);
+    try {
+      const data = this.buildBackupPayload();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `erotica_pos_backup_${this.getLocalISODate(new Date())}.json`;
+      a.style.display = 'none';
+      document.body.appendChild(a); // Safari/Firefox ต้องให้ปุ่มอยู่ในหน้าจริงก่อนถึงจะกดได้
+      a.click();
+      // อย่าเพิ่งคืนหน่วยความจำทันที — บาง Safari ยังอ่านไฟล์ไม่เสร็จแล้วดาวน์โหลดจะพัง
+      setTimeout(() => {
+        try { a.remove(); URL.revokeObjectURL(url); } catch (e) { /* ปล่อยได้ */ }
+      }, 60000);
+      this.vibrateDevice(50);
+      return true;
+    } catch (err) {
+      console.error('export failed', err);
+      this.showToast('ส่งออกไฟล์สำรองไม่สำเร็จ: ' + (err.message || err), 'error', 7000);
+      return false;
+    }
+  }
+
+  // ── สำเนา "ก่อนกู้ข้อมูล" ที่เก็บไว้ในเครื่อง ──────────────────────────────
+  // ทำไมไม่พึ่งไฟล์ดาวน์โหลดอย่างเดียว: บน iPad ที่ติดตั้งเป็นแอป การดาวน์โหลดอาจถูกบล็อกเงียบ ๆ
+  // และเราไม่มีทางรู้ว่าไฟล์ลงเครื่องจริงหรือเปล่า ถ้าเลือกไฟล์กู้ผิดใบ = ยอดของวันนี้หายโดยไม่มีทางกลับ
+  // สำเนานี้เขียนลงฐานข้อมูลของแอปโดยตรง จึงยืนยันผลได้ (สำเร็จ = สำเร็จจริง)
+  async savePreRestoreSnapshot() {
+    const snap = { savedAt: Date.now(), appVersion: APP_VERSION, data: this.buildBackupPayload() };
+    await db.state.put({ key: 'preRestoreSnapshot', value: snap });
+    return snap;
+  }
+
+  // อ่านสำเนาก่อนกู้ (ถ้ามี) — คืน null เมื่อไม่มีหรือเสียหาย
+  async readPreRestoreSnapshot() {
+    try {
+      const rec = await db.state.get('preRestoreSnapshot');
+      const snap = rec ? rec.value : null;
+      if (!snap || !snap.data || !this.isValidBackupObject(snap.data)) return null;
+      return snap;
+    } catch (e) {
+      console.warn('read pre-restore snapshot failed', e);
+      return null;
+    }
+  }
+
+  // แสดง/ซ่อนปุ่ม "ย้อนกลับไปก่อนกู้ข้อมูล" ตามว่ามีสำเนาอยู่จริงไหม
+  async refreshPreRestoreUI() {
+    const box = document.getElementById('pre-restore-box');
+    const label = document.getElementById('pre-restore-label');
+    if (!box) return;
+    const snap = await this.readPreRestoreSnapshot();
+    if (!snap) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    if (label) {
+      const when = new Date(snap.savedAt).toLocaleString('th-TH');
+      const bills = Array.isArray(snap.data.transactions) ? snap.data.transactions.length : 0;
+      label.innerText = `มีสำเนาก่อนกู้ข้อมูลเก็บไว้ในเครื่อง (บันทึกเมื่อ ${when} · บิล ${bills} รายการ)`;
+    }
+  }
+
+  // ย้อนกลับไปใช้สำเนาก่อนกู้ข้อมูล — ใช้เมื่อกู้ผิดไฟล์
+  // สลับไป-กลับได้: ก่อนย้อน จะเซฟสถานะปัจจุบันทับสำเนาเก่า กดอีกทีก็กลับมาที่เดิม
+  async undoLastRestore() {
+    if (this.loadFailed) {
+      this.showToast('โหลดข้อมูลไม่สำเร็จ — ปิดฟังก์ชันนี้ไว้เพื่อความปลอดภัย', 'error');
+      return;
+    }
+    if (this.currentRole !== 'owner') {
+      this.showToast('เฉพาะเจ้าของร้านเท่านั้นที่ย้อนข้อมูลได้', 'warning');
+      return;
+    }
+    const snap = await this.readPreRestoreSnapshot();
+    if (!snap) {
+      this.showToast('ไม่พบสำเนาก่อนกู้ข้อมูลในเครื่องนี้', 'info');
+      await this.refreshPreRestoreUI();
+      return;
+    }
+    const when = new Date(snap.savedAt).toLocaleString('th-TH');
+    const bills = Array.isArray(snap.data.transactions) ? snap.data.transactions.length : 0;
+    this.showConfirm(
+      `ย้อนกลับไปใช้สำเนาก่อนกู้ข้อมูล (บันทึกเมื่อ ${when} · บิล ${bills} รายการ) ใช่ไหม?\n\n` +
+      `ข้อมูลที่อยู่ในเครื่องตอนนี้ (บิล ${this.state.transactions.length} รายการ) จะถูกเขียนทับ\n` +
+      `แต่ระบบจะเก็บสำเนาของ "ตอนนี้" ไว้แทนที่ กดปุ่มนี้อีกครั้งก็กลับมาได้`,
+      async () => {
+        if (this.restoreBusy) return;
+        this.restoreBusy = true;
+        try {
+          // สลับที่กัน: เก็บสถานะปัจจุบันไว้ก่อน แล้วค่อยเอาสำเนาเก่ามาใช้
+          await this.savePreRestoreSnapshot();
+          await this.applyBackupData(snap.data);
+          await this.refreshPreRestoreUI();
+          this.showToast('ย้อนกลับไปเป็นข้อมูลก่อนกู้เรียบร้อยแล้ว', 'success', 6000);
+        } catch (err) {
+          console.error('undo restore failed', err);
+          this.showToast('ย้อนข้อมูลไม่สำเร็จ: ' + (err.message || err) + ' (ข้อมูลเดิมในเครื่องยังอยู่ครบ)', 'error', 7000);
+        } finally {
+          this.restoreBusy = false;
+        }
+      }
+    );
   }
 
   // นำเข้าข้อมูลจากไฟล์ JSON
@@ -5211,15 +5524,33 @@ class PosApp {
           this.showToast('รูปแบบไฟล์ข้อมูลสำรองไม่ถูกต้อง!', 'info');
           return;
         }
-        this.showConfirm('คุณแน่ใจหรือไม่ว่าต้องการนำเข้าข้อมูลและเขียนทับข้อมูลในเครื่องปัจจุบันทั้งหมด?', async () => {
-          try {
-            await this.applyBackupData(parsed);
-            this.showToast('นำเข้าข้อมูลและรีเฟรชหน้าจอสำเร็จ!', 'info');
-          } catch (e2) {
-            console.error('import failed', e2);
-            this.showToast('นำเข้าข้อมูลไม่สำเร็จ: ' + (e2.message || e2), 'error', 6000);
-          }
-        });
+        // ตรวจสุขภาพไฟล์ก่อนถาม — ถ้ามีบิลเสีย ต้องให้เจ้าของเห็นก่อนตัดสินใจ ไม่ใช่รู้ทีหลัง
+        const audit = this.auditBackupData(parsed);
+        const warn = this.describeBackupAudit(audit);
+        if (!audit.clean) console.warn('[Import] ผลตรวจไฟล์:', audit, audit.damagedIds);
+        this.showConfirm(
+          (warn ? warn + '\n\n──────────\n\n' : '') +
+          `นำเข้าข้อมูลจากไฟล์นี้และเขียนทับข้อมูลในเครื่องทั้งหมดใช่ไหม? (ไฟล์มีบิล ${audit.txTotal} ใบ)\n\n` +
+          `ตอนนี้ในเครื่องมีบิล ${this.state.transactions.length} รายการ\n` +
+          'ระบบจะเก็บสำเนาของ "ตอนนี้" ไว้ในเครื่องให้ก่อน (ย้อนกลับได้ที่ปุ่มในหน้าตั้งค่า)',
+          async () => {
+            try {
+              // เซฟสำเนาก่อนเสมอ — ถ้าเซฟไม่ได้ ห้ามเขียนทับ ไม่งั้นนำเข้าไฟล์ผิดแล้วไม่มีทางกลับ
+              await this.savePreRestoreSnapshot();
+            } catch (snapErr) {
+              console.error('pre-import snapshot failed', snapErr);
+              this.showToast('เก็บสำเนาก่อนนำเข้าไม่สำเร็จ — ยกเลิกการนำเข้าเพื่อความปลอดภัย', 'error', 7000);
+              return;
+            }
+            try {
+              await this.applyBackupData(parsed);
+              await this.refreshPreRestoreUI();
+              this.showToast('นำเข้าข้อมูลและรีเฟรชหน้าจอสำเร็จ!', 'info');
+            } catch (e2) {
+              console.error('import failed', e2);
+              this.showToast('นำเข้าข้อมูลไม่สำเร็จ: ' + (e2.message || e2), 'error', 6000);
+            }
+          });
       } catch (err) {
         this.showToast('เกิดข้อผิดพลาดในการอ่านไฟล์ JSON!', 'info');
         console.error(err);
@@ -5256,6 +5587,123 @@ class PosApp {
     return true;
   }
 
+  // ── แปลงเป็นตัวเลขที่ใช้งานได้จริง ─────────────────────────────────────
+  // คืน null เมื่อแปลงไม่ได้ — ตั้งใจไม่คืน 0 เพราะผู้เรียกต้องแยกให้ออกระหว่าง
+  // "ยอดศูนย์บาท" กับ "ยอดหายไป" สองอย่างนี้ความหมายต่างกันคนละเรื่อง
+  toFiniteNumber(v) {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = Number(v.trim());
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+
+  // ── ตรวจสุขภาพไฟล์สำรองแบบละเอียด (อ่านอย่างเดียว ไม่แก้อะไร) ──────────
+  // ด่าน isValidBackupObject ข้างบนดูแค่ "โครงร่างใช่ไหม" — ไฟล์ที่บิลยอดเงินหาย
+  // หรือวันที่พังจะผ่านเข้ามาได้สบาย แล้วไปโผล่เป็น NaN ในรายงานทีหลัง
+  // ซึ่งอันตรายมาก เพราะบิลเสียใบเดียวทำให้ยอด "ทั้งวัน" กลายเป็น NaN บังบิลดีทุกใบ
+  auditBackupData(parsed) {
+    const bad = { noId: [], badDate: [], badMoney: [], dupId: [] };
+    const txs = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+    const seen = new Set();
+
+    txs.forEach((tx, i) => {
+      const label = (tx && typeof tx.id === 'string' && tx.id) ? tx.id : `(ลำดับที่ ${i + 1})`;
+      if (!tx || typeof tx !== 'object') { bad.noId.push(label); return; }
+      if (typeof tx.id !== 'string' || !tx.id.trim()) bad.noId.push(label);
+      else if (seen.has(tx.id)) bad.dupId.push(tx.id);
+      else seen.add(tx.id);
+
+      if (!this.isValidDateKey(this.getBusinessISODate(tx.date))) bad.badDate.push(label);
+
+      // total คือตัวที่ใช้รวมยอดขายทุกที่ — พังตัวนี้ตัวเดียวคือยอดทั้งวันพัง
+      if (this.toFiniteNumber(tx.total) === null) bad.badMoney.push(label);
+    });
+
+    // ค่าใช้จ่าย: amount พังก็ทำให้กำไรทั้งวันกลายเป็น NaN เหมือนกัน
+    let badExpenses = 0;
+    const shift = (parsed.shift && typeof parsed.shift === 'object') ? parsed.shift : {};
+    const buckets = [shift.expenses].concat(Array.isArray(shift.history) ? shift.history.map(h => h && h.expenses) : []);
+    buckets.forEach(list => (Array.isArray(list) ? list : []).forEach(e => {
+      if (!e || typeof e !== 'object' || this.toFiniteNumber(e.amount) === null) badExpenses++;
+    }));
+
+    const damagedIds = [...new Set([...bad.noId, ...bad.badMoney, ...bad.badDate])];
+    return {
+      txTotal: txs.length,
+      noId: bad.noId.length,
+      dupId: bad.dupId.length,
+      badDate: bad.badDate.length,
+      badMoney: bad.badMoney.length,
+      badExpenses,
+      damagedIds,
+      clean: damagedIds.length === 0 && bad.dupId.length === 0 && badExpenses === 0
+    };
+  }
+
+  // สรุปผลตรวจเป็นข้อความที่คนอ่านรู้เรื่อง (ใช้ในกล่องยืนยันก่อนเขียนทับ)
+  describeBackupAudit(a) {
+    if (a.clean) return '';
+    const lines = [];
+    if (a.badMoney)    lines.push(`• ${a.badMoney} บิลที่ยอดเงินหายหรือไม่ใช่ตัวเลข → จะถูกนับเป็น 0 บาท`);
+    if (a.badDate)     lines.push(`• ${a.badDate} บิลที่วันที่ใช้ไม่ได้ → จะไม่โผล่ในรายงานวันหรือเดือนไหนเลย`);
+    if (a.noId)        lines.push(`• ${a.noId} บิลที่ไม่มีเลขที่บิล → แก้ไข/ยกเลิกทีหลังไม่ได้`);
+    if (a.dupId)       lines.push(`• ${a.dupId} บิลที่เลขที่ซ้ำกัน → บนชีตจะทับกันเหลือใบเดียว`);
+    if (a.badExpenses) lines.push(`• ${a.badExpenses} รายการค่าใช้จ่ายที่จำนวนเงินหาย → จะถูกนับเป็น 0 บาท`);
+    return `⚠️ ไฟล์นี้มีข้อมูลเสียบางส่วน (จากบิลทั้งหมด ${a.txTotal} ใบ)\n\n${lines.join('\n')}\n\n` +
+           `ระบบจะกู้ส่วนที่ดีให้ครบ ส่วนที่เสียจะไม่ทำให้ยอดทั้งวันพัง (แต่ยอดของใบนั้นจะไม่ตรง)\n` +
+           `เลขที่บิลที่มีปัญหาดูได้ใน Console ของเบราว์เซอร์`;
+  }
+
+  // ── ซ่อมตัวเลขในไฟล์สำรองเท่าที่ซ่อมได้อย่างปลอดภัย ────────────────────
+  // เป้าหมายเดียว: กัน NaN หลุดเข้าไปในการรวมยอด
+  // "400" (ข้อความ) → 400 ถือว่าซ่อมได้ปลอดภัย เพราะค่าเดิมยังอยู่ครบ
+  // ส่วนค่าที่พังจริง ๆ ตั้งเป็น 0 — เสียเฉพาะใบนั้น ดีกว่าปล่อยให้ยอดทั้งวันเป็น NaN
+  // แล้วบิลดีอีกร้อยใบหายไปจากรายงานพร้อมกัน (ผู้ใช้ได้รับคำเตือนก่อนแล้วจาก audit)
+  sanitizeBackupData(parsed) {
+    let fixed = 0;
+    const fix = (obj, key, { required = false } = {}) => {
+      if (!obj) return;
+      const cur = obj[key];
+      if (cur === undefined || cur === null) { if (required) { obj[key] = 0; fixed++; } return; }
+      const n = this.toFiniteNumber(cur);
+      if (n === null) { obj[key] = 0; fixed++; return; }
+      if (n !== cur) { obj[key] = n; fixed++; }        // เคยเป็นข้อความตัวเลข
+    };
+
+    (Array.isArray(parsed.transactions) ? parsed.transactions : []).forEach(tx => {
+      if (!tx || typeof tx !== 'object') return;
+      ['total', 'subtotal', 'discount'].forEach(k => fix(tx, k, { required: true }));
+      // ฟิลด์ VAT/เงินสด: มีเฉพาะบางบิล ห้ามเติมให้บิลที่ไม่เคยมี
+      // โดยเฉพาะ cashReceived/cashChange ที่ใบเสร็จเช็คด้วย != null (เติม 0 = บิลโอนจะโชว์ช่องเงินทอน)
+      ['nonVatBase', 'vatableBase', 'vatAmount', 'rounding', 'vatRate', 'cashReceived', 'cashChange']
+        .forEach(k => { if (tx[k] !== undefined && tx[k] !== null) fix(tx, k); });
+      (Array.isArray(tx.details) ? tx.details : []).forEach(d => {
+        if (!d || typeof d !== 'object') return;
+        ['price', 'netPrice', 'commission', 'commissionAmount']
+          .forEach(k => { if (d[k] !== undefined && d[k] !== null) fix(d, k); });
+      });
+    });
+
+    const shift = (parsed.shift && typeof parsed.shift === 'object') ? parsed.shift : null;
+    if (shift) {
+      const lists = [shift.expenses].concat(Array.isArray(shift.history) ? shift.history.map(h => h && h.expenses) : []);
+      lists.forEach(list => (Array.isArray(list) ? list : []).forEach(e => {
+        if (e && typeof e === 'object') fix(e, 'amount', { required: true });
+      }));
+      (Array.isArray(shift.history) ? shift.history : []).forEach(h => {
+        if (!h || typeof h !== 'object') return;
+        ['startCash', 'countedCash', 'expectedCash', 'cashSales', 'expensesTotal', 'difference']
+          .forEach(k => { if (h[k] !== undefined && h[k] !== null) fix(h, k); });
+      });
+      fix(shift, 'startCash', { required: true });
+    }
+
+    if (fixed > 0) console.warn(`[Import] ซ่อมตัวเลขที่ใช้งานไม่ได้ ${fixed} จุด`);
+    return fixed;
+  }
+
   // เขียนข้อมูลจากไฟล์สำรองลง state + IndexedDB
   // ใช้ร่วมกัน 2 ทาง: นำเข้าไฟล์ .json จากเครื่อง และกู้จาก Google Drive
   // ต้องเป็นโค้ดชุดเดียวกัน — ถ้าแยกกัน แก้ทางหนึ่งแล้วลืมอีกทางเมื่อไหร่ ข้อมูลจะเข้าไม่เหมือนกัน
@@ -5270,6 +5718,16 @@ class PosApp {
     if (!this.isValidBackupObject(parsed)) {
       throw new Error('ไฟล์สำรองมีโครงสร้างไม่ถูกต้องหรือมีข้อมูลมากผิดปกติ');
     }
+
+    // ⚠️ ด่านสุดท้ายก่อนข้อมูลนอกเข้าสู่ระบบ — ทุกเส้นทางการกู้ต้องผ่านตรงนี้
+    // (นำเข้าไฟล์ / กู้จาก Drive / ย้อนกลับสำเนา) กัน NaN หลุดเข้าไปในการรวมยอด
+    // ผู้เรียกได้เตือนผู้ใช้ด้วย auditBackupData ไปแล้วก่อนถึงจุดนี้
+    const audit = this.auditBackupData(parsed);
+    if (!audit.clean) {
+      console.warn('[Import] ผลตรวจไฟล์สำรอง:', audit);
+      if (audit.damagedIds.length) console.warn('[Import] บิลที่มีปัญหา:', audit.damagedIds);
+    }
+    this.sanitizeBackupData(parsed);
 
     // เปลี่ยนข้อมูลทั้งก้อน: หากเขียน IndexedDB ไม่สำเร็จ ต้องกลับสู่ข้อมูลเดิมในหน่วยความจำด้วย
     const rollback = {
@@ -5338,16 +5796,18 @@ class PosApp {
     this.renderEveryScreen();
     this.vibrateDevice(100);
 
-    // เตือนถ้าไฟล์มีบิลที่วันที่ใช้ไม่ได้ — บิลพวกนี้จะไม่โผล่ในรายงานเดือนไหนเลย
-    // เงียบไว้อันตรายกว่า เพราะยอดขายจะหายไปจากรายงานโดยไม่มีใครรู้ว่าหายไปไหน
-    const badDates = (this.state.transactions || [])
-      .filter(tx => !this.isValidDateKey(this.getBusinessISODate(tx.date)));
-    if (badDates.length > 0) {
-      console.warn('[Import] บิลที่วันที่ใช้ไม่ได้:', badDates.map(t => t.id));
+    // เตือนซ้ำอีกครั้งหลังกู้เสร็จ ว่ามีอะไรเสียบ้าง — คนกดยืนยันตอนแรกอาจอ่านผ่าน
+    if (!audit.clean) {
+      const parts = [];
+      if (audit.badMoney)    parts.push(`ยอดเงินหาย ${audit.badMoney} ใบ`);
+      if (audit.badDate)     parts.push(`วันที่ใช้ไม่ได้ ${audit.badDate} ใบ`);
+      if (audit.noId)        parts.push(`ไม่มีเลขที่บิล ${audit.noId} ใบ`);
+      if (audit.dupId)       parts.push(`เลขที่ซ้ำ ${audit.dupId} ใบ`);
+      if (audit.badExpenses) parts.push(`ค่าใช้จ่ายเสีย ${audit.badExpenses} รายการ`);
       this.showToast(
-        `เตือน: มีบิล ${badDates.length} ใบในไฟล์นี้ที่วันที่ใช้ไม่ได้ ` +
-        `บิลเหล่านี้จะไม่ถูกนับในรายงานรายวัน/รายเดือน — ตรวจสอบไฟล์สำรองอีกครั้ง`,
-        'warning', 9000);
+        `กู้ข้อมูลแล้ว แต่ไฟล์นี้มีส่วนที่เสีย: ${parts.join(' · ')} — ` +
+        `รายการที่เหลือกู้ครบ ดูเลขที่บิลที่มีปัญหาได้ใน Console`,
+        'warning', 10000);
     }
     } catch (err) {
       if (!persisted) {
@@ -5456,14 +5916,23 @@ class PosApp {
     this.showConfirm(
       `กู้ข้อมูลจากไฟล์สำรองของวันที่ ${label} ใช่ไหม?\n\n` +
       `ข้อมูลในเครื่องนี้จะถูกเขียนทับทั้งหมด (ตอนนี้มี ${cur})\n\n` +
-      `ระบบจะดาวน์โหลดสำเนาข้อมูลปัจจุบันเก็บไว้ในเครื่องให้ก่อนเสมอ`,
+      `ระบบจะเก็บสำเนาข้อมูลปัจจุบันไว้ในเครื่องให้ก่อนเสมอ — ถ้ากู้ผิดไฟล์ กดปุ่ม "ย้อนกลับไปก่อนกู้ข้อมูล" ในหน้าตั้งค่าได้ทันที`,
       async () => {
         // กันกดรัวจนกู้ซ้อนกัน 2 รอบ (รอบหลังจะทับผลของรอบแรกกลางคัน)
         if (this.restoreBusy) return;
         this.restoreBusy = true;
         try {
-          // 1) เซฟสำเนาของ "ตอนนี้" ไว้ก่อน — กันเลือกผิดไฟล์แล้วยอดของวันนี้หายตามไปด้วย
-          try { this.exportData(); } catch (e) { console.warn('safety export failed', e); }
+          // 1) เซฟสำเนาของ "ตอนนี้" ลงเครื่องก่อนเสมอ — นี่คือทางกลับทางเดียวถ้าเลือกไฟล์ผิด
+          //    ต้องทำก่อนดึงไฟล์ และต้องหยุดทั้งหมดถ้าเซฟไม่สำเร็จ
+          try {
+            await this.savePreRestoreSnapshot();
+          } catch (snapErr) {
+            console.error('pre-restore snapshot failed', snapErr);
+            this.showToast('เก็บสำเนาก่อนกู้ข้อมูลไม่สำเร็จ — ยกเลิกการกู้เพื่อความปลอดภัย', 'error', 8000);
+            return;
+          }
+          // เพิ่มอีกชั้น: พยายามโหลดเป็นไฟล์ .json ติดเครื่องไว้ด้วย (ล้มเหลวได้ ไม่หยุดงาน)
+          this.exportData();
 
           // 2) ดึงเนื้อไฟล์ — ก้อนใหญ่กว่างานปกติมาก ให้เวลา 60 วิ
           this.showToast('กำลังดึงไฟล์สำรองจาก Google Drive...', 'info');
@@ -5481,10 +5950,23 @@ class PosApp {
             throw new Error('ไฟล์สำรองไม่ครบ (ไม่พบรายการบริการ/พนักงาน/บิล) — ลองเลือกไฟล์อื่น');
           }
 
-          // 3) เขียนลงเครื่อง (ใช้เส้นทางเดียวกับการนำเข้าไฟล์)
+          // 3) ตรวจสุขภาพไฟล์ — ตรวจได้หลังดาวน์โหลดเท่านั้น (ตอนกดเลือกยังไม่เห็นเนื้อไฟล์)
+          //    ถ้าเสีย ต้องถามซ้ำอีกรอบ ไม่ใช่กู้ทับไปเลยแล้วค่อยบอกทีหลัง
+          const audit = this.auditBackupData(parsed);
+          if (!audit.clean) {
+            console.warn('[Restore] ผลตรวจไฟล์:', audit, audit.damagedIds);
+            const goOn = await this.askConfirm(
+              this.describeBackupAudit(audit) + '\n\n──────────\n\nยังต้องการกู้จากไฟล์นี้ต่อไหม?\n' +
+              '(ถ้าไม่แน่ใจ กดยกเลิกแล้วลองเลือกไฟล์วันอื่นดูก่อน — ข้อมูลในเครื่องยังไม่ถูกแตะ)'
+            );
+            if (!goOn) { this.showToast('ยกเลิกการกู้ข้อมูลแล้ว — ข้อมูลในเครื่องยังอยู่ครบ', 'info', 5000); return; }
+          }
+
+          // 4) เขียนลงเครื่อง (ใช้เส้นทางเดียวกับการนำเข้าไฟล์)
           await this.applyBackupData(parsed);
+          await this.refreshPreRestoreUI();
           this.closeModal('modal-restore');
-          this.showToast(`กู้ข้อมูลจากไฟล์วันที่ ${label} สำเร็จแล้ว`, 'success', 6000);
+          this.showToast(`กู้ข้อมูลจากไฟล์วันที่ ${label} สำเร็จแล้ว — ถ้าผิดไฟล์ ย้อนกลับได้ที่หน้าตั้งค่า`, 'success', 8000);
         } catch (err) {
           console.error('restore failed', err);
           // ข้อมูลเดิมยังอยู่ครบ — applyBackupData ยังไม่ถูกเรียกถ้าพังก่อนถึงขั้นนั้น
@@ -5556,11 +6038,9 @@ class PosApp {
     }
   }
 
-  // ส่งรายงานปิดกะทันที (คงไว้เพื่อความเข้ากันได้ — best-effort ครั้งเดียว)
-  sendTelegramReport(shiftLog) {
-    if (!this.telegramToken || !this.telegramChatId) { console.log('Telegram notifications not configured.'); return; }
-    this.postTelegram(this.buildShiftReportMessage(shiftLog));
-  }
+  // หมายเหตุ: sendTelegramReport() ถูกลบออกในเวอร์ชัน 1.5.2 — ไม่มีที่ไหนเรียกแล้ว
+  // การแจ้งเตือนปิดกะเดินผ่าน cloudOutbox (enqueueShiftCloseCloudOps → flushCloudOutbox) ซึ่ง retry ได้จริง
+  // ต่างจากตัวเก่าที่ยิงครั้งเดียว เน็ตสะดุดแล้วรายงานหายเลย
 
   // เก็บงานคลาวด์ตอนปิดกะลง outbox (persist) — สรุปวัน/เดือน + Telegram
   // เพื่อ "การันตีส่ง" แม้ปิดกะตอนออฟไลน์ แล้ว retry เองเมื่อเน็ตกลับ
@@ -5702,10 +6182,8 @@ class PosApp {
       `━━━━━━━━━━━━━━━━`;
   }
 
-  // แจ้งเตือนการยกเลิกบิลผ่าน Telegram (best-effort ครั้งเดียว — คงไว้เพื่อความเข้ากันได้)
-  sendVoidAlert(v) {
-    this.sendTelegramText(this.buildVoidAlertMessage(v));
-  }
+  // หมายเหตุ: sendVoidAlert() ถูกลบออกในเวอร์ชัน 1.5.2 — ไม่มีที่ไหนเรียกแล้ว
+  // การแจ้งเตือน void เดินผ่าน cloudOutbox (enqueueVoidCloudOps) เช่นเดียวกับรายงานปิดกะ
 
   // ส่งคำขอลบแถวบิลใน Sheets แล้วคืน true/false — idempotent: "ไม่พบแถว" = ถือว่าลบแล้ว
   async postVoidDelete(v) {

@@ -15,12 +15,21 @@
 
   <!-- iOS PWA (เพิ่มไปยังหน้าจอโฮมบน iPhone/iPad ให้ไอคอนแสดงถูกต้อง) -->
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <!-- ไม่มีบรรทัดนี้ เบราว์เซอร์จะยิงขอ /favicon.ico ทุกครั้งที่เปิดแอปแล้วได้ 404 กลับมาเปล่า ๆ -->
+  <link rel="icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Erotica POS">
 
   <!-- Icon & Font Libraries -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- ⚠️ Font Awesome เก็บไว้ในโปรเจกต์เอง ห้ามเปลี่ยนกลับไปโหลดจาก cdnjs
+       เหตุผล: เครื่องขายหน้าร้านเคยดึงไฟล์นี้จากเว็บภายนอกทุกครั้งที่เปิดแอป
+       ถ้าเว็บนั้นถูกแฮก ไฟล์ที่ส่งมาเปลี่ยนได้โดยเราไม่รู้ตัว และเน็ตร้านล่มเมื่อไหร่
+       ไอคอนทั้งแอปกลายเป็นสี่เหลี่ยม — ดูรายละเอียดที่ vendor/fontawesome/README.md -->
+  <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+  <!-- ฟอนต์ Sarabun (ไทย) + Outfit — ย้ายมาจาก @import ของ Google ที่เคยอยู่บรรทัดแรกของ style_v2.css
+       ต้องมาก่อน style_v2.css เพราะ @font-face ต้องถูกประกาศก่อนถูกใช้งาน -->
+  <link rel="stylesheet" href="vendor/fonts/app-fonts.css">
   <link rel="stylesheet" href="style_v2.css">
 </head>
 <body>
@@ -690,6 +699,20 @@
             <p style="color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 1rem;">
               ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ — ปุ่ม "กู้ข้อมูล" ใช้ดึงไฟล์เหล่านั้นกลับมาได้เลย ไม่ต้องเข้า Drive เอง
             </p>
+
+            <!-- สำเนาก่อนกู้ข้อมูล — โผล่เฉพาะเมื่อมีสำเนาเก็บอยู่จริง (app.refreshPreRestoreUI) -->
+            <div id="pre-restore-box" style="display: none; background: rgba(66,133,244,0.06); border: 1px solid rgba(66,133,244,0.28); border-radius: var(--border-radius-sm); padding: 12px 14px; margin-bottom: 1rem;">
+              <p id="pre-restore-label" style="font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 8px;">
+                มีสำเนาก่อนกู้ข้อมูลเก็บไว้ในเครื่อง
+              </p>
+              <button class="btn-small secondary" onclick="app.undoLastRestore()" style="padding: 9px 14px; border-color: #4285F4; color: #4285F4;">
+                <i class="fa-solid fa-rotate-left"></i> ย้อนกลับไปก่อนกู้ข้อมูล
+              </button>
+              <p style="color: var(--text-muted); font-size: 0.74rem; margin: 8px 0 0;">
+                ใช้เมื่อกู้ข้อมูล/นำเข้าไฟล์ผิดใบ — กดแล้วสลับไป-กลับได้ ระบบจะเก็บสำเนาของตอนนี้ไว้แทนที่ให้อัตโนมัติ
+              </p>
+            </div>
+
             <hr style="border: 0; border-top: 1px solid var(--border-color); margin-bottom: 1rem;">
             <button class="btn-danger-outline" id="btn-reset-data">
               <i class="fa-solid fa-trash-arrow-up"></i> ล้างข้อมูลในระบบและคืนค่าเริ่มต้นทั้งหมด
@@ -937,47 +960,47 @@
           <!-- Denomination Row Template -->
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: var(--accent-barber);"></i> 1,000 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="1000" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="1000" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-1000" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: var(--accent-premium);"></i> 500 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="500" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="500" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-500" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: var(--color-success);"></i> 100 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="100" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="100" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-100" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: #3b82f6;"></i> 50 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="50" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="50" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-50" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: #a855f7;"></i> 20 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="20" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="20" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-20" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: var(--accent-barber);"></i> 10 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="10" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="10" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-10" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: #e2e8f0;"></i> 5 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="5" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="5" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-5" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: #cbd5e1;"></i> 2 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="2" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="2" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-2" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: #94a3b8;"></i> 1 บาท</span>
-            <input type="number" class="form-input cash-qty-input" data-denom="1" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="1" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()">
             <span class="denom-total" id="denom-total-1" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
         </div>

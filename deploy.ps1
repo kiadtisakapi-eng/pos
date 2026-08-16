@@ -104,7 +104,10 @@ $safeNewPaths = @(
     '.nojekyll', '.gitattributes', '.gitignore',
     'index.html', 'app.js', 'style_v2.css', 'sw.js', 'manifest.json',
     'promptpay-qr.js', 'dexie.min.js', 'google_apps_script.js', 'README.md',
-    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests'
+    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests',
+    # Font Awesome ที่ย้ายมาเก็บเอง — ถ้าลืมบรรทัดนี้ ไฟล์จะไม่ถูก push
+    # แล้วไอคอนทั้งแอปบนเว็บจริงจะหายหมดทันทีโดยสคริปต์ไม่เตือนอะไรเลย
+    'vendor'
 )
 git add -- $safeNewPaths
 if ($LASTEXITCODE -ne 0) { Fail "git add project files failed" }

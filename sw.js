@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v52-vat';
+const CACHE_NAME = 'jahn-pos-v55-responsive';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
@@ -7,8 +7,30 @@ const CORE_ASSETS = [
   './app.js',
   './dexie.min.js',
   './promptpay-qr.js',
-  './manifest.json'
+  './manifest.json',
+  // Font Awesome เก็บในโปรเจกต์แล้ว (เดิมโหลดจาก cdnjs ทุกครั้ง)
+  // ต้องอยู่ใน CORE ไม่ใช่ OPTIONAL — ถ้าแคชไม่ติด ออฟไลน์แล้วไอคอนทั้งแอปหายเกลี้ยง
+  './vendor/fontawesome/css/all.min.css',
+  // เฉพาะ .woff2 3 ไฟล์ที่ใช้จริง — เบราว์เซอร์เลือก woff2 ก่อน .ttf เสมอ
+  // (.ttf เก็บไว้ในโปรเจกต์ให้ครบชุด แต่ไม่เคยถูกเรียก จึงไม่ต้องแคช)
+  './vendor/fontawesome/webfonts/fa-solid-900.woff2',
+  './vendor/fontawesome/webfonts/fa-regular-400.woff2',
+  './vendor/fontawesome/webfonts/fa-brands-400.woff2',
+  // ตัวประกาศฟอนต์ต้องอยู่ CORE — ถ้าไฟล์นี้ไม่มี ตัวอักษรทั้งแอปตกไปใช้ฟอนต์ระบบ
+  './vendor/fonts/app-fonts.css'
 ];
+// ไฟล์ฟอนต์ตัวอักษร — แคชแบบ best-effort ทีละไฟล์
+// ตั้งใจไม่ใส่ใน CORE: ถ้าน้ำหนักใดน้ำหนักหนึ่งโหลดไม่ติด การติดตั้ง SW จะล้มทั้งยวง
+// แล้วแอปจะอัปเดตไม่ได้เลย ซึ่งแย่กว่าตัวหนังสือบางจุดหนาไม่ตรงแบบตอนออฟไลน์มาก
+const FONT_ASSETS = [
+  'sarabun-thai-300-normal', 'sarabun-thai-400-normal', 'sarabun-thai-500-normal',
+  'sarabun-thai-600-normal', 'sarabun-thai-700-normal', 'sarabun-thai-800-normal',
+  'sarabun-latin-300-normal', 'sarabun-latin-400-normal', 'sarabun-latin-500-normal',
+  'sarabun-latin-600-normal', 'sarabun-latin-700-normal', 'sarabun-latin-800-normal',
+  'outfit-latin-300-normal', 'outfit-latin-400-normal', 'outfit-latin-500-normal',
+  'outfit-latin-600-normal', 'outfit-latin-700-normal', 'outfit-latin-800-normal',
+  'outfit-latin-900-normal'
+].map((n) => './vendor/fonts/' + n + '.woff2');
 // ไฟล์เสริม — แคชแบบ best-effort (ถ้าโหลดไม่ได้ก็ไม่ทำให้ติดตั้งล้มทั้งยวง)
 const OPTIONAL_ASSETS = [
   './apple-touch-icon.png'
@@ -29,7 +51,7 @@ self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       Promise.all(CORE_ASSETS.map((u) => fresh(cache, u))).then(() =>
-        Promise.allSettled(OPTIONAL_ASSETS.map((u) => fresh(cache, u)))
+        Promise.allSettled(OPTIONAL_ASSETS.concat(FONT_ASSETS).map((u) => fresh(cache, u)))
       )
     )
   );
@@ -75,7 +97,9 @@ self.addEventListener('fetch', (e) => {
         return cachedResponse;
       }
       return fetch(e.request).then((networkResponse) => {
-        // หากต้องการบันทึกการดาวน์โหลด CDN อื่นๆ เช่น Google Fonts หรือ fontawesome ลงแคชแบบ dynamic
+        // ⚠️ ตั้งแต่ v1.5.2 แอปไม่เรียกไฟล์จากเว็บนอกแล้ว (Font Awesome + ฟอนต์ย้ายมาไว้ใน vendor/)
+        // เงื่อนไขนี้จึงไม่ทำงานอีกแล้วในทางปฏิบัติ — เก็บไว้เป็นตาข่ายรองรับเผื่ออนาคตมีใครเพิ่ม CDN กลับเข้ามา
+        // ถ้าไม่มีแผนจะเพิ่ม ลบทิ้งได้เลย
         const isCdn = e.request.url.includes('fonts.googleapis.com') ||
                       e.request.url.includes('fonts.gstatic.com') ||
                       e.request.url.includes('cdnjs.cloudflare.com');

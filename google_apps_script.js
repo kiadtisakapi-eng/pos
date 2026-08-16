@@ -584,9 +584,64 @@ function normalizeSummaryPayload_(data) {
 
   if (!Array.isArray(data.shiftCash)) data.shiftCash = [];
   if (!Array.isArray(data.vatCategories)) data.vatCategories = [];
-  if (!Array.isArray(data.services)) data.services = [];
   if (!Array.isArray(data.expenses)) data.expenses = [];
+
+  // ── สองบล็อกนี้เดิมไม่ถูกตรวจเลย ทั้งที่บล็อกอื่นตรวจครบ ──────────────
+  // staffCommissions: ถ้าไม่ใช่ array จะไปพังตอน writeSummarySheet เรียก .sort()
+  //   แล้วทั้งงานล้มพร้อมข้อความ error ของ JavaScript ที่คนหน้าร้านอ่านไม่รู้เรื่อง
+  //   ทั้งที่สรุปส่วนอื่นเขียนได้ปกติ — ตรวจตรงนี้แล้วบอกเป็นภาษาคนดีกว่า
+  // services: เดิมใช้ Number(x) || 0 ตอนเขียน แปลว่าค่าที่ผิดรูปจะกลายเป็น 0 เงียบ ๆ
+  //   ยอดขายบริการหายไปจากรายงานโดยไม่มีร่องรอย — อันตรายกว่าการหยุดแล้วฟ้อง
+  data.staffCommissions = normalizeStaffCommissions_(data.staffCommissions);
+  data.services = normalizeServiceRows_(data.services);
   return data;
+}
+
+// ค่าคอมพนักงาน — ต้องเป็นรายการของอ็อบเจกต์ ตัวเลขต้องเป็นตัวเลขจริงและไม่ติดลบ
+function normalizeStaffCommissions_(list) {
+  if (list === null || list === undefined) return [];
+  if (!Array.isArray(list)) throw new Error("staffCommissions ต้องเป็นรายการ (array)");
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var st = list[i];
+    if (!st || typeof st !== "object" || Array.isArray(st))
+      throw new Error("staffCommissions[" + i + "] ต้องเป็นข้อมูลพนักงาน 1 คน");
+    var tag = "staffCommissions[" + i + "]";
+    var count = readFiniteNumber_(st.count, tag + ".count", false);
+    var sales = readFiniteNumber_(st.salesSum, tag + ".salesSum", false);
+    var comm  = readFiniteNumber_(st.commission, tag + ".commission", false);
+    if (count < 0 || Math.floor(count) !== count)
+      throw new Error(tag + ".count ต้องเป็นจำนวนเต็มไม่ติดลบ");
+    if (sales < 0) throw new Error(tag + ".salesSum ต้องไม่ติดลบ");
+    // ค่าคอมคำนวณจาก netPrice × อัตรา ซึ่งไม่มีทางติดลบ — ถ้าติดลบแปลว่าข้อมูลเพี้ยน
+    if (comm < 0)  throw new Error(tag + ".commission ต้องไม่ติดลบ");
+    out.push({
+      name: safeCell(st.name || "ไม่ระบุ"),
+      role: safeCell(st.role || "-"),
+      count: count, salesSum: sales, commission: comm
+    });
+  }
+  return out;
+}
+
+// รายการบริการในสรุป — ชื่อ/จำนวนครั้ง/รายได้ ต้องใช้งานได้จริงก่อนเขียนลงชีต
+function normalizeServiceRows_(list) {
+  if (list === null || list === undefined) return [];
+  if (!Array.isArray(list)) throw new Error("services ต้องเป็นรายการ (array)");
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var svc = list[i];
+    if (!svc || typeof svc !== "object" || Array.isArray(svc))
+      throw new Error("services[" + i + "] ต้องเป็นข้อมูลบริการ 1 รายการ");
+    var tag = "services[" + i + "]";
+    var count = readFiniteNumber_(svc.count, tag + ".count", false);
+    var rev   = readFiniteNumber_(svc.revenue, tag + ".revenue", false);
+    if (count < 0 || Math.floor(count) !== count)
+      throw new Error(tag + ".count ต้องเป็นจำนวนเต็มไม่ติดลบ");
+    if (rev < 0) throw new Error(tag + ".revenue ต้องไม่ติดลบ");
+    out.push({ name: safeCell(svc.name || "ไม่ระบุชื่อบริการ"), count: count, revenue: rev });
+  }
+  return out;
 }
 
 // ─────────────────────────────────────────────
