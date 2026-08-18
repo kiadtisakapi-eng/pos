@@ -55,6 +55,8 @@
 | `sw.js` | Service Worker (ออฟไลน์) |
 | `manifest.json` | PWA manifest |
 | `google_apps_script.js` | Backend บน Google Sheets |
+| `vendor/` | ไอคอน Font Awesome + ฟอนต์ Sarabun/Outfit ที่เก็บไว้เอง (เดิมโหลดจากเน็ตทุกครั้ง) — **ห้ามลบ ไม่งั้นไอคอนกับตัวหนังสือหายหมด** |
+| `tests/` | ชุดทดสอบ — `run-all.js` รันก่อน deploy ทุกครั้ง (เร็ว) · `run-all-ui.js` ตรวจหน้าจอ (ต้อง `npm i -D playwright`) |
 
 ## ข้อควรรู้
 - ข้อมูลเก็บในเครื่อง (per-device). ควรกด **ส่งออกข้อมูล (Export)** สำรองสม่ำเสมอ และตั้ง Google Sheets URL + รหัสเชื่อมต่อให้ข้อมูลขึ้นคลาวด์

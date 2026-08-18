@@ -43,7 +43,7 @@ const CLOUD_API_TOKEN_MIN_LENGTH = 24;
 const BACKUP_SCHEMA_VERSION = 2;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.5.3 (2026-08-16)';
+const APP_VERSION = '1.5.4 (2026-08-16)';
 
 // ─────────────────────────────────────────────
 //  วันทำการ (Business Date) — ร้านเปิด 11:00 น. ถึงตี 3 ของวันถัดไป
@@ -5169,6 +5169,10 @@ class PosApp {
 
   checkIdleTimeout() {
     if (this.currentRole !== 'owner') return;   // พนักงาน/ผู้จัดการใช้ TTL 20 ชม. ตามเดิม
+    // ห้ามเตะออกกลางการกู้ข้อมูล — งานนี้ใช้เวลานาน (ดาวน์โหลดไฟล์ทั้งร้าน) และเขียนทับข้อมูล
+    // ถ้าหลุดกลางคันแล้วหน้าต่างถูกปิดไป เจ้าของจะไม่รู้ว่ากู้สำเร็จหรือค้างอยู่ตรงไหน
+    // เลื่อนนาฬิกาออกไปแทน พอกู้เสร็จค่อยเริ่มนับใหม่
+    if (this.restoreBusy) { this._lastActivityTs = Date.now(); return; }
     if (Date.now() - this._lastActivityTs < OWNER_IDLE_TIMEOUT_MS) return;
     const who = this.currentUser ? this.currentUser.id : null;
     this.logout(
@@ -5183,6 +5187,13 @@ class PosApp {
     this.currentRole = null;
     this.currentUser = null;
     this.loginSelectedId = null;
+    // ปิดหน้าต่างอื่นที่ค้างอยู่ก่อนเสมอ — ตั้งแต่มี auto-logout 5 นาที การเตะออก
+    // เกิดขึ้นได้ทุกวินาที รวมถึงตอนที่หน้าต่างชำระเงิน/นับเงินปิดกะเปิดค้างอยู่
+    // ถ้าปล่อยค้างไว้ ผู้ใช้คนถัดไปจะเห็นงานที่ค้างของคนก่อน และกล่องล็อกอินจะไปซ้อนใต้หน้าต่างนั้น
+    // (มี z-index กันไว้อีกชั้นใน CSS แต่ปิดทิ้งตรงนี้ตรงกว่า — งานที่ค้างไม่ควรข้ามผู้ใช้)
+    document.querySelectorAll('.modal-overlay.active').forEach(el => {
+      if (el.id !== 'modal-login') this.closeModal(el.id);
+    });
     this.updateUserRoleUI();
     this.renderLoginOptions();
     const pinEl = document.getElementById('login-pin-input');

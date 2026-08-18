@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v55-responsive';
+const CACHE_NAME = 'jahn-pos-v56-uifix';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
