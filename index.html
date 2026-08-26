@@ -907,6 +907,54 @@
             </table>
           </div>
         </div>
+
+        <!-- ประวัติการแก้ไขย้อนหลัง — ข้อมูลถูกเก็บมาตลอด แต่เดิมไม่มีหน้าไหนแสดงเลย
+             ทั้งสองตารางคือรายการที่ทำให้เงินหายจากระบบโดยไม่มีบิลรองรับ จึงต้องเห็นได้จากในแอป -->
+        <div class="glass-card" style="padding: 1.25rem; margin-top: 1.25rem;">
+          <div class="section-title" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <span><i class="fa-solid fa-ban"></i> บิลที่ถูกยกเลิก</span>
+            <span id="report-voids-count" style="font-size:0.78rem; font-weight:700; color:var(--color-danger);"></span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="customer-table" style="width: 100%;">
+              <thead>
+                <tr>
+                  <th>เวลาที่ยกเลิก</th>
+                  <th>เลขที่บิล</th>
+                  <th>ลูกค้า</th>
+                  <th>ยอดที่หายไป</th>
+                  <th>ยกเลิกโดย</th>
+                </tr>
+              </thead>
+              <tbody id="report-voids-body">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="glass-card" style="padding: 1.25rem; margin-top: 1.25rem;">
+          <div class="section-title" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <span><i class="fa-solid fa-eraser"></i> ค่าใช้จ่ายที่ถูกลบ</span>
+            <span id="report-expense-deletions-count" style="font-size:0.78rem; font-weight:700; color:var(--accent-premium);"></span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="customer-table" style="width: 100%;">
+              <thead>
+                <tr>
+                  <th>เวลาที่ลบ</th>
+                  <th>รายการ</th>
+                  <th>จำนวนเงิน</th>
+                  <th>เดิมเพิ่มโดย</th>
+                  <th>ลบโดย</th>
+                </tr>
+              </thead>
+              <tbody id="report-expense-deletions-body">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
       
     </main>

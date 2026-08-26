@@ -87,9 +87,22 @@ t('มี URL แล้วแต่ยังไม่มี token -> เก็�
   ok(app.state.cloudOutbox[0].needSummary);
 });
 
-console.log('\n--- restoreFromDriveBackup ---');
+console.log('\n--- ด่านสิทธิ์ restoreFromDriveBackup (เพิ่ม ส.ค. 2569) ---');
+// ตัวฟังก์ชันต้องมีด่านของตัวเอง ไม่ใช่พึ่งแค่ว่า openRestoreModal เปิดให้เฉพาะเจ้าของ
+// (ปุ่มกู้ข้อมูลถูกผูก onclick ไว้กับ element โดยตรง ถ้าด่านอยู่ชั้นเดียวจะข้ามได้)
 app.googleSheetsUrl='https://gas/exec';
 app.googleSheetsApiToken='A'.repeat(24);
+let guardFetches=0;
+app.fetchWithTimeout=async()=>{ guardFetches++; throw new Error('ไม่ควรถูกเรียก'); };
+app.currentRole='staff'; app.loadFailed=false; app._confirmPromise=null;
+await doRestore('FILEID123','x');
+t('พนักงานกู้ข้อมูลไม่ได้',()=>eq(guardFetches,0));
+app.currentRole='owner'; app.loadFailed=true; app._confirmPromise=null;
+await doRestore('FILEID123','x');
+t('โหลดข้อมูลไม่สำเร็จ ห้ามกู้ทับ',()=>eq(guardFetches,0));
+app.loadFailed=false;
+
+console.log('\n--- restoreFromDriveBackup ---');
 let sentBody=null;
 app.fetchWithTimeout=async(url,opt)=>{ sentBody=JSON.parse(opt.body);
   return { ok:true, json:async()=>({status:'success',details:{fileName:'pos_backup_a.json',backupData:goodBackup()}}) }; };

@@ -408,7 +408,8 @@ function handleVoidTransaction(data, ss) {
     return json("error", "เดือนของบิลไม่ถูกต้อง (" + monthYear + ") — ตรวจสอบวันที่ของบิลใบนี้");
   var sheet = ss.getSheetByName(monthYear);
   if (!sheet) {
-    return json("error", "ไม่พบแผ่นงานของเดือนนี้");
+    // ไม่มีแท็บเดือนนี้ = ไม่เคยมีแถวให้ลบตั้งแต่แรก ปลายทางถือว่า "ลบแล้ว"
+    return json("error", "ไม่พบแผ่นงานของเดือนนี้", null, "NOT_FOUND");
   }
 
   var lastRow = sheet.getLastRow();
@@ -427,7 +428,8 @@ function handleVoidTransaction(data, ss) {
     sheet.deleteRow(foundRow);
     return json("success", "ลบบิลออกจาก Sheets แล้ว", { billId: data.id });
   } else {
-    return json("error", "ไม่พบบิลเลขที่ " + data.id + " ใน Sheets");
+    // ไม่มีแถวนี้แล้ว = ลบไปก่อนหน้าแล้ว ฝั่งแอปต้องถือว่าสำเร็จ ไม่ใช่วนลองใหม่ตลอดกาล
+    return json("error", "ไม่พบบิลเลขที่ " + data.id + " ใน Sheets", null, "NOT_FOUND");
   }
 }
 
@@ -1165,8 +1167,11 @@ function readFiniteNumber_(value, fieldName, required) {
   return n;
 }
 
-function json(status, message, details) {
+// code = รหัสเครื่องอ่าน ใช้แทนการให้ฝั่งแอปไปเดาจาก "ข้อความภาษาไทย"
+// (ข้อความมีไว้ให้คนอ่าน วันไหนแก้คำแล้วตรรกะฝั่งแอปพังตามคือสิ่งที่ต้องกันไว้)
+function json(status, message, details, code) {
   var r = { status: status, message: message };
+  if (code) r.code = code;
   if (details) r.details = details;
   return ContentService.createTextOutput(JSON.stringify(r))
                        .setMimeType(ContentService.MimeType.JSON);

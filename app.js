@@ -43,7 +43,7 @@ const CLOUD_API_TOKEN_MIN_LENGTH = 24;
 const BACKUP_SCHEMA_VERSION = 2;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.5.4 (2026-08-16)';
+const APP_VERSION = '1.5.5 (2026-08-26)';
 
 // ─────────────────────────────────────────────
 //  วันทำการ (Business Date) — ร้านเปิด 11:00 น. ถึงตี 3 ของวันถัดไป
@@ -100,6 +100,9 @@ class PosApp {
       queue: [],
       transactions: [],
       voidLog: [],
+      // ประวัติการลบรายการค่าใช้จ่าย — ตัวรายการหายไปแล้ว ถ้าไม่บันทึกไว้จะไม่เหลือร่องรอยเลย
+      // (ค่าใช้จ่าย 1 บาท = เงินที่ควรมีในลิ้นชักลด 1 บาท จึงต้องรู้ว่าใครเพิ่มและใครลบ)
+      expenseLog: [],
       cloudOutbox: [],
       cart: [],
       selectedCategory: 'all',
@@ -529,6 +532,7 @@ class PosApp {
       const queueVal = await db.state.get('queue');
       const transactionsVal = await db.state.get('transactions');
       const voidLogVal = await db.state.get('voidLog');
+      const expenseLogVal = await db.state.get('expenseLog');
       const cloudOutboxVal = await db.state.get('cloudOutbox');
       const shiftVal = await db.state.get('shift');
       const promptPayVal = await db.state.get('shopPromptPayId');
@@ -551,6 +555,7 @@ class PosApp {
       this.state.queue = queueVal ? queueVal.value : [...DEFAULT_QUEUE];
       this.state.transactions = transactionsVal ? transactionsVal.value : [...DEFAULT_TRANSACTIONS];
       this.state.voidLog = (voidLogVal && Array.isArray(voidLogVal.value)) ? voidLogVal.value : [];
+      this.state.expenseLog = (expenseLogVal && Array.isArray(expenseLogVal.value)) ? expenseLogVal.value : [];
       this.state.cloudOutbox = (cloudOutboxVal && Array.isArray(cloudOutboxVal.value)) ? cloudOutboxVal.value : [];
       this.state.shift = shiftVal ? shiftVal.value : {
         active: false,
@@ -752,6 +757,7 @@ class PosApp {
         { key: 'queue', value: this.state.queue },
         { key: 'transactions', value: this.state.transactions },
         { key: 'voidLog', value: this.state.voidLog },
+        { key: 'expenseLog', value: this.state.expenseLog },
         { key: 'cloudOutbox', value: this.state.cloudOutbox },
         { key: 'shift', value: this.state.shift },
         { key: 'shopPromptPayId', value: this.shopPromptPayId },
@@ -785,6 +791,37 @@ class PosApp {
       throw new Error(`ไม่สามารถบันทึก${actionLabel || 'ข้อมูล'}ลงในเครื่องได้ — ระบบยกเลิกเพื่อป้องกันข้อมูลหาย`);
     }
     return true;
+  }
+
+  // ── ด่านร่วมของงานที่ "แตะข้อมูลทั้งชุด" ──────────────────────────────
+  // ส่งออก / นำเข้า / ล้างยอดขาย / กู้ข้อมูล — ทุกตัวเขียนทับหรือคัดลอกข้อมูลทั้งร้านออกไป
+  // เดิมพึ่งด่านเดียวคือ switchTab ไม่ให้คนที่ไม่ใช่เจ้าของเข้าหน้าตั้งค่า
+  // ด่านชั้นเดียวแปลว่าถ้าวันหนึ่งมีปุ่มลัด/ลิงก์/โค้ดเรียกฟังก์ชันตรง ๆ มันจะถูกข้ามไปเงียบ ๆ
+  //
+  // ต้องกัน loadFailed ด้วย ไม่ใช่แค่เรื่องสิทธิ์: ตอนโหลดข้อมูลไม่สำเร็จ
+  // state ในหน่วยความจำเป็นค่าว่าง ไม่ใช่ข้อมูลจริง — กด "ส่งออก" ตอนนั้นจะได้ไฟล์สำรองเปล่า
+  // ที่หน้าตาเหมือนใช้ได้ทุกอย่าง ซึ่งอันตรายกว่าการไม่มีไฟล์สำรองเลย
+  requireOwnerForDataAction(actionLabel) {
+    if (this.loadFailed) {
+      this.showToast(`โหลดข้อมูลไม่สำเร็จ — ปิด${actionLabel}ไว้เพื่อความปลอดภัย`, 'error');
+      return false;
+    }
+    if (this.currentRole !== 'owner') {
+      this.showToast(`เฉพาะเจ้าของร้านเท่านั้นที่${actionLabel}ได้`, 'warning');
+      return false;
+    }
+    return true;
+  }
+
+  // ── ใครดูสรุป "รายเดือน" ได้ ────────────────────────────────────────────
+  // เฉพาะเจ้าของร้าน · ผู้จัดการดูได้แค่สรุปรายวัน
+  // เหตุผล: ยอดรวมทั้งเดือนคือตัวเลขระดับกิจการ (รายได้รวม กำไร แนวโน้ม)
+  // ส่วนสรุปรายวันคือข้อมูลที่ผู้จัดการต้องใช้คุมหน้างานจริง — คนละระดับกัน
+  //
+  // เขียนแบบ "อนุญาตเฉพาะ" ไม่ใช่ "ห้ามพนักงาน" — วันไหนเพิ่มตำแหน่งใหม่
+  // หรือมีจังหวะที่ระบบยังไม่รู้ว่าใครล็อกอินอยู่ ด่านนี้จะปิดไว้ก่อนเสมอ
+  canViewMonthlyReport() {
+    return this.currentRole === 'owner';
   }
 
   // สำเนาสำหรับย้อนสถานะในหน่วยความจำเมื่อการเขียน IndexedDB ล้มเหลว
@@ -836,6 +873,7 @@ class PosApp {
       queue: this.state.queue,
       transactions: this.state.transactions,
       voidLog: this.state.voidLog || [], // ประวัติการยกเลิกบิล — audit trail ต้องติดไปกับไฟล์สำรองด้วย
+      expenseLog: this.state.expenseLog || [], // ประวัติการลบค่าใช้จ่าย — เหตุผลเดียวกัน
       shift: this.state.shift,
       shopPromptPayId: this.shopPromptPayId || '',
       shopName: this.shopName || 'Erotica Barber & Massage',
@@ -948,11 +986,13 @@ class PosApp {
   }
 
   clearSalesData() {
+    if (!this.requireOwnerForDataAction('ล้างยอดขาย')) return;
     this.showConfirm('คุณแน่ใจหรือไม่ว่าต้องการล้างยอดขายและคิวงานทั้งหมด? (รายการพนักงาน บริการ และค่าคอมมิชชั่นที่เพิ่งตั้งค่าจะถูกเก็บไว้)', async () => {
       this.state.transactions = [];
       this.state.queue = [];
       this.state.cart = [];
       this.state.voidLog = [];     // ล้างประวัติ void ของยอดเก่าไปพร้อมกัน
+      this.state.expenseLog = [];  // ประวัติการลบค่าใช้จ่ายก็เป็นของยอดเก่า ล้างไปด้วยกัน
 
       // งานคลาวด์ที่ค้าง: ต้องตัด "งานสรุป" ทิ้ง (ไม่งั้น outbox เก่าจะ flush สรุป "ศูนย์" ไปทับชีตของวันเก่า)
       // แต่ต้อง "เก็บคำสั่งลบแถวบิลไว้" — เดิมล้างทิ้งทั้งก้อน ทำให้บิลที่ยกเลิกไปแล้วแต่ยังลบในชีตไม่สำเร็จ
@@ -1347,7 +1387,7 @@ class PosApp {
             <div class="activity-item" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 4px;">
               <div style="display: flex; flex-direction: column; gap: 2px;">
                 <span style="font-size: 0.85rem; font-weight: 600;">${escapeHtml(e.note)}</span>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">${timeStr} น.</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">${timeStr} น.${e.by ? ' • โดย ' + escapeHtml(e.by) : ''}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-weight: 700; color: var(--accent-premium);">฿${e.amount.toLocaleString('th-TH')}</span>
@@ -2586,7 +2626,7 @@ class PosApp {
     container.innerHTML = `
       <div class="receipt-container">
         <div class="receipt-header">
-          ${this.shopLogo ? `<img src="${this.shopLogo}" alt="logo" style="max-width:90px;max-height:90px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
+          ${this.shopLogo ? `<img src="${escapeHtml(this.shopLogo)}" alt="logo" style="max-width:90px;max-height:90px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
           <div class="receipt-shop-name">${escapeHtml(this.shopName || 'Erotica Barber & Massage')}</div>
           ${this.shopAddress ? `<div style="font-size: 0.7rem; color: #555;">${escapeHtml(this.shopAddress)}</div>` : ''}
           ${this.shopPhone ? `<div style="font-size: 0.7rem; color: #555;">โทร. ${escapeHtml(this.shopPhone)}</div>` : ''}
@@ -3869,7 +3909,11 @@ class PosApp {
       type: type,
       amount: amount,
       note: note,
-      time: Date.now()
+      time: Date.now(),
+      // ⚠️ ต้องรู้ว่าใครเพิ่ม — ค่าใช้จ่ายทุกบาททำให้ "เงินที่ควรมีในลิ้นชัก" ลดลงหนึ่งบาท
+      // ใครหยิบเงินออกแล้วกดเพิ่มค่าใช้จ่ายเท่ากัน ลิ้นชักจะลงตัวพอดีโดยไม่มีอะไรผิดปกติให้เห็น
+      // การปิดกะเก็บ closedBy · การยกเลิกบิลเก็บ by · ตรงนี้เดิมไม่เก็บอะไรเลย
+      by: this.currentUser ? this.currentUser.name : ''
     };
     
     if (!this.state.shift.expenses) {
@@ -3890,12 +3934,40 @@ class PosApp {
 
   deleteExpense(expenseId) {
     this.showConfirm('คุณต้องการลบรายการค่าใช้จ่ายนี้ใช่หรือไม่?', async () => {
-      if (this.state.shift && this.state.shift.expenses) {
-        this.state.shift.expenses = this.state.shift.expenses.filter(e => e.id !== expenseId);
-        await this.saveState();
+      if (!this.state.shift || !this.state.shift.expenses) return;
+      const target = this.state.shift.expenses.find(e => e.id === expenseId);
+      if (!target) return;
+
+      // เก็บสถานะเดิมไว้ก่อน — ถ้าเขียนลงเครื่องไม่สำเร็จต้องคืนทั้งรายการและประวัติ
+      const prevExpenses = this.state.shift.expenses;
+      const prevLog = Array.isArray(this.state.expenseLog) ? this.state.expenseLog.slice() : [];
+
+      // ตัวรายการถูกลบทิ้งจริง (ยอดเงินยังคิดเหมือนเดิมทุกอย่าง ไม่ต้องแก้สูตรที่ไหน)
+      // แต่ต้องเหลือหลักฐานไว้ ไม่งั้นลบแล้วหายเงียบ ไม่มีใครรู้ว่าเคยมีรายการนี้
+      this.state.shift.expenses = this.state.shift.expenses.filter(e => e.id !== expenseId);
+      if (!Array.isArray(this.state.expenseLog)) this.state.expenseLog = [];
+      this.state.expenseLog.push({
+        expenseId: target.id,
+        amount: Number(target.amount) || 0,
+        note: target.note || '',
+        addedBy: target.by || '',      // ว่าง = รายการเก่าก่อนมีการเก็บชื่อ
+        addedAt: target.time || null,
+        by: this.currentUser ? this.currentUser.name : '',
+        date: Date.now()
+      });
+
+      try {
+        await this.saveStateOrThrow('การลบค่าใช้จ่าย');
+      } catch (err) {
+        this.state.shift.expenses = prevExpenses;
+        this.state.expenseLog = prevLog;
+        console.error('deleteExpense failed:', err);
+        this.showToast('ลบค่าใช้จ่ายไม่สำเร็จ — ระบบคืนรายการกลับมาให้แล้ว', 'error', 6000);
         this.renderDashboard();
-        this.vibrateDevice(50);
+        return;
       }
+      this.renderDashboard();
+      this.vibrateDevice(50);
     });
   }
 
@@ -3964,7 +4036,7 @@ class PosApp {
     const brandLogo = document.querySelector('.brand-logo');
     if (brandLogo) {
       if (this.shopLogo) {
-        brandLogo.innerHTML = `<img src="${this.shopLogo}" alt="logo" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block;">`;
+        brandLogo.innerHTML = `<img src="${escapeHtml(this.shopLogo)}" alt="logo" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block;">`;
       } else {
         brandLogo.textContent = (name.charAt(0) || 'E').toUpperCase();
       }
@@ -4063,7 +4135,7 @@ class PosApp {
     const preview = document.getElementById('shop-logo-preview');
     if (!preview) return;
     if (this.shopLogo) {
-      preview.innerHTML = `<img src="${this.shopLogo}" alt="logo" style="width:100%;height:100%;object-fit:cover;">`;
+      preview.innerHTML = `<img src="${escapeHtml(this.shopLogo)}" alt="logo" style="width:100%;height:100%;object-fit:cover;">`;
     } else {
       preview.innerHTML = '<span style="color:var(--text-muted);font-size:0.7rem;">ไม่มี</span>';
     }
@@ -4139,6 +4211,10 @@ class PosApp {
   }
 
   selectReportType(type) {
+    if (type === 'monthly' && !this.canViewMonthlyReport()) {
+      this.showToast('สรุปรายเดือนดูได้เฉพาะเจ้าของร้าน — แสดงสรุปรายวันแทน', 'warning', 5000);
+      type = 'daily';
+    }
     this.state.selectedReportType = type;
     
     const dailyTab = document.getElementById('report-tab-daily');
@@ -4165,6 +4241,11 @@ class PosApp {
   }
 
   filterReports() {
+    // ด่านชั้นที่สอง — ค่า "รายเดือน" อาจค้างมาจากเซสชันของเจ้าของคนก่อน
+    // หรือมีใครเรียกฟังก์ชันนี้ตรง ๆ ข้ามปุ่มบนหน้าจอ ให้ตกกลับเป็นรายวันเสมอ
+    if (this.state.selectedReportType === 'monthly' && !this.canViewMonthlyReport()) {
+      this.state.selectedReportType = 'daily';
+    }
     const type = this.state.selectedReportType;
     const dateVal = document.getElementById('report-date-input').value;
     const monthVal = document.getElementById('report-month-input').value;
@@ -4415,7 +4496,7 @@ class PosApp {
           return `
             <tr>
               <td><strong>${escapeHtml(item.name)}</strong></td>
-              <td><span class="service-category-badge badge-${item.category || 'general'}">${categoryText}</span></td>
+              <td><span class="service-category-badge badge-${item.category || 'general'}">${escapeHtml(categoryText)}</span></td>
               <td>${item.count} ครั้ง</td>
               <td>฿${item.price.toLocaleString('th-TH')}</td>
               <td style="font-weight:700; color: var(--accent-massage);">฿${item.totalRevenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
@@ -4539,6 +4620,76 @@ class PosApp {
           `;
         }).join('');
       }
+    }
+
+    this.renderAuditTrail(type, dateVal, monthVal);
+  }
+
+  // ── ประวัติการแก้ไขย้อนหลัง (บิลที่ถูกยกเลิก + ค่าใช้จ่ายที่ถูกลบ) ──────────
+  // ข้อมูลสองชุดนี้ถูกเก็บมาตลอดอยู่แล้ว แต่เดิมไม่มีหน้าไหนแสดงมันเลย
+  // ต้องกดส่งออกไฟล์สำรองแล้วเปิดไฟล์ JSON ดูเองถึงจะเห็น = ในทางปฏิบัติเท่ากับไม่มี
+  //
+  // ทั้งคู่คือรายการที่ "ทำให้เงินหายไปจากระบบ" โดยไม่มีบิลรองรับ
+  //   ยกเลิกบิล      → ยอดขายหายไปทั้งใบ
+  //   ลบค่าใช้จ่าย   → เงินที่ควรมีในลิ้นชักเพิ่มขึ้น (กลบร่องรอยการเพิ่มค่าใช้จ่ายปลอม)
+  // จัดกลุ่มตาม "เวลาที่ลงมือทำ" ไม่ใช่เวลาของบิล เพราะคำถามคือ "รอบนี้มีใครทำอะไรบ้าง"
+  renderAuditTrail(type, dateVal, monthVal) {
+    const inPeriod = (ts) => {
+      if (!ts) return false;
+      return type === 'daily'
+        ? this.getBusinessISODate(ts) === dateVal
+        : this.getBusinessISOMonth(ts) === monthVal;
+    };
+    const when = (ts) => ts ? new Date(ts).toLocaleString('th-TH') : '-';
+    const baht = (v) => `฿${(Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`;
+    const emptyRow = (cols, text) =>
+      `<tr><td colspan="${cols}" class="empty-state" style="text-align:center;">` +
+      `<i class="fa-solid fa-shield-halved" style="display:block;margin:10px 0;"></i> ${text}</td></tr>`;
+
+    // 1) บิลที่ถูกยกเลิก
+    const voidBody = document.getElementById('report-voids-body');
+    const voidCount = document.getElementById('report-voids-count');
+    if (voidBody) {
+      const rows = (Array.isArray(this.state.voidLog) ? this.state.voidLog : [])
+        .filter(v => inPeriod(v.date))
+        .sort((a, b) => (b.date || 0) - (a.date || 0));
+      if (voidCount) {
+        const sum = rows.reduce((s, v) => s + (Number(v.amount) || 0), 0);
+        voidCount.innerText = rows.length ? `${rows.length} ใบ · รวม ${baht(sum)}` : '';
+      }
+      voidBody.innerHTML = rows.length === 0
+        ? emptyRow(5, 'ไม่มีการยกเลิกบิลในรอบที่ระบุ')
+        : rows.map(v => `
+            <tr>
+              <td>${when(v.date)}</td>
+              <td><strong>${escapeHtml(v.billId || '-')}</strong></td>
+              <td>${escapeHtml(v.customer || '-')}</td>
+              <td style="font-weight:700;color:var(--color-danger);">${baht(v.amount)}</td>
+              <td>${v.by ? escapeHtml(v.by) : '<span style="color:var(--text-muted);">ไม่ระบุ</span>'}</td>
+            </tr>`).join('');
+    }
+
+    // 2) ค่าใช้จ่ายที่ถูกลบ
+    const expBody = document.getElementById('report-expense-deletions-body');
+    const expCount = document.getElementById('report-expense-deletions-count');
+    if (expBody) {
+      const rows = (Array.isArray(this.state.expenseLog) ? this.state.expenseLog : [])
+        .filter(e => inPeriod(e.date))
+        .sort((a, b) => (b.date || 0) - (a.date || 0));
+      if (expCount) {
+        const sum = rows.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        expCount.innerText = rows.length ? `${rows.length} รายการ · รวม ${baht(sum)}` : '';
+      }
+      expBody.innerHTML = rows.length === 0
+        ? emptyRow(5, 'ไม่มีการลบค่าใช้จ่ายในรอบที่ระบุ')
+        : rows.map(e => `
+            <tr>
+              <td>${when(e.date)}</td>
+              <td>${escapeHtml(e.note || '-')}</td>
+              <td style="font-weight:700;color:var(--accent-premium);">${baht(e.amount)}</td>
+              <td>${e.addedBy ? escapeHtml(e.addedBy) : '<span style="color:var(--text-muted);">ไม่ระบุ</span>'}</td>
+              <td>${e.by ? escapeHtml(e.by) : '<span style="color:var(--text-muted);">ไม่ระบุ</span>'}</td>
+            </tr>`).join('');
     }
   }
 
@@ -4928,10 +5079,24 @@ class PosApp {
     this.showConfirm('คุณแน่ใจหรือไม่ที่จะทำการลบรายการขายนี้? การกระทำนี้ไม่สามารถย้อนกลับได้', async () => {
       // (การลบแถวบิลในชีต Google ย้ายไปทำผ่าน outbox ด้านล่าง เพื่อ retry ได้เมื่อ void ตอนออฟไลน์)
 
+      // ⚠️ เก็บสถานะเดิมไว้ก่อนแตะอะไรทั้งสิ้น — การยกเลิกบิลเปลี่ยน 4 อย่างพร้อมกัน
+      // (รายการบิล · ประวัติ void · จำนวนครั้งของลูกค้า · คิวงานคลาวด์)
+      //
+      // ถ้าเขียนลงเครื่องไม่สำเร็จแล้วปล่อยค่าใหม่ค้างไว้ จะเกิดเคสที่แย่ที่สุดของระบบนี้:
+      // บิลหายจากหน้าจอ → outbox สั่งลบแถวในชีตจริง → แต่ในเครื่องยังเป็นข้อมูลเก่า
+      // เปิดแอปใหม่บิลกลับมาบน iPad แต่หายจากชีตถาวร เพราะ syncStatus ยังเป็น 'synced'
+      // จึงไม่มีวันถูกส่งขึ้นชีตใหม่อีกเลย และไม่มีอะไรเตือนว่าสองที่ไม่ตรงกัน
+      const prevTransactions = this.state.transactions;   // filter สร้างอาเรย์ใหม่ ตัวเดิมจึงยังครบทุกใบ
+      const prevVoidLog = Array.isArray(this.state.voidLog) ? this.state.voidLog.slice() : this.state.voidLog;
+      // slice ก็พอ ไม่ต้อง deep clone — ตรงนี้แค่ย้อน "การ push" ไม่มีใครไปแก้ข้างในรายการเดิม
+      const prevOutbox = Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox.slice() : this.state.cloudOutbox;
+      let custBefore = null;
+
       // คืนค่าจำนวนครั้งที่มาใช้บริการของลูกค้า (ถ้าบิลผูกกับลูกค้าที่ลงทะเบียนไว้)
       if (tx.customerId) {
         const cust = this.state.customers.find(c => c.id === tx.customerId);
         if (cust && cust.visitCount > 0) {
+          custBefore = { ref: cust, visitCount: cust.visitCount, tier: cust.tier };
           cust.visitCount -= 1;
           cust.tier = cust.visitCount >= 10 ? 'แพลทินัม (Platinum)'
                     : cust.visitCount >= 5  ? 'ทอง (Gold)'
@@ -4955,7 +5120,25 @@ class PosApp {
       // → การันตีส่งแม้ void ตอนออฟไลน์ แล้ว retry เองเมื่อเน็ตกลับ (กันบิลที่ยกเลิกค้างในชีต)
       this.enqueueVoidCloudOps(tx, voidRecord);
 
-      await this.saveState();
+      // ต้องบันทึกลงเครื่องให้สำเร็จก่อนเท่านั้น จึงจะยอมให้ flushCloudOutbox ไปแตะชีตได้
+      try {
+        await this.saveStateOrThrow('การยกเลิกบิล');
+      } catch (saveErr) {
+        this.state.transactions = prevTransactions;
+        this.state.voidLog      = prevVoidLog;
+        this.state.cloudOutbox  = prevOutbox;
+        if (custBefore) {
+          custBefore.ref.visitCount = custBefore.visitCount;
+          custBefore.ref.tier       = custBefore.tier;
+        }
+        this.clearDateKeyCache();
+        console.error('voidTransaction failed:', saveErr);
+        this.filterReports(); // วาดตารางใหม่ให้เห็นว่าบิลกลับมาแล้ว
+        this.showToast(
+          'ยกเลิกบิลไม่สำเร็จ — ระบบคืนบิลกลับมาให้แล้ว ยังไม่มีอะไรถูกลบทั้งในเครื่องและในชีต: ' +
+          (saveErr.message || saveErr), 'error', 8000);
+        return;
+      }
 
       // ออนไลน์อยู่แล้วก็ส่ง outbox ทันที (ออฟไลน์จะค้างไว้ retry เอง)
       this.flushCloudOutbox();
@@ -5403,6 +5586,16 @@ class PosApp {
     document.querySelectorAll('.nav-item[data-screen="reports"], .bottom-nav-item[data-screen="reports"]')
       .forEach(el => el.style.display = canReports ? '' : 'none');
 
+    // 6.1 แท็บ "รายเดือน" ในหน้ารายงาน — เฉพาะเจ้าของร้าน
+    //     ผู้จัดการเห็นเมนูรายงานได้ แต่ดูได้เฉพาะสรุปรายวัน
+    const monthlyTab = document.getElementById('report-tab-monthly');
+    if (monthlyTab) monthlyTab.style.display = isOwner ? '' : 'none';
+    // ค่าที่ค้างอยู่อาจเป็น "รายเดือน" จากตอนที่เจ้าของใช้เครื่องอยู่ — สลับกลับให้ทันที
+    // ต้องเรียก selectReportType เพราะมันสลับช่องเลือกวัน/เดือนบนหน้าจอให้ด้วย ไม่ใช่แค่เปลี่ยนค่า
+    if (!isOwner && this.state.selectedReportType === 'monthly') {
+      this.selectReportType('daily');
+    }
+
     // 7. ปุ่มปิดร้าน/สรุปยอด — เฉพาะ manager ขึ้นไป (staff เปิดร้านได้ แต่ปิดไม่ได้)
     const closeStoreBtn = document.getElementById('btn-close-store');
     if (closeStoreBtn) closeStoreBtn.style.display = (role === 'owner' || role === 'manager') ? 'flex' : 'none';
@@ -5415,6 +5608,7 @@ class PosApp {
   // ที่อันตรายกว่าคือหน้ากู้ข้อมูลเรียกฟังก์ชันนี้เป็น "สำเนาก่อนกู้" — เงียบ = ไม่มีอะไรให้ย้อนกลับ
   // Blob ไม่มีเพดานแบบนั้น และถ้าสร้างไม่สำเร็จจะโยน error ออกมาให้จับได้จริง
   exportData() {
+    if (!this.requireOwnerForDataAction('ส่งออกไฟล์สำรอง')) return false;
     try {
       const data = this.buildBackupPayload();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -5521,6 +5715,7 @@ class PosApp {
   // นำเข้าข้อมูลจากไฟล์ JSON
   importData(event) {
     const input = event.target;
+    if (!this.requireOwnerForDataAction('นำเข้าข้อมูล')) { input.value = ''; return; }
     const file = input.files && input.files[0];
     // ล้างค่า input ทันที — ไม่งั้นเลือก "ไฟล์ชื่อเดิม" ซ้ำครั้งที่สอง onchange จะไม่ยิงเลย
     // (ปลอดภัย: FileReader ถือ object ไฟล์ไว้แล้ว การล้าง value ไม่กระทบการอ่าน)
@@ -5589,7 +5784,8 @@ class PosApp {
         !objectArray(parsed.transactions, 200000)) return false;
 
     const optionalArrays = [
-      ['categories', 10000], ['customers', 100000], ['queue', 10000], ['voidLog', 100000]
+      ['categories', 10000], ['customers', 100000], ['queue', 10000],
+      ['voidLog', 100000], ['expenseLog', 100000]
     ];
     for (const [key, max] of optionalArrays) {
       if (parsed[key] !== undefined && !objectArray(parsed[key], max)) return false;
@@ -5768,6 +5964,8 @@ class PosApp {
     this.state.queue = Array.isArray(parsed.queue) ? parsed.queue : [];
     this.state.transactions = parsed.transactions;
     this.state.voidLog = Array.isArray(parsed.voidLog) ? parsed.voidLog : [];
+    // ไฟล์สำรองรุ่นก่อนไม่มี expenseLog — ให้เป็นอาเรย์ว่างแทนที่จะเป็น undefined
+    this.state.expenseLog = Array.isArray(parsed.expenseLog) ? parsed.expenseLog : [];
     // ล้างงานคลาวด์ค้างของข้อมูลชุดเก่า — กัน outbox เดิม flush สรุปที่คำนวณจากข้อมูลชุดใหม่ไปทับชีตผิดๆ
     this.state.cloudOutbox = [];
     this.state.cart = [];
@@ -5921,6 +6119,7 @@ class PosApp {
   // กู้ข้อมูลจากไฟล์ที่เลือก
   restoreFromDriveBackup(fileId, label) {
     if (!fileId) return;
+    if (!this.requireOwnerForDataAction('กู้ข้อมูล')) return;
     const cur = `บิล ${this.state.transactions.length} รายการ · ลูกค้า ${this.state.customers.length} คน · ` +
                 `ประวัติกะ ${(this.state.shift.history || []).length} กะ`;
 
@@ -6113,12 +6312,14 @@ class PosApp {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return; // ออฟไลน์ — ไว้ค่อยส่ง
     this._flushingOutbox = true;
     let delivered = 0;
+    let attempted = false; // มีการลองยิงจริงไหม — ใช้ตัดสินว่าต้องเซฟตัวนับ backoff ลงเครื่องหรือเปล่า
     try {
       for (const item of this.state.cloudOutbox.slice()) {
         // Backoff: ล้มเหลวติดกัน 3 ครั้งขึ้นไป → เว้นระยะ 5 นาทีก่อนลองใหม่ (กันยิงรัวตอน URL ผิด/GAS ล่ม)
         if ((item.tries || 0) >= 3 && item.lastTry && (Date.now() - item.lastTry) < 5 * 60 * 1000) continue;
         item.tries = (item.tries || 0) + 1;
         item.lastTry = Date.now();
+        attempted = true;
 
         // รองรับทั้งรูปแบบใหม่ (dateKeys/monthKeys เป็น array) และรายการเก่าที่ค้างใน outbox (dateKey เดี่ยว)
         const dateKeys  = Array.isArray(item.dateKeys)  ? item.dateKeys  : (item.dateKey  ? [item.dateKey]  : []);
@@ -6161,7 +6362,10 @@ class PosApp {
       // เก็บเฉพาะรายการที่ยังค้าง ที่เสร็จแล้วทิ้งออก
       const before = this.state.cloudOutbox.length;
       this.state.cloudOutbox = this.state.cloudOutbox.filter(it => it.needVoidDelete || it.needSummary || it.needTelegram);
-      if (delivered > 0 || this.state.cloudOutbox.length !== before) {
+      // ต้องเซฟเมื่อ "มีการลองยิง" ด้วย ไม่ใช่เฉพาะตอนมีงานสำเร็จ
+      // เดิมถ้าล้มเหลวหมด (เช่นกรอก URL ผิด) ตัวนับ tries/lastTry จะอยู่แค่ในหน่วยความจำ
+      // ปิดแอปแล้วหาย เปิดใหม่ก็ยิงรัวตั้งแต่ต้นทุกครั้ง ระบบเว้นระยะเลยไม่เคยได้ทำงานจริง
+      if (attempted || delivered > 0 || this.state.cloudOutbox.length !== before) {
         await this.saveState();
         if (delivered > 0) this.showToast(`ส่งสรุป/แจ้งเตือนที่ค้างไว้สำเร็จแล้ว (${delivered} รายการ)`, 'success');
       }
@@ -6212,7 +6416,19 @@ class PosApp {
         }))
       });
       const d = await r.json();
-      if (d && (d.status === 'success' || (d.status === 'error' && /ไม่พบ/.test(d.message || '')))) return true;
+      // "ไม่พบแถวบิล" หรือ "ไม่พบแท็บเดือน" = ปลายทางไม่มีอะไรให้ลบแล้ว ถือว่าสำเร็จ (idempotent)
+      //
+      // เช็คจาก d.code เป็นหลัก — เดิมเช็คว่าข้อความมีคำว่า "ไม่พบ" ไหม ซึ่งเปราะ 2 ทาง:
+      //   1) วันไหนแก้คำในฝั่งชีต งานลบแถวจะค้างในคิว ยิงซ้ำตลอดกาล เพราะคิวไม่มีวันหมดอายุ
+      //   2) "ไม่พบข้อมูลที่ส่งมา" (คำขอไปถึงแบบตัวเปล่า) ก็เข้าเงื่อนไขเดิมด้วย
+      //      กลายเป็นทิ้งคำสั่งลบทั้งที่ชีตยังไม่ได้ลบ → แถวผีค้างถาวร
+      //
+      // ยังเก็บการเช็คข้อความไว้เป็นทางถอย เพราะแอปอัปเดตเองผ่าน GitHub Pages
+      // แต่ Apps Script ต้องวางโค้ดใหม่ด้วยมือ — ช่วงที่ยังไม่ได้วาง ฝั่งชีตจะยังตอบแบบเก่าอยู่
+      // (ทางถอยจงใจผูกกับต้นข้อความ 2 แบบเท่านั้น ไม่เหมารวมทุกคำที่ขึ้นต้นด้วย "ไม่พบ")
+      const gone = !!d && (d.code === 'NOT_FOUND' ||
+        (d.status === 'error' && /^ไม่พบ(บิลเลขที่|แผ่นงาน)/.test(String(d.message || ''))));
+      if (d && (d.status === 'success' || gone)) return true;
       return false; // error อื่น (เช่น unauthorized) → retry รอบหน้า
     } catch (err) {
       console.error('Void delete failed:', err);

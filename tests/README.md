@@ -11,6 +11,7 @@ node tests/run-all.js     # รันทั้งหมด — ใช้ก่�
 | `test_shift_variance.js` | เงินขาด/เกินตอนปิดกะ ตั้งแต่แอปถึงชีต |
 | `test_update_flow.js` | กลไกอัปเวอร์ชัน Service Worker |
 | `test_vat.js` | VAT รายกลุ่ม + ปัดเศษขึ้นเต็มบาท |
+| `test_roles.js` | สิทธิ์ตามตำแหน่ง + ประวัติบิลที่ยกเลิก/ค่าใช้จ่ายที่ถูกลบ |
 
 `harness.js` = DOM/Dexie/localStorage ปลอม ไว้โหลด `app.js` มารันใน Node
 ไม่แตะข้อมูลจริงในเครื่อง และไม่ยิงเน็ตออกไปไหน

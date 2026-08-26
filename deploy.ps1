@@ -107,7 +107,11 @@ $safeNewPaths = @(
     'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests',
     # Font Awesome ที่ย้ายมาเก็บเอง — ถ้าลืมบรรทัดนี้ ไฟล์จะไม่ถูก push
     # แล้วไอคอนทั้งแอปบนเว็บจริงจะหายหมดทันทีโดยสคริปต์ไม่เตือนอะไรเลย
-    'vendor'
+    'vendor',
+    # เครื่องมือวัดผล/สคริปต์ช่วยงานของโปรเจกต์ — ไม่มีความลับอยู่ในนั้น
+    # ถ้าไม่ใส่ชื่อไว้ที่นี่ โฟลเดอร์จะค้างเป็น untracked ตลอด แล้ว git status ไม่มีวันว่าง
+    # ทำให้สคริปต์นี้คิดว่า 'มีของจะ deploy' ทุกครั้ง แล้ว push เวอร์ชันเปล่าขึ้นเว็บ
+    'tools'
 )
 git add -- $safeNewPaths
 if ($LASTEXITCODE -ne 0) { Fail "git add project files failed" }
