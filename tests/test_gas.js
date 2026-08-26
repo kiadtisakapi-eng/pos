@@ -19,12 +19,18 @@ function FakeSheet(headers, rows){
         getDisplayValue:()=>String(grid[r-1] && grid[r-1][c-1] !== undefined ? grid[r-1][c-1] : ''),
         getDisplayValues:()=>{const out=[];for(let i=0;i<nr;i++){const row=[];for(let j=0;j<nc;j++)row.push(String((grid[r-1+i]&&grid[r-1+i][c-1+j])??''));out.push(row)}return out},
         setValue:(v)=>{ while(grid.length<r) grid.push([]); const row=grid[r-1]; while(row.length<c) row.push(''); row[c-1]=v; return cell; },
+        setValues:(vals)=>{ vals.forEach((rowVals,i)=>{ while(grid.length<r+i) grid.push([]); const row=grid[r-1+i];
+          rowVals.forEach((v,j)=>{ while(row.length<c+j) row.push(''); row[c-1+j]=v; }); }); return cell; },
+        getValues:()=>{const out=[];for(let i=0;i<nr;i++){const row=[];for(let j=0;j<nc;j++)row.push(grid[r-1+i]&&grid[r-1+i][c-1+j]!==undefined?grid[r-1+i][c-1+j]:'');out.push(row)}return out},
         setBackground:()=>cell,setFontColor:()=>cell,setFontWeight:()=>cell,
         setNumberFormat:()=>cell,setHorizontalAlignment:()=>cell,setFontSize:()=>cell,merge:()=>cell
       };
       return cell;
     },
     insertColumnBefore:(c)=>{pad(); grid.forEach(row=>row.splice(c-1,0,''))},
+    appendRow:(r)=>{grid.push(r.slice())},
+    deleteRow:(r)=>{grid.splice(r-1,1)},
+    deleteColumn:(c)=>{grid.forEach(row=>row.splice(c-1,1))},
     autoResizeColumns:()=>{}, setFrozenRows:()=>{}
   };
   return api;
@@ -44,11 +50,22 @@ ctx.PropertiesService={getScriptProperties:()=>({
   setProperty:(k,v)=>{scriptProps[k]=String(v);},
   deleteProperty:k=>{delete scriptProps[k];}
 })};
+// โฟลเดอร์ Drive ปลอมที่ "เก็บไฟล์จริง" — ใช้เทสต์ handleBackup ได้ (เดิมสร้างไฟล์แล้วทิ้งเลย)
+function makeFolder(id, name, files){
+  const list = files || [];
+  return { _files:list, getId:()=>id, getName:()=>name,
+    createFile:(fn, content, mime)=>{ const f={ _trashed:false, getId:()=>'file-'+list.length,
+        getName:()=>fn, getBlob:()=>({getDataAsString:()=>content}), getSize:()=>content.length,
+        getDateCreated:()=>new Date(), getMimeType:()=>mime, setTrashed:(v)=>{f._trashed=v;} };
+      list.push(f); return f; },
+    getFiles:()=>{ let i=0; const a=list.filter(f=>!f._trashed); return {hasNext:()=>i<a.length,next:()=>a[i++]}; },
+    getFilesByType:()=>{ let i=0; const a=list.filter(f=>!f._trashed); return {hasNext:()=>i<a.length,next:()=>a[i++]}; } };
+}
 ctx.DriveApp={
   _folders:{}, _foldersById:{},
   getFoldersByName(n){const found=this._folders[n];const list=found?(Array.isArray(found)?found:[found]):[];let i=0;return{hasNext:()=>i<list.length,next:()=>list[i++]};},
   getFolderById(id){const f=this._foldersById[id];if(!f)throw new Error('folder not found');return f;},
-  createFolder(n){const id='created-'+Object.keys(this._foldersById).length;const f={getId:()=>id,getName:()=>n,getFiles:()=>({hasNext:()=>false}),getFilesByType:()=>({hasNext:()=>false}),createFile:()=>({getId:()=>''})};this._folders[n]=f;this._foldersById[id]=f;return f;}
+  createFolder(n){const id='created-'+Object.keys(this._foldersById).length;const f=makeFolder(id,n);this._folders[n]=f;this._foldersById[id]=f;return f;}
 };
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(SRC,'utf8'),ctx,{filename:'gas.js'});
@@ -279,6 +296,174 @@ t('setupPosApiToken สร้างรหัสที่ไม่อยู่ใ
   ok(/^[A-Za-z0-9_-]{24,200}$/.test(token));
   eq(scriptProps[g.POS_API_TOKEN_PROPERTY],token);
 });
+
+console.log('\n--- แท็บบิลรายเดือน: 4 คอลัมน์ VAT (เพิ่ม ส.ค. 2569) ---');
+// เดิมแท็บนี้มี 9 คอลัมน์ ไม่มีช่อง VAT เลย — ตอน VAT ปิดอยู่ไม่มีใครเห็นปัญหา
+// แต่วันไหนเปิดสวิตช์ VAT แถวจะบวกไม่ลงตัว แล้วยอดที่ยื่นสรรพากรจะไม่ตรงกับชีต
+const BILL_OLD = ["เลขที่บิล","วันที่-เวลา","ลูกค้า","รายการบริการ","ช่องทางชำระเงิน",
+                  "ราคารวม (฿)","ส่วนลด (฿)","ยอดสุทธิ (฿)","พนักงาน"];
+const BILL_NEW = ctx.BILL_HEADERS;
+const mkSS = (sheets) => ({ getSheetByName:(n)=>sheets[n]||null,
+  insertSheet:(n)=>{ sheets[n]=FakeSheet([]); return sheets[n]; }, getSheets:()=>Object.values(sheets) });
+const vatBill = (id) => ({ id, date:'2026-08-10T14:00:00+07:00', monthKey:'08-2026',
+  dateTimeStr:'2026-08-10 14:00:00', customerName:'ลูกค้า ก', services:['ตัดผม','น้ำ'],
+  paymentMethod:'cash', staffNames:['เอ'],
+  subtotal:380, discount:0, nonVatBase:300, vatableBase:80, vatAmount:5.60, rounding:0.40, total:386 });
+
+t('หัวตารางชุดใหม่มี 13 คอลัมน์ และ 4 ช่อง VAT อยู่ก่อน "ยอดสุทธิ"',()=>{
+  eq(BILL_NEW.length,13);
+  eq(BILL_NEW.slice(7,11),["ไม่คิด VAT (฿)","คิด VAT (฿)","VAT (฿)","ปัดเศษ (฿)"]);
+  eq(BILL_NEW[11],'ยอดสุทธิ (฿)');
+  eq(BILL_NEW[12],'พนักงาน');});
+
+console.log('\n  · แท็บเก่า 9 คอลัมน์ ต้องถูกเติมให้ครบ');
+let sh = FakeSheet(BILL_OLD, [['TX-OLD','2026-08-01 10:00','ก','ตัดผม','เงินสด',300,0,300,'เอ']]);
+ctx.migrateBillSheetAddVatColumns_(sh);
+t('แทรก 4 คอลัมน์แล้วหัวตารางตรงกับชุดใหม่ทุกช่อง',()=>eq(sh._grid[0].slice(0,13),BILL_NEW));
+t('ข้อมูลเดิมไม่หายและไม่สลับช่อง (ยอดสุทธิยังอยู่ที่ 300 พนักงานยังเป็น เอ)',()=>{
+  const r=sh._grid[1]; eq(r[0],'TX-OLD'); eq(r[5],300); eq(r[6],0); eq(r[11],300); eq(r[12],'เอ');});
+t('แถวเก่าเว้นว่างใน 4 ช่องใหม่ ไม่เดาเติมเลขย้อนหลัง',()=>eq(sh._grid[1].slice(7,11),['','','','']));
+const before = JSON.stringify(sh._grid);
+ctx.migrateBillSheetAddVatColumns_(sh);
+t('เรียก migrate ซ้ำ ไม่แทรกซ้ำ (idempotent)',()=>eq(JSON.stringify(sh._grid),before));
+
+console.log('\n  · แท็บที่โครงสร้างแปลก ห้ามแตะ');
+let weird = FakeSheet(["อะไรก็ไม่รู้","ยอดสุทธิ (฿)"], [['x',1]]);
+ctx.migrateBillSheetAddVatColumns_(weird);
+t('คอลัมน์แรกไม่ใช่ "เลขที่บิล" -> ไม่แทรกอะไรเลย',()=>eq(weird._grid[0].length,2));
+let noNet = FakeSheet(["เลขที่บิล","ลูกค้า"], [['x','ก']]);
+ctx.migrateBillSheetAddVatColumns_(noNet);
+t('ไม่มีคอลัมน์ "ยอดสุทธิ" -> ไม่แทรกอะไรเลย',()=>eq(noNet._grid[0].length,2));
+let half = FakeSheet(["เลขที่บิล","VAT (฿)","ยอดสุทธิ (฿)"], []);
+ctx.migrateBillSheetAddVatColumns_(half);
+t('มีหัว VAT แค่บางช่อง -> หยุด ไม่แทรกทับของเดิม',()=>eq(half._grid[0].length,3));
+
+console.log('\n  · เขียนบิลจริงลงแท็บที่ migrate แล้ว');
+scriptProps['POS_API_TOKEN']='T'.repeat(32);
+let sheets={'08-2026':FakeSheet(BILL_OLD,[])};
+let res = JSON.parse(ctx.handleTransaction(vatBill('TX-VAT-1'), mkSS(sheets)));
+let bg = sheets['08-2026']._grid;
+t('บันทึกบิลสำเร็จ',()=>eq(res.status,'success'));
+t('แท็บถูกเติมคอลัมน์ VAT ให้อัตโนมัติตอนเขียนบิล',()=>eq(bg[0].slice(0,13),BILL_NEW));
+t('4 ช่อง VAT ลงคอลัมน์ที่ถูก',()=>eq(bg[1].slice(7,12),[300,80,5.60,0.40,386]));
+t('ราคารวม − ส่วนลด = ไม่คิด VAT + คิด VAT',()=>eq(bg[1][5]-bg[1][6], bg[1][7]+bg[1][8]));
+t('ไม่คิด VAT + คิด VAT + VAT + ปัดเศษ = ยอดสุทธิ',()=>
+  eq(Math.round((bg[1][7]+bg[1][8]+bg[1][9]+bg[1][10])*100)/100, bg[1][11]));
+t('ชื่อพนักงานยังอยู่ช่องสุดท้าย',()=>eq(bg[1][12],'เอ'));
+
+console.log('\n  · บิลรุ่นเก่าที่ไม่มีฟิลด์ VAT ติดมา');
+sheets={'08-2026':FakeSheet(BILL_NEW,[])};
+const legacy = vatBill('TX-LEGACY');
+delete legacy.nonVatBase; delete legacy.vatableBase; delete legacy.vatAmount; delete legacy.rounding;
+legacy.subtotal=300; legacy.discount=50; legacy.total=250;
+ctx.handleTransaction(legacy, mkSS(sheets));
+bg = sheets['08-2026']._grid;
+t('คำนวณย้อนให้ "ไม่คิด VAT" = ยอดสุทธิ ช่องอื่นเป็น 0',()=>eq(bg[1].slice(7,12),[250,0,0,0,250]));
+t('บิลรุ่นเก่าแถวก็ยังบวกลงตัว',()=>eq(bg[1][5]-bg[1][6], bg[1][7]+bg[1][8]));
+
+console.log('\n  · บิลที่คิด VAT ทุกชิ้น (nonVatBase = 0 จริง ๆ ไม่ใช่ค่าหาย)');
+sheets={'08-2026':FakeSheet(BILL_NEW,[])};
+ctx.handleTransaction({ ...vatBill('TX-ALLVAT'), subtotal:100, discount:0,
+  nonVatBase:0, vatableBase:100, vatAmount:7, rounding:0, total:107 }, mkSS(sheets));
+bg = sheets['08-2026']._grid;
+t('0 ต้องถูกเก็บเป็น 0 ไม่ใช่ถูกคำนวณย้อนทับ',()=>eq(bg[1].slice(7,12),[0,100,7,0,107]));
+
+console.log('\n  · แท็บที่ migrate ไม่ผ่าน ต้องยังเขียนแบบเดิมได้');
+sheets={'08-2026':FakeSheet(["เลขที่บิล","ลูกค้า"],[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-ODD'), mkSS(sheets)));
+t('โครงสร้างแปลก -> ยังบันทึกได้ ไม่ล้ม',()=>eq(res.status,'success'));
+t('โครงสร้างแปลก -> เขียนแบบ 9 คอลัมน์เดิม ไม่ยัด 13 ช่องทับ',()=>eq(sheets['08-2026']._grid[1].length,9));
+
+console.log('\n  · แท็บสร้างใหม่เอี่ยม');
+sheets={};
+ctx.handleTransaction(vatBill('TX-FRESH'), mkSS(sheets));
+t('แท็บใหม่เกิดมาพร้อม 13 คอลัมน์เลย',()=>eq(sheets['08-2026']._grid[0].slice(0,13),BILL_NEW));
+
+console.log('\n  · upsert บิลเดิมซ้ำ');
+sheets={'08-2026':FakeSheet(BILL_NEW,[])};
+ctx.handleTransaction(vatBill('TX-UPSERT'), mkSS(sheets));
+res = JSON.parse(ctx.handleTransaction({ ...vatBill('TX-UPSERT'), customerName:'ลูกค้าแก้ชื่อ' }, mkSS(sheets)));
+bg = sheets['08-2026']._grid;
+t('ส่งซ้ำ = อัปเดตแถวเดิม ไม่เพิ่มแถวใหม่',()=>{eq(res.details.updated,true); eq(bg.length,2);});
+t('ค่า VAT ยังอยู่ครบหลังอัปเดต',()=>eq(bg[1].slice(7,12),[300,80,5.60,0.40,386]));
+
+console.log('\n--- ฟังก์ชันที่ coverage บอกว่าไม่เคยถูกเทสต์เลย (เพิ่ม ส.ค. 2569) ---');
+
+console.log('\n  · doGet — ต้องไม่เผยอะไร และไม่ต้องใช้รหัส');
+const getOut = ctx.doGet({});
+t('doGet ตอบข้อความสั้น ๆ ไม่หลุดข้อมูลร้าน',()=>{
+  const s=String(getOut);
+  ok(/active/i.test(s)); ok(!/secret|token|POS_API/i.test(s), s);});
+
+console.log('\n  · setupPosApiToken ปลอดภัย / rotatePosApiToken เปลี่ยนรหัสจริง');
+delete scriptProps['POS_API_TOKEN'];
+const tok1 = ctx.setupPosApiToken();
+const tok2 = ctx.setupPosApiToken();
+t('setupPosApiToken เรียกซ้ำได้รหัสเดิม (ปลอดภัย ใช้ดูรหัสได้)',()=>eq(tok1,tok2));
+t('รหัสที่สร้างผ่านเกณฑ์ที่ระบบยอมรับ',()=>ok(/^[A-Za-z0-9_-]{24,200}$/.test(tok1)));
+const tok3 = ctx.rotatePosApiToken();
+t('rotatePosApiToken เปลี่ยนรหัสใหม่จริง (ทุกเครื่องที่ถือรหัสเก่าจะใช้ไม่ได้ทันที)',()=>ok(tok3!==tok1));
+t('รหัสใหม่ถูกเก็บลง Script Properties แล้ว',()=>eq(ctx.getPosApiToken_(),tok3));
+scriptProps['POS_API_TOKEN']='T'.repeat(32);
+
+console.log('\n  · handleBackup — ทางสำรองข้อมูลขึ้น Drive');
+delete scriptProps['POS_BACKUP_FOLDER_ID'];
+ctx.DriveApp._folders={}; ctx.DriveApp._foldersById={};
+const backupPayload = { services:[{id:1}], staff:[{id:1}], transactions:[{id:'TX-1',total:300}] };
+let bkRes = JSON.parse(ctx.handleBackup({ backupData: backupPayload }, null));
+t('สำรองสำเร็จและบอกชื่อไฟล์กลับมา',()=>{
+  eq(bkRes.status,'success'); ok(/^pos_backup_/.test(bkRes.details.fileName), bkRes.details.fileName);});
+const folder = ctx.DriveApp._foldersById[scriptProps['POS_BACKUP_FOLDER_ID']];
+t('โฟลเดอร์สำรองถูกสร้างและจำ ID ไว้ (กันหยิบผิดโฟลเดอร์เมื่อชื่อซ้ำ)',()=>ok(!!folder));
+t('ไฟล์ถูกเขียนลงโฟลเดอร์จริง 1 ไฟล์',()=>eq(folder._files.length,1));
+t('เนื้อไฟล์คือข้อมูลที่ส่งมาครบ ไม่ตกหล่น',()=>{
+  const back=JSON.parse(folder._files[0].getBlob().getDataAsString());
+  eq(back.transactions[0].id,'TX-1'); eq(back.transactions[0].total,300);});
+
+console.log('\n  · handleBackup ลบไฟล์เก่าเกินอายุ ไม่แตะไฟล์ใหม่');
+const oldF = { _trashed:false, getName:()=>'pos_backup_2020-01-01_00-00-00.json',
+  getDateCreated:()=>new Date(Date.now()-200*24*3600e3), setTrashed(v){this._trashed=v;},
+  getId:()=>'old', getBlob:()=>({getDataAsString:()=>'{}'}), getSize:()=>2 };
+const keepF = { _trashed:false, getName:()=>'pos_backup_2026-08-01_00-00-00.json',
+  getDateCreated:()=>new Date(Date.now()-3*24*3600e3), setTrashed(v){this._trashed=v;},
+  getId:()=>'keep', getBlob:()=>({getDataAsString:()=>'{}'}), getSize:()=>2 };
+const otherF = { _trashed:false, getName:()=>'เอกสารสำคัญของร้าน.json',
+  getDateCreated:()=>new Date(Date.now()-900*24*3600e3), setTrashed(v){this._trashed=v;},
+  getId:()=>'other', getBlob:()=>({getDataAsString:()=>'{}'}), getSize:()=>2 };
+folder._files.push(oldF, keepF, otherF);
+ctx.handleBackup({ backupData: backupPayload }, null);
+t('ไฟล์สำรองเก่าเกิน 90 วัน ถูกย้ายลงถังขยะ',()=>eq(oldF._trashed,true));
+t('ไฟล์สำรองที่ยังไม่เก่า ไม่ถูกแตะ',()=>eq(keepF._trashed,false));
+t('ไฟล์อื่นที่ไม่ใช่ไฟล์สำรอง ต้องไม่ถูกลบ แม้จะเก่ามาก',()=>eq(otherF._trashed,false));
+
+console.log('\n  · handleVoidTransaction — ลบแถวบิลออกจากชีต');
+let vsheets = { '08-2026': FakeSheet(ctx.BILL_HEADERS, [
+  ['TX-KEEP-1','2026-08-10 10:00','ก','ตัดผม','เงินสด',300,0,300,0,0,0,300,'เอ'],
+  ['TX-GONE-1','2026-08-10 11:00','ข','นวด','เงินสด',500,0,500,0,0,0,500,'บี'],
+  ['TX-KEEP-2','2026-08-10 12:00','ค','ตัดผม','เงินสด',200,0,200,0,0,0,200,'ซี'] ]) };
+const vSS = { getSheetByName:(n)=>vsheets[n]||null, insertSheet:()=>null, getSheets:()=>Object.values(vsheets) };
+let vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-GONE-1', monthKey:'08-2026', date:'2026-08-10T11:00:00+07:00' }, vSS));
+t('ลบบิลที่ระบุออกจากชีตสำเร็จ',()=>eq(vRes.status,'success'));
+t('เหลือ 2 แถว และเป็นแถวที่ต้องเหลือจริง',()=>{
+  const g2=vsheets['08-2026']._grid;
+  eq(g2.length,3); eq(g2[1][0],'TX-KEEP-1'); eq(g2[2][0],'TX-KEEP-2');});
+
+vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-GONE-1', monthKey:'08-2026', date:'2026-08-10T11:00:00+07:00' }, vSS));
+t('ลบซ้ำ -> ตอบ NOT_FOUND (ฝั่งแอปถือว่าสำเร็จ ไม่วน retry ตลอดกาล)',()=>{
+  eq(vRes.status,'error'); eq(vRes.code,'NOT_FOUND');});
+vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-X', monthKey:'01-2026', date:'2026-01-01T00:00:00+07:00' }, vSS));
+t('ไม่มีแท็บเดือนนั้น -> ตอบ NOT_FOUND เช่นกัน',()=>eq(vRes.code,'NOT_FOUND'));
+vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-X', monthKey:'99-1970', date:'x' }, vSS));
+t('เดือนเพี้ยน -> ปฏิเสธ และต้องไม่ใช่ NOT_FOUND (จะได้ลองใหม่ ไม่ใช่ทิ้งคำสั่งลบ)',()=>{
+  eq(vRes.status,'error'); ok(vRes.code!=='NOT_FOUND', JSON.stringify(vRes));});
+
+console.log('\n  · ด่านรหัสของทั้ง endpoint');
+scriptProps['POS_API_TOKEN']='S'.repeat(32);
+const post = (body)=>JSON.parse(ctx.doPost({postData:{contents:JSON.stringify(body)}}));
+t('ไม่ส่งรหัส -> unauthorized',()=>eq(post({action:'backup',backupData:{}}).message,'ไม่ได้รับอนุญาต (unauthorized)'));
+t('รหัสผิด -> unauthorized',()=>eq(post({secret:'X'.repeat(32),action:'backup',backupData:{}}).message,'ไม่ได้รับอนุญาต (unauthorized)'));
+t('ไม่มี body เลย -> ไม่พัง และไม่หลุดข้อมูล',()=>{
+  const r=JSON.parse(ctx.doPost({})); eq(r.status,'error'); ok(/ไม่พบข้อมูลที่ส่งมา/.test(r.message));});
 
 console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
 process.exit(fail?1:0);

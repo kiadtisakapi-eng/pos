@@ -91,6 +91,28 @@ var MASTER_BILL_HEADER = "บิล";
 // 4 คอลัมน์ VAT แทรกก่อน "รายได้รวม" — เรียงให้บวกจากซ้ายไปขวาแล้วได้รายได้รวมพอดี
 var MASTER_VAT_HEADERS = ["ไม่คิด VAT (฿)", "คิด VAT (฿)", "VAT (฿)", "ปัดเศษ (฿)"];
 
+// ── หัวคอลัมน์ของแท็บบิลรายเดือน "MM-yyyy" ────────────────────────────
+// 4 ช่อง VAT แทรกไว้ก่อน "ยอดสุทธิ" ให้บวกจากซ้ายไปขวาแล้วลงตัวพอดี:
+//     ราคารวม − ส่วนลด            = ไม่คิด VAT + คิด VAT
+//     ไม่คิด VAT + คิด VAT + VAT + ปัดเศษ = ยอดสุทธิ
+//
+// ⚠️ เดิมแท็บนี้มี 9 คอลัมน์ ไม่มีช่อง VAT เลย ตอน VAT ปิดอยู่ไม่มีใครเห็นปัญหา
+// เพราะยอดสุทธิ = ราคารวม − ส่วนลด พอดี แต่วันไหนเปิดสวิตช์ VAT แถวจะบวกไม่ลงตัวทันที
+// แล้วตัวเลขที่ยื่นสรรพากรจะไม่ตรงกับชีต — ต้องมีคอลัมน์พวกนี้ "ก่อน" เปิด VAT ไม่ใช่หลัง
+var BILL_HEADERS = [
+  "เลขที่บิล", "วันที่-เวลา", "ลูกค้า", "รายการบริการ", "ช่องทางชำระเงิน",
+  "ราคารวม (฿)", "ส่วนลด (฿)",
+  "ไม่คิด VAT (฿)", "คิด VAT (฿)", "VAT (฿)", "ปัดเศษ (฿)",
+  "ยอดสุทธิ (฿)", "พนักงาน"
+];
+var BILL_VAT_HEADERS = ["ไม่คิด VAT (฿)", "คิด VAT (฿)", "VAT (฿)", "ปัดเศษ (฿)"];
+var BILL_NET_HEADER  = "ยอดสุทธิ (฿)";
+var BILL_ID_HEADER   = "เลขที่บิล";
+var BILL_LEGACY_HEADERS = [
+  "เลขที่บิล", "วันที่-เวลา", "ลูกค้า", "รายการบริการ",
+  "ช่องทางชำระเงิน", "ราคารวม (฿)", "ส่วนลด (฿)", "ยอดสุทธิ (฿)", "พนักงาน"
+];
+
 // ─────────────────────────────────────────────
 //  ROUTER
 // ─────────────────────────────────────────────
@@ -320,6 +342,56 @@ function handleGetBackup(data) {
 // ─────────────────────────────────────────────
 //  1. TRANSACTION — บันทึกบิลรายการ
 // ─────────────────────────────────────────────
+// ── แท็บบิลนี้เป็นโครง 13 คอลัมน์ (มีช่อง VAT) แล้วหรือยัง ────────────────
+// เทียบตำแหน่งต่อตำแหน่งกับ BILL_HEADERS ไม่ใช่แค่ "มีคำนี้อยู่ที่ไหนสักที่"
+// เพราะถ้าลำดับเพี้ยน การเขียนแถว 13 ช่องลงไปจะทับข้อมูลผิดช่องทั้งแถว
+function billSheetHasVatColumns_(sheet) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < BILL_HEADERS.length) return false;
+  var h = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  for (var i = 0; i < BILL_HEADERS.length; i++) {
+    if (String(h[i] || "").trim() !== BILL_HEADERS[i]) return false;
+  }
+  return true;
+}
+
+// ── เพิ่ม 4 คอลัมน์ VAT ให้แท็บบิลเดิมที่ยังเป็นโครง 9 คอลัมน์ ──────────────
+// ปลอดภัยกับข้อมูลเก่า: insertColumnBefore ดันคอลัมน์เดิมไปขวาทั้งก้อน ค่าไม่หายและไม่สลับช่อง
+// แถวบิลเก่าจะเว้นว่างใน 4 ช่องใหม่ — จงใจ ไม่เดาย้อนหลัง เพราะบิลที่ราคามีเศษสตางค์
+// จะมีค่า "ปัดเศษ" ที่คำนวณกลับจากตัวเลขในชีตไม่ได้ เว้นว่างตรงกว่าเติมเลขที่อาจผิด
+function migrateBillSheetAddVatColumns_(sheet) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return;
+  var headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+
+  // หาคอลัมน์จาก "ชื่อหัวตาราง" ไม่ใช่เลขตายตัว · เจอชื่อซ้ำ = คืน -1 (ไม่รู้จะเชื่ออันไหน)
+  var colOf = function (name) {
+    var at = 0, dup = false;
+    for (var i = 0; i < headers.length; i++) {
+      if (String(headers[i] || "").trim() === name) { if (at) dup = true; else at = i + 1; }
+    }
+    return dup ? -1 : at;
+  };
+
+  var found = 0;
+  for (var k = 0; k < BILL_VAT_HEADERS.length; k++) if (colOf(BILL_VAT_HEADERS[k]) > 0) found++;
+  if (found === BILL_VAT_HEADERS.length) return;  // ครบแล้ว
+  if (found > 0) return;                          // ครบบ้างไม่ครบบ้าง — ไม่แตะ ปล่อยให้คนมาดูเอง
+
+  var netCol = colOf(BILL_NET_HEADER);
+  if (netCol <= 0) return;                        // ไม่มี "ยอดสุทธิ" = ไม่รู้จักโครงสร้าง ไม่แตะ
+  if (colOf(BILL_ID_HEADER) !== 1) return;        // คอลัมน์แรกไม่ใช่เลขที่บิล = ไม่ใช่แท็บบิล ไม่แตะ
+
+  // แทรกไล่จากขวาไปซ้าย ตำแหน่ง netCol จึงไม่ขยับระหว่างทาง
+  for (var j = BILL_VAT_HEADERS.length - 1; j >= 0; j--) {
+    sheet.insertColumnBefore(netCol);
+    sheet.getRange(1, netCol)
+      .setValue(BILL_VAT_HEADERS[j])
+      .setBackground("#1e293b").setFontColor("white")
+      .setFontWeight("bold").setHorizontalAlignment("center");
+  }
+}
+
 function handleTransaction(data, ss) {
   var billId = String(data.id || "").trim();
   if (!/^[A-Za-z0-9_-]{6,160}$/.test(billId)) {
@@ -347,24 +419,40 @@ function handleTransaction(data, ss) {
   // กันบิลที่วันที่หายไปแล้วกลายเป็นปี 1970 — จะได้แท็บ "01-1970" ค้างอยู่ในไฟล์ถาวร
   if (!isValidMonthKey_(monthYear))
     return json("error", "เดือนของบิลไม่ถูกต้อง (" + monthYear + ") — ตรวจสอบวันที่ของบิลใบนี้");
-  var sheet     = getOrCreateSheet(ss, monthYear, [
-    "เลขที่บิล","วันที่-เวลา","ลูกค้า","รายการบริการ",
-    "ช่องทางชำระเงิน","ราคารวม (฿)","ส่วนลด (฿)","ยอดสุทธิ (฿)","พนักงาน"
-  ], "#1e293b");
+  var sheet = getOrCreateSheet(ss, monthYear, BILL_HEADERS, "#1e293b");
+  // แท็บที่สร้างไว้ก่อนหน้านี้ยังเป็นโครง 9 คอลัมน์ — เติมช่อง VAT ให้ก่อนเขียนแถว
+  migrateBillSheetAddVatColumns_(sheet);
+  var hasVat = billSheetHasVatColumns_(sheet);
 
   var payText = payLabel(data.paymentMethod);
-  var row = [
-    safeCell(billId),
-    // เวลาบนบิลใช้ค่าจากเครื่องหน้าร้านถ้าส่งมา (รูปแบบถูกต้อง) — ตรงกับเวลาที่ลูกค้าเห็นบนใบเสร็จจริง
-    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(data.dateTimeStr || "") ? data.dateTimeStr : fmt(txDate, "yyyy-MM-dd HH:mm:ss"),
-    safeCell(data.customerName),
-    safeCell((Array.isArray(data.services) ? data.services : []).join(", ")),
-    payText,
-    subtotal,
-    discount,
-    total,
-    safeCell((Array.isArray(data.staffNames) ? data.staffNames : []).join(", "))
-  ];
+
+  // ── 4 ช่อง VAT ────────────────────────────────────────────────
+  // บิลรุ่นก่อนมี VAT ไม่มีฟิลด์พวกนี้เลย → คำนวณย้อนให้ "ไม่คิด VAT" = ที่เหลือทั้งหมด
+  // แถวจึงบวกลงตัวเสมอไม่ว่าบิลจะรุ่นไหน · ต้องเช็ค != null ไม่ใช่ความจริงเท็จ
+  // เพราะบิลที่ทุกอย่างคิด VAT หมดจะส่ง nonVatBase มาเป็น 0 ซึ่งเป็นค่าที่ถูกต้อง
+  var money = function (v) { var n = Number(v); return (isFinite(n) && n >= 0) ? n : 0; };
+  var vatableBase = money(data.vatableBase);
+  var vatAmount   = money(data.vatAmount);
+  var rounding    = money(data.rounding);
+  var nonVatBase  = (data.nonVatBase != null)
+    ? money(data.nonVatBase)
+    : Math.max(0, Math.round((total - vatableBase - vatAmount - rounding) * 100) / 100);
+
+  var billIdCell = safeCell(billId);
+  var timeCell = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(data.dateTimeStr || "")
+    ? data.dateTimeStr : fmt(txDate, "yyyy-MM-dd HH:mm:ss");
+  var custCell  = safeCell(data.customerName);
+  var svcCell   = safeCell((Array.isArray(data.services) ? data.services : []).join(", "));
+  var staffCell = safeCell((Array.isArray(data.staffNames) ? data.staffNames : []).join(", "));
+
+  // แท็บที่ migrate ไม่ผ่าน (โครงสร้างแปลก) ยังเขียนแบบ 9 คอลัมน์เหมือนเดิม
+  // ดีกว่ายัด 13 ช่องลงไปแล้วทับข้อมูลผิดช่องทั้งแถว
+  var row = hasVat
+    ? [billIdCell, timeCell, custCell, svcCell, payText,
+       subtotal, discount, nonVatBase, vatableBase, vatAmount, rounding, total, staffCell]
+    : [billIdCell, timeCell, custCell, svcCell, payText,
+       subtotal, discount, total, staffCell];
+  var moneyCols = hasVat ? 7 : 3;   // ช่องเงินติดกันตั้งแต่คอลัมน์ 6
 
   // ค้นหาบิลเก่าที่มี ID เดียวกันเพื่อแก้ไข (Upsert)
   var lastRow = sheet.getLastRow();
@@ -382,13 +470,13 @@ function handleTransaction(data, ss) {
   if (foundRow > -1) {
     // อัปเดตแถวเดิม
     sheet.getRange(foundRow, 1, 1, row.length).setValues([row]);
-    sheet.getRange(foundRow, 6, 1, 3).setNumberFormat("#,##0.00");
+    sheet.getRange(foundRow, 6, 1, moneyCols).setNumberFormat("#,##0.00");
     return json("success", "อัปเดตข้อมูลบิลแล้ว", { billId: billId, sheet: monthYear, updated: true });
   } else {
     // เพิ่มแถวใหม่
     sheet.appendRow(row);
     var lr = sheet.getLastRow();
-    sheet.getRange(lr, 6, 1, 3).setNumberFormat("#,##0.00");
+    sheet.getRange(lr, 6, 1, moneyCols).setNumberFormat("#,##0.00");
     return json("success", "บันทึกบิลแล้ว", { billId: billId, sheet: monthYear, updated: false });
   }
 }

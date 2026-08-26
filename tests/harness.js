@@ -5,6 +5,7 @@ function makeEl(id){
   const el={ id, style:{cssText:'',display:''}, dataset:{}, children:[], value:'', innerHTML:'', innerText:'', textContent:'',
     classList:{ _s:new Set(), add(c){this._s.add(c)}, remove(c){this._s.delete(c)}, contains(c){return this._s.has(c)} },
     setAttribute(){}, getAttribute(){return null}, appendChild(c){this.children.push(c); return c},
+    reset(){}, submit(){},
     addEventListener(){}, removeEventListener(){}, remove(){}, click(){},
     querySelectorAll(){return []}, querySelector(){return null}, closest(){return null},
     scrollIntoView(){}, focus(){}, getContext(){return null} };
@@ -24,6 +25,7 @@ class Table{ constructor(){ this.m=new Map(); }
   async get(k){ return this.m.get(k); }
   async bulkPut(rows){ rows.forEach(r=>this.m.set(r.key,r)); }
   async put(r){ this.m.set(r.key,r); }
+  async delete(k){ this.m.delete(k); }
   async clear(){ this.m.clear(); }
   async toArray(){ return [...this.m.values()]; } }
 function Dexie(){ this.state=new Table(); this.version=()=>({stores:()=>({upgrade:()=>{}})}); this.open=async()=>{}; }

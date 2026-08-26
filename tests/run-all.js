@@ -12,7 +12,7 @@ const nodeRuntime = process.execPath;
 const childEnv = Object.assign({}, process.env, { TZ: process.env.TZ || 'Asia/Bangkok' });
 
 // ── เทสต์ตรรกะล้วน ไม่ต้องลงอะไรเพิ่ม รันได้เสมอ ──────────────────────────
-const files = ['test_app.js','test_gas.js','test_gas_summary.js','test_shift_variance.js','test_update_flow.js','test_vat.js','test_edge.js','test_e2e.js','test_calc.js','test_promptpay.js','test_flows.js','test_datekey.js','test_quote.js','test_fullday.js','test_print.js','test_perf.js','test_roles.js','verify.js'];
+const files = ['test_app.js','test_gas.js','test_gas_summary.js','test_shift_variance.js','test_update_flow.js','test_vat.js','test_edge.js','test_e2e.js','test_calc.js','test_promptpay.js','test_flows.js','test_datekey.js','test_quote.js','test_fullday.js','test_print.js','test_perf.js','test_roles.js','test_core.js','verify.js'];
 
 let bad = 0;
 const run = (f) => {

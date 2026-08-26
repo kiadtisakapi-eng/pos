@@ -119,7 +119,10 @@ app.fetchWithTimeout=async()=>({ ok:true, json:async()=>({status:'error',message
 saved=0; toasts.length=0;
 await doRestore('BAD','x');
 t('ไม่เขียนอะไรลง DB',()=>eq(saved,0));
-t('ขึ้น toast แจ้ง error',()=>ok(toasts.some(x=>x.ty==='error'&&/ไม่พบไฟล์/.test(x.m)),JSON.stringify(toasts)));
+// ข้อความจากชีตถูกแปลเป็นวิธีแก้แล้ว (explainCloudError) ไม่ใช่ส่งข้อความดิบมาโชว์
+t('ขึ้น toast แจ้ง error ที่บอกว่าต้องทำอะไรต่อ',()=>ok(
+  toasts.some(x=>x.ty==='error' && /ไม่อยู่ใน Drive แล้ว/.test(x.m) && /โหลดรายการใหม่/.test(x.m)),
+  JSON.stringify(toasts)));
 
 console.log('\n--- restore: ไฟล์ที่ได้มาไม่ใช่ backup ---');
 app.fetchWithTimeout=async()=>({ ok:true, json:async()=>({status:'success',details:{backupData:{foo:1}}}) });
@@ -158,6 +161,91 @@ t('เซฟตั้งค่าไม่สำเร็จ -> URL และ to
   eq(tokenInput.value,'B'.repeat(24));
 });
 app.saveState=async()=>{};
+
+console.log('\n--- แปลข้อความผิดพลาดจากชีตให้อ่านรู้เรื่อง (เพิ่ม ส.ค. 2569) ---');
+// 26 ส.ค. 2569 หน้ากู้ข้อมูลขึ้น "ไม่ได้รับอนุญาต (unauthorized)" ดิบ ๆ
+// ซึ่งบอกแค่ว่าพัง ไม่ได้บอกว่าต้องทำอะไร — เสียเวลาไปกับการไล่หาสาเหตุจริง
+const ex = (m) => app.explainCloudError(m);
+
+t('unauthorized -> บอกว่าไปตั้งรหัสใหม่ที่ไหน และให้รันฟังก์ชันอะไร', () => {
+  const m = ex('ไม่ได้รับอนุญาต (unauthorized)');
+  ok(/ตั้งค่า/.test(m) && /setupPosApiToken/.test(m), m);});
+t('unauthorized -> เตือนห้ามรัน rotatePosApiToken ด้วย', () =>
+  ok(/ห้ามรัน rotatePosApiToken/.test(ex('ไม่ได้รับอนุญาต (unauthorized)'))));
+t('ฝั่งชีตยังไม่ได้ตั้งรหัส -> บอกให้ไปรัน setupPosApiToken', () =>
+  ok(/setupPosApiToken/.test(ex('ยังไม่ได้ตั้งรหัสเชื่อมต่อ POS — ให้รัน setupPosApiToken() ใน Apps Script ก่อน'))));
+
+// เคสที่เดาเองไม่มีทางออก: Deploy เป็น "Only myself" -> Google ส่งหน้า HTML กลับมา
+// แล้ว res.json() พังเป็น "Unexpected token '<'" ซึ่งไม่มีอะไรบอกใบ้เลยว่าเกี่ยวกับการ Deploy
+t('JSON พัง (ได้หน้า HTML กลับมา) -> บอกว่าต้องตั้ง Who has access = Anyone', () =>
+  ok(/Anyone/.test(ex(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`))));
+t('HTTP 403 -> บอกว่าต้องตั้ง Who has access = Anyone', () => ok(/Anyone/.test(ex('HTTP 403'))));
+t('HTTP 401 -> บอกเรื่องสิทธิ์เข้าถึงเหมือนกัน', () => ok(/Anyone/.test(ex('HTTP 401'))));
+t('HTTP 404 -> บอกว่า URL อาจเปลี่ยนหลัง Deploy ใหม่', () => ok(/URL/.test(ex('HTTP 404'))));
+t('HTTP 500 -> บอกว่าเป็นฝั่ง Google และข้อมูลยังอยู่ครบ', () => {
+  const m = ex('HTTP 500'); ok(/Google/.test(m) && /ยังอยู่ครบ/.test(m), m);});
+t('ระบบหนาแน่น -> บอกให้รอแล้วลองใหม่', () => ok(/ลองใหม่/.test(ex('ระบบหนาแน่น กรุณาลองใหม่'))));
+t('หมดเวลารอ -> คงข้อความเดิมไว้ แล้วต่อท้ายว่าให้เช็คเน็ต', () => {
+  const m = ex('หมดเวลารอ 20 วินาที (เครือข่ายช้าหรือค้าง)');
+  ok(/หมดเวลารอ 20 วินาที/.test(m) && /เน็ต/.test(m), m);});
+t('ไม่พบไฟล์สำรอง -> บอกให้กดโหลดรายการใหม่', () =>
+  ok(/โหลดรายการใหม่/.test(ex('ไม่พบไฟล์นี้ในโฟลเดอร์สำรอง (อาจถูกลบไปแล้ว)'))));
+t('ยังไม่มีโฟลเดอร์สำรอง -> อธิบายว่าจะถูกสร้างเองหลังปิดกะ', () =>
+  ok(/ปิดกะ/.test(ex('ไม่พบโฟลเดอร์ Erotica_POS_Backups ใน Google Drive'))));
+
+// ข้อสำคัญที่สุด: ห้ามกลืนข้อความที่ไม่รู้จัก ไม่งั้นเวลาเจอปัญหาใหม่จะไม่เหลือเบาะแสอะไรเลย
+t('ข้อความที่ไม่รู้จัก -> ส่งกลับเหมือนเดิม ไม่กลืนหาย', () =>
+  eq(ex('อะไรบางอย่างที่ยังไม่เคยเจอ'), 'อะไรบางอย่างที่ยังไม่เคยเจอ'));
+t('รับ Error object ได้ ไม่ใช่แค่ string', () =>
+  ok(/setupPosApiToken/.test(ex(new Error('ไม่ได้รับอนุญาต (unauthorized)')))));
+t('ค่าว่าง -> ยังคืนข้อความที่อ่านรู้เรื่อง ไม่ใช่ค่าว่าง', () => ok(ex('').length > 10));
+t('null -> ไม่พัง', () => ok(ex(null).length > 10));
+
+console.log('\n--- ข้อความต้องถูกแปล "ตอนถึงหน้าจอจริง" ไม่ใช่แค่ตอนเรียกฟังก์ชันตรง ๆ ---');
+// เทสต์ชุดก่อนหน้าเรียก explainCloudError ตรง ๆ ซึ่งผ่านหมด
+// แต่ทางที่ error เดินจริงตอน fetch ล้มเอง (หมดเวลา / เน็ตหลุด / ได้ HTML กลับมา)
+// ไม่ได้วิ่งผ่านตัวแปลเลย — เทสต์เขียว แต่ผู้ใช้ยังเห็นข้อความดิบอยู่ดี
+// ชุดนี้จึงยิงผ่าน loadDriveBackups ของจริง แล้วอ่านสิ่งที่ขึ้นบนหน้าจอ
+app.currentRole='owner'; app.loadFailed=false;
+app.googleSheetsUrl='https://gas/exec'; app.googleSheetsApiToken='A'.repeat(24);
+const listEl = h.document.getElementById('restore-list');
+// ต้องดึงตัวจริงจาก prototype — ตัวบน instance ถูก stub ทิ้งไปตอนเทสต์ด่านสิทธิ์ด้านบน
+const realLoadDriveBackups = Object.getPrototypeOf(app).loadDriveBackups.bind(app);
+const shownOnScreen = async (fakeFetch) => { app.fetchWithTimeout = fakeFetch;
+  listEl.innerHTML=''; await realLoadDriveBackups(); return listEl.innerHTML; };
+
+const outTimeout = await shownOnScreen(async()=>{ throw new Error('หมดเวลารอ 20 วินาที (เครือข่ายช้าหรือค้าง)'); });
+t('หน้ากู้ข้อมูล + หมดเวลารอ -> บอกให้เช็คเน็ต และบอกว่าข้อมูลยังอยู่ครบ',()=>
+  ok(/เน็ต/.test(outTimeout) && /ยังอยู่ครบ/.test(outTimeout), outTimeout));
+
+const outHtml = await shownOnScreen(async()=>({ ok:true,
+  json:async()=>{ throw new SyntaxError(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`); } }));
+t('หน้ากู้ข้อมูล + ได้หน้า HTML กลับมา -> บอกว่าต้องตั้ง Who has access = Anyone',()=>
+  ok(/Anyone/.test(outHtml), outHtml));
+
+// เคสจริงที่เจอ 26 ส.ค. 2569
+const outUnauth = await shownOnScreen(async()=>({ ok:true,
+  json:async()=>({status:'error',message:'ไม่ได้รับอนุญาต (unauthorized)'}) }));
+t('หน้ากู้ข้อมูล + unauthorized -> บอกวิธีแก้ ไม่ใช่โยนคำว่า unauthorized ให้อ่านเอง',()=>
+  ok(/setupPosApiToken/.test(outUnauth) && /ตั้งค่า/.test(outUnauth), outUnauth));
+t('หน้ากู้ข้อมูล + unauthorized -> ต้องไม่เหลือคำดิบ "unauthorized" ให้เห็น',()=>
+  ok(!/unauthorized/i.test(outUnauth), outUnauth));
+
+const outHttp = await shownOnScreen(async()=>({ ok:false, status:403 }));
+t('หน้ากู้ข้อมูล + HTTP 403 -> บอกเรื่องสิทธิ์ตอน Deploy',()=>ok(/Anyone/.test(outHttp), outHttp));
+
+console.log('\n  · ทางสำรองข้อมูลตอนปิดกะ');
+toasts.length=0;
+app.fetchWithTimeout=async()=>{ throw new Error('หมดเวลารอ 30 วินาที (เครือข่ายช้าหรือค้าง)'); };
+await app.autoBackupToGoogleDrive();
+t('สำรองขึ้น Drive ล้มเหลว -> ข้อความบอกให้เช็คเน็ต ไม่ใช่ข้อความดิบ',()=>
+  ok(toasts.some(x=>x.ty==='error' && /เน็ต/.test(x.m)), JSON.stringify(toasts)));
+
+console.log('\n  · แปลซ้ำแล้วต้องได้ผลเดิม (ข้อความเดินผ่านตัวแปล 2 รอบ)');
+const once = app.explainCloudError('หมดเวลารอ 20 วินาที (เครือข่ายช้าหรือค้าง)');
+t('แปลรอบสองไม่ต่อหางซ้อน',()=>eq(app.explainCloudError(once), once));
+const onceU = app.explainCloudError('ไม่ได้รับอนุญาต (unauthorized)');
+t('unauthorized แปลซ้ำก็ได้ผลเดิม',()=>eq(app.explainCloudError(onceU), onceU));
 
 console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
 process.exit(fail?1:0);

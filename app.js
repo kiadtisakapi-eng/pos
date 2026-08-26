@@ -43,7 +43,7 @@ const CLOUD_API_TOKEN_MIN_LENGTH = 24;
 const BACKUP_SCHEMA_VERSION = 2;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.5.5 (2026-08-26)';
+const APP_VERSION = '1.5.6 (2026-08-27)';
 
 // ─────────────────────────────────────────────
 //  วันทำการ (Business Date) — ร้านเปิด 11:00 น. ถึงตี 3 ของวันถัดไป
@@ -855,6 +855,79 @@ class PosApp {
     return '';
   }
 
+  // ── แปลข้อความผิดพลาดจากฝั่งชีตให้คนหน้าร้านอ่านแล้วรู้ว่าต้องทำอะไร ──────
+  // เดิมเอาข้อความดิบจากเซิร์ฟเวอร์มาโชว์ตรง ๆ เช่น "ไม่ได้รับอนุญาต (unauthorized)"
+  // ซึ่งบอกแค่ว่า "พัง" ไม่ได้บอกว่าพังตรงไหนหรือแก้ยังไง — 26 ส.ค. 2569 เสียเวลาไปกับเรื่องนี้จริง
+  //
+  // กฎ: ข้อความที่รู้จักให้แปลเป็นวิธีแก้ · ข้อความที่ไม่รู้จักส่งกลับตามเดิม ห้ามกลืนหาย
+  // (ข้อความเต็มยังถูก console.error ไว้ทุกจุดอยู่แล้ว สำหรับตอนต้องไล่ปัญหาจริง)
+  explainCloudError(raw) {
+    const msg = String((raw && raw.message) || raw || '').trim();
+    if (!msg) return this._rememberExplained('เชื่อมต่อ Google Sheets ไม่สำเร็จ (ไม่มีรายละเอียดเพิ่มเติม)');
+    // ต้องแปลซ้ำแล้วได้ผลเดิม — ข้อความเดียวกันเดินผ่านตัวนี้ได้ 2 รอบ
+    // (รอบแรกตอนโยน error รอบสองตอนเอาไปแสดงบนหน้าจอ) ถ้าไม่กัน จะได้หางต่อท้ายซ้อนกัน
+    if (this._cloudErrorExplained && this._cloudErrorExplained.has(msg)) return msg;
+
+    // ── รหัสเชื่อมต่อ ──────────────────────────────────────────────
+    if (/unauthorized|ไม่ได้รับอนุญาต/i.test(msg)) {
+      return this._rememberExplained('รหัสเชื่อมต่อไม่ตรงกับ Apps Script — ไปตั้งใหม่ที่ ตั้งค่า → Google Sheets ' +
+             '(เปิด Apps Script รันฟังก์ชัน setupPosApiToken เพื่อดูรหัสที่ถูกต้อง · ห้ามรัน rotatePosApiToken)');
+    }
+    if (/ยังไม่ได้ตั้งรหัสเชื่อมต่อ/.test(msg)) {
+      return this._rememberExplained('ฝั่ง Apps Script ยังไม่ได้ตั้งรหัสเชื่อมต่อ — เปิด Apps Script รันฟังก์ชัน setupPosApiToken หนึ่งครั้ง แล้วเอารหัสที่ได้มาใส่ในหน้าตั้งค่า');
+    }
+
+    // ── Deploy ผิด (เจอบ่อยสุดตอนตั้งค่าครั้งแรก) ─────────────────────
+    // ตั้ง Who has access เป็น "Only myself" → Google ส่งหน้าล็อกอิน HTML กลับมา
+    // แล้ว res.json() พังเป็น "Unexpected token '<'" ซึ่งไม่มีทางเดาได้เลยว่าหมายถึงอะไร
+    if (/unexpected token|is not valid json|json\.parse|<!doctype|<html/i.test(msg)) {
+      return this._rememberExplained('ชีตตอบกลับมาไม่ใช่ข้อมูล (น่าจะเป็นหน้าล็อกอินของ Google) — ตอน Deploy Apps Script ต้องตั้ง Who has access = Anyone');
+    }
+    if (/HTTP (401|403)/.test(msg)) {
+      return this._rememberExplained('Apps Script ไม่ยอมให้เครื่องนี้เรียกใช้ — ตอน Deploy ต้องตั้ง Who has access = Anyone แล้วคัดลอก URL ใหม่มาใส่ในหน้าตั้งค่า');
+    }
+    if (/HTTP 404/.test(msg)) {
+      return this._rememberExplained('ไม่พบ URL นี้ — URL ของ Apps Script เปลี่ยนได้เมื่อ Deploy ใหม่ ให้คัดลอก URL ล่าสุดมาใส่ที่ ตั้งค่า → Google Sheets');
+    }
+    if (/HTTP 5\d\d/.test(msg)) {
+      return this._rememberExplained('ฝั่ง Google ขัดข้องชั่วคราว — รอสักครู่แล้วลองใหม่ ข้อมูลในเครื่องยังอยู่ครบ');
+    }
+
+    // ── ชีตทำงานไม่ทัน / เน็ต ──────────────────────────────────────
+    if (/ระบบหนาแน่น/.test(msg)) {
+      return this._rememberExplained('ชีตกำลังทำงานอื่นค้างอยู่ ยังรับคำขอใหม่ไม่ได้ — รอสักครู่แล้วลองใหม่');
+    }
+    if (/หมดเวลารอ/.test(msg)) {
+      return this._rememberExplained(msg + ' — เช็คสัญญาณเน็ตของร้าน · ข้อมูลในเครื่องยังอยู่ครบ ระบบจะส่งให้เองเมื่อเน็ตกลับมา');
+    }
+
+    // ── ข้อมูลที่ส่งไปมีปัญหา ──────────────────────────────────────
+    if (/ไม่พบข้อมูลที่ส่งมา/.test(msg)) {
+      return this._rememberExplained('คำขอไปถึงชีตแบบไม่มีข้อมูลติดไป — เน็ตน่าจะสะดุดกลางทาง ลองใหม่อีกครั้ง');
+    }
+    if (/เดือนของบิลไม่ถูกต้อง|เลขที่บิลไม่ถูกต้อง|ยอดเงินในบิล/.test(msg)) {
+      return this._rememberExplained(msg + ' — บิลใบนี้ส่งขึ้นชีตไม่ได้ ให้แจ้งผู้ดูแลระบบ · ยอดในเครื่องยังอยู่ครบ');
+    }
+
+    // ── ไฟล์สำรอง ────────────────────────────────────────────────
+    if (/ไม่พบโฟลเดอร์/.test(msg)) {
+      return this._rememberExplained('ยังไม่มีโฟลเดอร์สำรองใน Google Drive — โฟลเดอร์จะถูกสร้างอัตโนมัติหลังปิดกะครั้งแรกที่ซิงก์สำเร็จ');
+    }
+    if (/ไม่พบไฟล์นี้ในโฟลเดอร์สำรอง/.test(msg)) {
+      return this._rememberExplained('ไฟล์สำรองนี้ไม่อยู่ใน Drive แล้ว (อาจถูกลบไปหรือเก่าเกิน 90 วัน) — กดโหลดรายการใหม่แล้วเลือกไฟล์อื่น');
+    }
+
+    return msg; // ไม่รู้จัก — ส่งกลับตามเดิม ดีกว่าเดาแล้วบอกผิด
+  }
+
+  // จำข้อความที่แปลแล้วไว้ชุดเล็ก ๆ เพื่อกันแปลซ้ำซ้อน (ดูหมายเหตุใน explainCloudError)
+  _rememberExplained(out) {
+    if (!this._cloudErrorExplained) this._cloudErrorExplained = new Set();
+    if (this._cloudErrorExplained.size > 50) this._cloudErrorExplained.clear();
+    this._cloudErrorExplained.add(out);
+    return out;
+  }
+
   buildCloudRequest(action, data = {}) {
     return { secret: this.googleSheetsApiToken, action, ...data };
   }
@@ -912,7 +985,7 @@ class PosApp {
       }, 30000);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(this.explainCloudError(`HTTP ${response.status}`));
       }
 
       const result = await response.json();
@@ -921,11 +994,11 @@ class PosApp {
         console.log('Google Drive Backup success:', result.details);
         return true;
       } else {
-        throw new Error(result.message || 'คลาวด์แจ้งเตือนข้อผิดพลาด');
+        throw new Error(this.explainCloudError(result.message) || 'คลาวด์แจ้งเตือนข้อผิดพลาด');
       }
     } catch (err) {
       console.error('Auto backup failed:', err);
-      this.showToast('สำรองข้อมูลขึ้น Google Drive ล้มเหลว: ' + err.message, 'error');
+      this.showToast('สำรองข้อมูลขึ้น Google Drive ล้มเหลว: ' + this.explainCloudError(err), 'error', 8000);
       return false;
     }
   }
@@ -3236,18 +3309,18 @@ class PosApp {
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(this.explainCloudError(`HTTP ${response.status}`));
 
       const result = await response.json();
       if (result.status === 'success') {
         if (!isSilent) this.showToast('ส่งสรุปรายวันขึ้น Sheets สำเร็จ', 'success');
         return true;
       } else {
-        throw new Error(result.message || 'เซิร์ฟเวอร์รายงานข้อผิดพลาด');
+        throw new Error(this.explainCloudError(result.message) || 'เซิร์ฟเวอร์รายงานข้อผิดพลาด');
       }
     } catch (err) {
       console.error('Daily summary sync error:', err);
-      if (!isSilent) this.showToast('ส่งสรุปรายวันล้มเหลว: ' + err.message, 'error');
+      if (!isSilent) this.showToast('ส่งสรุปรายวันล้มเหลว: ' + this.explainCloudError(err), 'error', 8000);
       return false;
     }
   }
@@ -3279,18 +3352,18 @@ class PosApp {
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(this.explainCloudError(`HTTP ${response.status}`));
       
       const result = await response.json();
       if (result.status === 'success') {
         if (!isSilent) this.showToast('ส่งสรุปรายเดือนขึ้น Sheets สำเร็จ', 'success');
         return true;
       } else {
-        throw new Error(result.message || 'เซิร์ฟเวอร์รายงานข้อผิดพลาด');
+        throw new Error(this.explainCloudError(result.message) || 'เซิร์ฟเวอร์รายงานข้อผิดพลาด');
       }
     } catch (err) {
       console.error('Monthly summary sync error:', err);
-      if (!isSilent) this.showToast('ส่งสรุปรายเดือนล้มเหลว: ' + err.message, 'error');
+      if (!isSilent) this.showToast('ส่งสรุปรายเดือนล้มเหลว: ' + this.explainCloudError(err), 'error', 8000);
       return false;
     }
   }
@@ -3331,6 +3404,13 @@ class PosApp {
       services: tx.services,
       subtotal: tx.subtotal,
       discount: tx.discount,
+      // 4 ช่อง VAT ที่ล็อกไว้ตอนออกบิล — ชีตเอาไปลงคอลัมน์ให้แถวบวกลงตัว
+      // (ราคารวม − ส่วนลด = ไม่คิด VAT + คิด VAT · แล้ว + VAT + ปัดเศษ = ยอดสุทธิ)
+      // บิลรุ่นก่อนมี VAT ไม่มีฟิลด์พวกนี้ → JSON.stringify ตัดทิ้งเอง แล้วฝั่งชีตคำนวณย้อนให้
+      nonVatBase: tx.nonVatBase,
+      vatableBase: tx.vatableBase,
+      vatAmount: tx.vatAmount,
+      rounding: tx.rounding,
       total: tx.total,
       paymentMethod: tx.paymentMethod,
       staffNames: tx.staffNames
@@ -3345,22 +3425,22 @@ class PosApp {
         body: JSON.stringify(payload)
       });
     } catch (networkErr) {
-      throw new Error('เครือข่ายขัดข้อง: ' + networkErr.message);
+      throw new Error('เครือข่ายขัดข้อง: ' + this.explainCloudError(networkErr));
     }
 
     if (!response.ok) {
-      throw new Error(`GAS ตอบกลับ HTTP ${response.status}`);
+      throw new Error(this.explainCloudError(`HTTP ${response.status}`));
     }
 
     // ตรวจ response JSON ว่า status === 'success'
     try {
       const result = await response.json();
       if (result.status !== 'success') {
-        throw new Error(result.message || 'GAS รายงานข้อผิดพลาด');
+        throw new Error(this.explainCloudError(result.message) || 'GAS รายงานข้อผิดพลาด');
       }
     } catch (parseErr) {
       if (parseErr instanceof SyntaxError) {
-        throw new Error('เซิร์ฟเวอร์ไม่ได้ตอบกลับด้วยข้อมูล JSON ที่ถูกต้อง (กรุณาตรวจสอบการตั้งค่า URL Google Sheets Web App หรือสิทธิ์การเข้าใช้งาน)');
+        throw new Error(this.explainCloudError(parseErr));
       }
       throw parseErr;
     }
@@ -3641,7 +3721,9 @@ class PosApp {
     const raw = parseInt(input.value, 10);
     if (!Number.isFinite(raw)) return 0;                       // ช่องว่าง/พิมพ์ค้าง
     const qty = Math.max(0, Math.min(99999, Math.floor(raw))); // ไม่ติดลบ ไม่เกินจริง ไม่มีเศษ
-    if (qty !== raw) input.value = String(qty);
+    // เทียบเป็นข้อความ ไม่ใช่ตัวเลข — พิมพ์ "3.9" แล้ว parseInt ได้ 3 เท่ากับ qty พอดี
+    // เงื่อนไขแบบเทียบตัวเลขจึงไม่แก้ช่องให้ ผู้ใช้เห็น 3.9 ค้างอยู่ทั้งที่ระบบนับ 3
+    if (String(qty) !== String(input.value).trim()) input.value = String(qty);
     return qty;
   }
 
@@ -6081,9 +6163,9 @@ class PosApp {
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(this.buildCloudRequest('list_backups'))
       }, 20000);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(this.explainCloudError(`HTTP ${res.status}`));
       const d = await res.json();
-      if (d.status !== 'success') throw new Error(d.message || 'คลาวด์แจ้งข้อผิดพลาด');
+      if (d.status !== 'success') throw new Error(this.explainCloudError(d.message) || 'คลาวด์แจ้งข้อผิดพลาด');
 
       const files = (d.details && Array.isArray(d.details.files)) ? d.details.files : [];
       if (!files.length) {
@@ -6112,7 +6194,8 @@ class PosApp {
     } catch (err) {
       console.error('list backups failed', err);
       list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--danger,#f43f6a);">' +
-        'โหลดรายการไม่สำเร็จ<br><span style="font-size:0.8rem;">' + escapeHtml(err.message || String(err)) + '</span></div>';
+        'โหลดรายการไม่สำเร็จ<br><span style="font-size:0.8rem;line-height:1.5;">' +
+        escapeHtml(this.explainCloudError(err)) + '</span></div>';
     }
   }
 
@@ -6151,9 +6234,9 @@ class PosApp {
             headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify(this.buildCloudRequest('get_backup', { fileId }))
           }, 60000);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) throw new Error(this.explainCloudError(`HTTP ${res.status}`));
           const d = await res.json();
-          if (d.status !== 'success') throw new Error(d.message || 'คลาวด์แจ้งข้อผิดพลาด');
+          if (d.status !== 'success') throw new Error(this.explainCloudError(d.message) || 'คลาวด์แจ้งข้อผิดพลาด');
 
           const parsed = d.details && d.details.backupData;
           if (!this.isValidBackupObject(parsed)) {
@@ -6180,7 +6263,7 @@ class PosApp {
         } catch (err) {
           console.error('restore failed', err);
           // ข้อมูลเดิมยังอยู่ครบ — applyBackupData ยังไม่ถูกเรียกถ้าพังก่อนถึงขั้นนั้น
-          this.showToast('กู้ข้อมูลไม่สำเร็จ: ' + (err.message || err) + ' (ข้อมูลเดิมในเครื่องยังอยู่ครบ)', 'error', 7000);
+          this.showToast('กู้ข้อมูลไม่สำเร็จ: ' + this.explainCloudError(err) + ' (ข้อมูลเดิมในเครื่องยังอยู่ครบ)', 'error', 9000);
         } finally {
           this.restoreBusy = false;
         }
