@@ -138,16 +138,34 @@ function doPost(e) {
 
     var ss   = SpreadsheetApp.getActiveSpreadsheet();
 
-    // action: "transaction" (default) | "summary_day" | "summary_month" | "void_transaction"
-    var action = data.action || "transaction";
+    // ── คำสั่งต้องอยู่ในรายการที่รองรับเท่านั้น ─────────────────────────────
+    // เดิมทุกค่าที่ไม่ตรงเงื่อนไขไหนเลย "ตกลงมา" เป็น handleTransaction
+    // แปลว่าพิมพ์ชื่อคำสั่งผิดตัวเดียว (เช่น "summary_monthh" หรือมีช่องว่างติดท้าย)
+    // แล้วถ้าข้อมูลบิลครบพอ ระบบจะบันทึกเป็นบิลจริงลงชีตให้เงียบ ๆ ทั้งที่แอปคิดว่าสั่งอย่างอื่นอยู่
+    //
+    // แยกสองกรณีให้ชัด:
+    //   ไม่ได้ส่ง action มาเลย = client รุ่นเก่าก่อนมีระบบ action → ตั้งใจรองรับ ให้เป็น transaction
+    //   ส่งค่าที่ไม่รู้จักมา     = พิมพ์ผิดหรือคนละรุ่นกัน → ปฏิเสธ ไม่แตะข้อมูลอะไรทั้งนั้น
+    var action = (data.action === undefined || data.action === null || data.action === "")
+      ? "transaction"
+      : String(data.action);
 
-    if (action === "summary_day")   return handleDailySummary(data, ss);
-    if (action === "summary_month") return handleMonthlySummary(data, ss);
-    if (action === "backup")        return handleBackup(data, ss);
-    if (action === "list_backups")  return handleListBackups();
-    if (action === "get_backup")    return handleGetBackup(data);
-    if (action === "void_transaction") return handleVoidTransaction(data, ss);
-    return handleTransaction(data, ss);
+    var ACTION_HANDLERS = {
+      "transaction":      function () { return handleTransaction(data, ss); },
+      "summary_day":      function () { return handleDailySummary(data, ss); },
+      "summary_month":    function () { return handleMonthlySummary(data, ss); },
+      "backup":           function () { return handleBackup(data, ss); },
+      "list_backups":     function () { return handleListBackups(); },
+      "get_backup":       function () { return handleGetBackup(data); },
+      "void_transaction": function () { return handleVoidTransaction(data, ss); },
+      "list_bills":       function () { return handleListBills(data, ss); }
+    };
+    if (!Object.prototype.hasOwnProperty.call(ACTION_HANDLERS, action)) {
+      return json("error",
+        "คำสั่งที่ไม่รู้จัก (" + action + ") — ตรวจว่าแอปกับ Apps Script เป็นรุ่นเดียวกัน",
+        null, "INVALID_ACTION");
+    }
+    return ACTION_HANDLERS[action]();
 
   } catch (err) {
     return json("error", "ข้อผิดพลาด: " + err.toString());
@@ -345,6 +363,48 @@ function handleGetBackup(data) {
 // ── แท็บบิลนี้เป็นโครง 13 คอลัมน์ (มีช่อง VAT) แล้วหรือยัง ────────────────
 // เทียบตำแหน่งต่อตำแหน่งกับ BILL_HEADERS ไม่ใช่แค่ "มีคำนี้อยู่ที่ไหนสักที่"
 // เพราะถ้าลำดับเพี้ยน การเขียนแถว 13 ช่องลงไปจะทับข้อมูลผิดช่องทั้งแถว
+// ── แท็บบิลนี้เป็นโครงสร้างอะไร: 'vat' (13 คอลัมน์) · 'legacy' (9 คอลัมน์) · null (ไม่รู้จัก) ──
+//
+// ⚠️ เดิมโค้ดใช้ตรรกะ "ถ้าไม่ใช่ 13 คอลัมน์ ก็เขียนแบบ 9 คอลัมน์ไปเลย"
+// ซึ่งแปลว่าแท็บที่หัวตารางถูกสลับ/แทรกคอลัมน์กลางตาราง/ลบหัวทิ้ง จะถูกเขียนทับ
+// ด้วยค่า 9 ช่องลงคอลัมน์ 1-9 แล้วข้อมูลไปอยู่ผิดช่องทั้งแถว (เช่น "ยอดสุทธิ" ไปลงช่อง "ไม่คิด VAT")
+// แล้วยังตอบ success กลับไปให้แอปด้วย — ผิดแบบเงียบสนิท ไม่มีใครรู้จนกว่าจะไปเปิดชีตดูเอง
+//
+// กฎใหม่: ต้องตรงกับโครงที่รู้จัก "เป๊ะ" อย่างใดอย่างหนึ่งเท่านั้น นอกนั้นไม่แตะ
+// การตรวจโครงหนึ่งไม่ผ่าน ไม่ใช่เหตุผลให้เดาว่าเป็นอีกโครงหนึ่ง
+// แท็บนี้ยังว่างสนิทไหม — ว่าง = ไม่มีแถวข้อมูล และแถวหัวก็ไม่มีตัวอักษรอะไรเลย
+// เกิดได้เมื่อมีคนไปสร้างแท็บชื่อเดือนไว้ล่วงหน้าเองแต่ไม่ได้ใส่หัวตาราง
+// แท็บแบบนี้ไม่มีข้อมูลอะไรให้เสียหาย จึงเติมหัวตารางให้แล้วใช้ต่อได้เลย
+// (ต่างจากแท็บที่มีหัวแปลก ๆ หรือ migrate ค้างกลางคัน — พวกนั้นต้องหยุดจริง ๆ)
+function billSheetIsBlank_(sheet) {
+  if (sheet.getLastRow() > 1) return false;   // มีแถวข้อมูลแล้ว ห้ามเขียนหัวทับ
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return true;
+  var h = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  for (var i = 0; i < h.length; i++) {
+    if (String(h[i] || "").trim() !== "") return false;
+  }
+  return true;
+}
+
+function billSheetSchema_(sheet) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return null;
+  var h = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  var matches = function (headers) {
+    if (lastCol < headers.length) return false;
+    for (var i = 0; i < headers.length; i++) {
+      if (String(h[i] || "").trim() !== headers[i]) return false;
+    }
+    return true;
+  };
+  // ตรวจโครงปัจจุบันก่อนเสมอ — สองโครงนี้ชนกันไม่ได้อยู่แล้ว (ช่องที่ 8 คนละชื่อ)
+  // คอลัมน์ที่งอกต่อท้าย (เช่นคนไปเติมช่องโน้ตเอง) ไม่ถือว่าผิด เพราะเราเขียนแค่ช่อง 1-13
+  if (matches(BILL_HEADERS)) return "vat";
+  if (matches(BILL_LEGACY_HEADERS)) return "legacy";
+  return null;
+}
+
 function billSheetHasVatColumns_(sheet) {
   var lastCol = sheet.getLastColumn();
   if (lastCol < BILL_HEADERS.length) return false;
@@ -392,10 +452,18 @@ function migrateBillSheetAddVatColumns_(sheet) {
   }
 }
 
+// ── กฎเลขที่บิล — ต้องใช้ตัวเดียวกันทั้งตอนบันทึกและตอนยกเลิก ──────────────
+// ถ้าสองทางใช้กฎคนละชุด จะมี ID ที่ "บันทึกไม่ได้แต่สั่งลบได้" หรือกลับกัน
+// ซึ่งเป็นช่องที่ทำให้คำสั่งลบไปโดนแถวที่ไม่ได้ตั้งใจ
+var BILL_ID_RE = /^[A-Za-z0-9_-]{6,160}$/;
+function readBillId_(v) {
+  return String(v == null ? "" : v).trim();
+}
+
 function handleTransaction(data, ss) {
-  var billId = String(data.id || "").trim();
-  if (!/^[A-Za-z0-9_-]{6,160}$/.test(billId)) {
-    return json("error", "เลขที่บิลไม่ถูกต้อง");
+  var billId = readBillId_(data.id);
+  if (!BILL_ID_RE.test(billId)) {
+    return json("error", "เลขที่บิลไม่ถูกต้อง", null, "INVALID_BILL_ID");
   }
   var subtotal, discount, total;
   try {
@@ -406,7 +474,61 @@ function handleTransaction(data, ss) {
     return json("error", "ยอดเงินในบิลไม่ถูกต้อง: " + err.toString());
   }
   if (subtotal < 0 || discount < 0 || discount > subtotal || total < 0) {
-    return json("error", "ยอดเงินในบิลอยู่นอกช่วงที่ยอมรับได้");
+    return json("error", "ยอดเงินในบิลอยู่นอกช่วงที่ยอมรับได้", null, "INVALID_AMOUNT");
+  }
+
+  // ── ช่องทางชำระเงินต้องเป็นค่าที่ระบบรองรับ ────────────────────────────
+  if (!isKnownPayment_(data.paymentMethod)) {
+    return json("error",
+      "ช่องทางชำระเงินไม่ถูกต้อง (" + String(data.paymentMethod) + ") — ไม่บันทึกเพื่อกันยอดเงินสดในชีตไม่ตรงกับลิ้นชัก",
+      null, "INVALID_PAYMENT");
+  }
+
+  // ── ฟิลด์ VAT: แยก "ไม่ได้ส่งมา" (บิลเก่า) ออกจาก "ส่งมาแต่ใช้ไม่ได้" ────
+  // เดิมใช้ Number(v) แล้วถ้าไม่ใช่ตัวเลขก็กลายเป็น 0 เงียบ ๆ
+  // บิลที่ vatAmount เสียจึงถูกบันทึกเป็น VAT 0 บาท = ยอดที่ยื่นสรรพากรขาดโดยไม่มีใครรู้
+  var vatFields = ["nonVatBase", "vatableBase", "vatAmount", "rounding"];
+  for (var vi = 0; vi < vatFields.length; vi++) {
+    var vk = vatFields[vi], vv = data[vk];
+    if (vv === undefined || vv === null) continue;            // บิลรุ่นก่อน VAT — ปกติ
+    var vn = Number(vv);
+    if (!isFinite(vn) || vn < 0) {
+      return json("error", "ช่อง " + vk + " ในบิลใช้ไม่ได้ (" + String(vv) + ")", null, "INVALID_AMOUNT");
+    }
+  }
+
+  // ── สมการยอดต้องลงตัว คิดเป็นสตางค์จำนวนเต็ม ───────────────────────────
+  //   ราคารวม − ส่วนลด          = ไม่คิด VAT + คิด VAT
+  //   ไม่คิด VAT + คิด VAT + VAT + ปัดเศษ = ยอดสุทธิ
+  // ตรวจเฉพาะบิลที่ "ส่งฟิลด์ VAT มาครบ" — บิลเก่าที่ไม่มีฟิลด์เหล่านี้คำนวณย้อนให้ด้านล่างอยู่แล้ว
+  var sat_ = function (v) { return Math.round((Number(v) || 0) * 100); };
+
+  // ⚠️ "ส่งมาบางฟิลด์" ไม่ใช่บิลเก่า — บิลเก่าคือบิลที่ไม่มีฟิลด์ VAT เลยสักตัว
+  // เดิมตรวจสมการเฉพาะตอนมีทั้ง nonVatBase และ vatableBase ครบ
+  // คนที่ส่ง nonVatBase มาอย่างเดียวจึงข้ามการตรวจไปได้ทั้งที่ยอดผิดชัด ๆ
+  var vatPresent = 0;
+  for (var vp = 0; vp < vatFields.length; vp++) if (data[vatFields[vp]] != null) vatPresent++;
+  if (vatPresent > 0 && vatPresent < vatFields.length) {
+    return json("error",
+      "บิลส่งฟิลด์ VAT มาไม่ครบ (" + vatPresent + " จาก " + vatFields.length + ") — " +
+      "บิลรุ่นก่อน VAT ต้องไม่มีฟิลด์เหล่านี้เลย ส่วนบิลที่คิด VAT ต้องส่งครบทุกช่องเพื่อให้ตรวจยอดได้",
+      null, "INVALID_AMOUNT");
+  }
+
+  if (data.nonVatBase != null && data.vatableBase != null) {
+    var lhs = sat_(subtotal) - sat_(discount);
+    var rhs = sat_(data.nonVatBase) + sat_(data.vatableBase);
+    if (lhs !== rhs) {
+      return json("error",
+        "ยอดในบิลบวกไม่ลงตัว: ราคารวม−ส่วนลด (" + (lhs / 100) + ") ไม่เท่ากับ ไม่คิดVAT+คิดVAT (" + (rhs / 100) + ")",
+        null, "INVALID_AMOUNT");
+    }
+    var sumAll = rhs + sat_(data.vatAmount) + sat_(data.rounding);
+    if (sumAll !== sat_(total)) {
+      return json("error",
+        "ยอดสุทธิไม่ตรงกับผลรวม: ได้ " + (sumAll / 100) + " แต่บิลบอก " + total,
+        null, "INVALID_AMOUNT");
+    }
   }
 
   var txDate = (data.date) ? new Date(data.date) : new Date();
@@ -422,7 +544,77 @@ function handleTransaction(data, ss) {
   var sheet = getOrCreateSheet(ss, monthYear, BILL_HEADERS, "#1e293b");
   // แท็บที่สร้างไว้ก่อนหน้านี้ยังเป็นโครง 9 คอลัมน์ — เติมช่อง VAT ให้ก่อนเขียนแถว
   migrateBillSheetAddVatColumns_(sheet);
-  var hasVat = billSheetHasVatColumns_(sheet);
+
+  // ── ด่านสุดท้ายก่อนแตะข้อมูล: โครงสร้างต้องเป็นแบบที่รู้จักเท่านั้น ──────
+  // ถ้าไม่รู้จัก ให้หยุดแล้วบอกตรง ๆ ดีกว่าเดาแล้วเขียนลงผิดช่อง
+  // บิลไม่หาย — ฝั่งแอปเก็บไว้เป็น "ยังไม่ซิงก์" แล้วส่งใหม่เองหลังแก้หัวตารางเสร็จ
+  var schema = billSheetSchema_(sheet);
+  if (!schema && billSheetIsBlank_(sheet)) {
+    // แท็บว่างสนิท — เติมหัวตารางให้แล้วไปต่อ ดีกว่าปฏิเสธจนบิลค้างทั้งเดือนโดยไม่มีเหตุผล
+    styleHeaderRow(sheet, 1, BILL_HEADERS, "#1e293b", "white");
+    sheet.setFrozenRows(1);
+    schema = billSheetSchema_(sheet);
+  }
+  if (!schema) {
+    return json("error",
+      "โครงสร้างคอลัมน์ของแท็บ " + monthYear + " ไม่ตรงกับที่ระบบรู้จัก — ยังไม่ได้บันทึกบิลใบนี้ " +
+      "เพื่อกันข้อมูลลงผิดช่อง ให้ตรวจหัวตารางแถวแรกของแท็บนี้ว่าถูกแก้ไข/สลับ/แทรกคอลัมน์หรือเปล่า",
+      null, "SCHEMA_MISMATCH");
+  }
+  var hasVat = (schema === "vat");
+
+  // ⚠️ ด่านนี้ต้องอยู่ "ก่อนเขียนแถว" แต่ต้องอยู่ "หลัง" ด่านตรวจรูปแบบทุกด่าน
+  // ไม่งั้นบิลที่ผิดรูปแบบอยู่แล้ว (หัวตารางเพี้ยน/ยอดไม่ลงตัว/ช่องทางจ่ายไม่รู้จัก)
+  // จะได้ error เรื่องทะเบียนแทนเหตุผลจริง แล้วเจ้าของไล่ปัญหาผิดทาง
+  // ── บิลที่ถูกยกเลิกไปแล้ว ห้ามกลับขึ้นชีตอีก ────────────────────────
+  // คำขอที่ client หมดเวลารอไปแล้วยังเดินทางมาถึงได้ ปลายทางจึงต้องเป็นคนตัดสินใจสุดท้าย
+  // ฝั่งแอปต้องถือว่านี่คือสถานะสุดท้าย ไม่ใช่ข้อผิดพลาดชั่วคราวที่ต้องลองใหม่
+  var voidedRegistry;
+  try {
+    voidedRegistry = readVoidedBillsStrict_();
+  } catch (regErr) {
+    // ⚠️ อ่านทะเบียนไม่ได้ = "ไม่รู้" ว่าบิลนี้ถูกยกเลิกไปแล้วหรือยัง
+    // เดิมกลืน error แล้วถือว่าไม่มีทะเบียน → บิลที่ยกเลิกแล้วกลับขึ้นชีตเงียบ ๆ
+    // ปฏิเสธไว้ก่อนปลอดภัยกว่ามาก: บิลยังอยู่ในเครื่องครบ แอปวนส่งใหม่ให้เอง
+    // และไอคอน "ค้างซิงก์" ฟ้องให้เจ้าของเห็น ไม่ใช่ผิดเงียบแบบเดิม
+    Logger.log("readVoidedBills failed: " + regErr);
+    return json("error",
+      "ตรวจทะเบียนบิลที่ยกเลิกไม่ได้ชั่วคราว จึงยังไม่บันทึกบิลใบนี้ — ระบบจะลองใหม่ให้เอง",
+      { billId: billId }, "REGISTRY_UNAVAILABLE");
+  }
+  // ── เจตนา "คืนบิล" ต้องพิสูจน์ได้ว่าเกิด **หลัง** การยกเลิก ────────────
+  // ⚠️ เดิมใช้ธง allowVoidedRestore เปล่า ๆ ซึ่งติดกับบิลถาวรฝั่งแอป
+  // คำขอเก่าที่ค้างในเน็ตตั้งแต่ก่อน void ก็พกธงนี้มาด้วย ปลายทางจึงแยกไม่ออก
+  // restoredAt กับ voidedAt มาจากนาฬิกาเครื่องขายเครื่องเดียวกัน เทียบกันได้ตรง ๆ
+  var lastEvent = billEventAt_(voidedRegistry, billId);
+  var intentionalRestore = false;
+  // เหตุการณ์ล่าสุดเป็น "กู้คืน" = บิลใบนี้มีชีวิตอยู่บนชีต แก้ไข/ส่งซ้ำได้ตามปกติ
+  if (lastEvent && lastEvent.type === "voided") {
+    var voidedAt = lastEvent.at;
+    var restoredAt = Number(data.restoredAt);
+    intentionalRestore = (data.allowVoidedRestore === true) && isFinite(restoredAt) &&
+                         restoredAt > voidedAt;
+    if (!intentionalRestore) {
+      // ⚠️ ส่ง voidedAt กลับไปด้วย — ไม่ใช่การเปิดช่อง แต่เป็นทางออกจากทางตัน
+      // ถ้านาฬิกาเครื่องขายถูกตั้งย้อนหลังระหว่าง "ยกเลิก" กับ "กู้ข้อมูล"
+      // restoredAt จะเก่ากว่าเสมอ แล้วบิลใบนั้นจะคืนขึ้นชีตไม่ได้อีกเลยจนกว่าทะเบียนจะหมดอายุ 90 วัน
+      // คำขอที่ค้างมาจากอดีต "ปรับตัวไม่ได้" อยู่แล้ว การป้องกันจึงยังอยู่ครบ
+      // ส่วนแอปตัวจริงที่ได้รับคำตอบนี้ คือฝ่ายที่มีเจตนาคืนบิลจริง ๆ
+      return json("error",
+        "บิลเลขที่ " + billId + " ถูกยกเลิกไปแล้ว จึงไม่บันทึกซ้ำ (คำขอนี้น่าจะค้างมาจากก่อนการยกเลิก)",
+        { billId: billId, voidedAt: Number(voidedAt) || 0 }, "ALREADY_VOIDED");
+    }
+    // ⚠️ บันทึกสถานะกู้คืน **ก่อน** เขียนแถว ด้วยเหตุผลเดียวกับที่ลงทะเบียนยกเลิกก่อนลบแถว
+    // ถ้าเขียนแถวก่อนแล้วบันทึกทะเบียนไม่ได้ จะได้สภาพ "บิลอยู่บนชีตแต่ทะเบียนบอกว่าถูกยกเลิก"
+    // ซึ่งเปิดทางให้คำสั่งยกเลิกเก่ากลับมาลบบิลนั้นได้อีก
+    // ลำดับนี้ปลอดภัย เพราะถ้าเขียนแถวพลาดทีหลัง แอปจะส่งซ้ำแล้วรอบหน้าผ่านเป็น upsert ปกติ
+    if (!markBillRestored_(billId, Number(data.restoredAt))) {
+      return json("error",
+        "บันทึกสถานะกู้คืนบิลไม่สำเร็จ จึงยังไม่เขียนแถว — ระบบจะลองใหม่ให้เอง",
+        { billId: billId }, "RESTORE_REGISTRY_FAILED");
+    }
+  }
+
 
   var payText = payLabel(data.paymentMethod);
 
@@ -445,8 +637,8 @@ function handleTransaction(data, ss) {
   var svcCell   = safeCell((Array.isArray(data.services) ? data.services : []).join(", "));
   var staffCell = safeCell((Array.isArray(data.staffNames) ? data.staffNames : []).join(", "));
 
-  // แท็บที่ migrate ไม่ผ่าน (โครงสร้างแปลก) ยังเขียนแบบ 9 คอลัมน์เหมือนเดิม
-  // ดีกว่ายัด 13 ช่องลงไปแล้วทับข้อมูลผิดช่องทั้งแถว
+  // ถึงตรงนี้ได้แปลว่าโครงสร้างถูกตรวจแล้วว่าตรงเป๊ะกับแบบใดแบบหนึ่ง
+  // 'legacy' คือแท็บเก่า 9 คอลัมน์ที่ยืนยันแล้วว่าหัวตารางตรงจริง ไม่ใช่ "เดาว่าน่าจะเป็น"
   var row = hasVat
     ? [billIdCell, timeCell, custCell, svcCell, payText,
        subtotal, discount, nonVatBase, vatableBase, vatAmount, rounding, total, staffCell]
@@ -460,7 +652,8 @@ function handleTransaction(data, ss) {
   if (lastRow > 1) {
     var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
     for (var i = 0; i < ids.length; i++) {
-      if (ids[i][0] === billId) {
+      // ใช้กฎเทียบเดียวกับตอน void — ถ้าสองทางเทียบไม่เหมือนกัน จะมีบิลที่ "แก้ได้แต่ลบไม่ได้"
+      if (readBillId_(ids[i][0]) === billId) {
         foundRow = i + 2;
         break;
       }
@@ -471,6 +664,8 @@ function handleTransaction(data, ss) {
     // อัปเดตแถวเดิม
     sheet.getRange(foundRow, 1, 1, row.length).setValues([row]);
     sheet.getRange(foundRow, 6, 1, moneyCols).setNumberFormat("#,##0.00");
+    // บิลกลับขึ้นชีตแล้วโดยตั้งใจ → ถอนออกจากทะเบียน ไม่งั้นการแก้บิลใบนี้ครั้งถัดไป
+    // (ซึ่งไม่มี restoredAt ติดมาแล้ว) จะโดนปฏิเสธ ALREADY_VOIDED ค้างไปตลอด
     return json("success", "อัปเดตข้อมูลบิลแล้ว", { billId: billId, sheet: monthYear, updated: true });
   } else {
     // เพิ่มแถวใหม่
@@ -482,9 +677,165 @@ function handleTransaction(data, ss) {
 }
 
 // ─────────────────────────────────────────────
+//  LIST BILLS — อ่านรายการบิลของแท็บเดือนหนึ่ง (อ่านอย่างเดียว ไม่แก้อะไรทั้งสิ้น)
+// ─────────────────────────────────────────────
+// ใช้โดยหน้า "ตรวจความตรงกันกับชีต" ฝั่งแอป
+// ⚠️ จำเป็นเพราะการกู้ข้อมูลจากไฟล์เก่าเปลี่ยน "ในเครื่อง" ทั้งก้อน แต่บนชีตทำได้แค่ upsert
+// ของที่อยู่ในไฟล์ บิลที่ขายหลังวันสำรองจึงยังอยู่บนชีตทั้งที่ในเครื่องไม่มีแล้ว
+// เจ้าของต้องเห็นรายการต่างก่อน แล้วเป็นคนตัดสินใจเองว่าจะลบใบไหน — ระบบไม่ลบให้เอง
+var LIST_BILLS_MAX = 5000;
+
+function handleListBills(data, ss) {
+  var monthYear = String(data.monthKey == null ? "" : data.monthKey);
+  if (!isValidMonthKey_(monthYear))
+    return json("error", "เดือนไม่ถูกต้อง (" + monthYear + ")", null, "INVALID_MONTH");
+
+  var sheet = ss.getSheetByName(monthYear);
+  if (!sheet)
+    return json("success", "ยังไม่มีแท็บของเดือนนี้", { sheet: monthYear, exists: false, bills: [], truncated: false });
+
+  var schema = billSheetSchema_(sheet);
+  if (!schema) {
+    if (billSheetIsBlank_(sheet))
+      return json("success", "แท็บเดือนนี้ยังว่าง", { sheet: monthYear, exists: true, bills: [], truncated: false });
+    return json("error",
+      "โครงสร้างคอลัมน์ของแท็บ " + monthYear + " ไม่ตรงกับที่ระบบรู้จัก จึงอ่านรายการไม่ได้",
+      null, "SCHEMA_MISMATCH");
+  }
+
+  var width    = (schema === "vat") ? BILL_HEADERS.length : BILL_LEGACY_HEADERS.length;
+  var totalCol = (schema === "vat") ? 12 : 8;    // ตำแหน่ง "ยอดสุทธิ (฿)" ของแต่ละโครงสร้าง
+  var lastRow  = sheet.getLastRow();
+  var bills = [], truncated = false;
+  if (lastRow > 1) {
+    var values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+    for (var i = 0; i < values.length; i++) {
+      var id = readBillId_(values[i][0]);
+      if (!id) continue;                       // แถวว่าง/แถวคั่น ไม่ใช่บิล
+      if (bills.length >= LIST_BILLS_MAX) { truncated = true; break; }
+      bills.push({
+        id: id,
+        // ⚠️ แถวบนชีตแก้ด้วยมือได้ เลขที่บิลจึงไม่การันตีรูปแบบเหมือน ID ที่ระบบสร้าง
+        // บอกฝั่งแอปไปตรง ๆ ว่าใบไหนสั่งงานต่อไม่ได้ แทนที่จะซ่อนแถวนั้นทิ้ง
+        // (ซ่อน = เจ้าของไม่มีวันรู้ว่ามีแถวแปลกอยู่บนชีต)
+        idOk: BILL_ID_RE.test(id),
+        when: String(values[i][1] == null ? "" : values[i][1]),
+        customer: String(values[i][2] == null ? "" : values[i][2]),
+        total: Number(values[i][totalCol - 1]) || 0
+      });
+    }
+  }
+  return json("success", "อ่านรายการบิลแล้ว",
+    { sheet: monthYear, exists: true, bills: bills, truncated: truncated });
+}
+
+// ─────────────────────────────────────────────
 //  VOID TRANSACTION — ลบบิลรายการ
 // ─────────────────────────────────────────────
+// เก็บใน Script Properties — อยู่ข้ามการรันและไม่ต้องเพิ่มแท็บใหม่ในไฟล์ของร้าน
+// เก็บเป็นแผนที่ billId → เวลาที่ยกเลิก และตัดตัวที่เก่ากว่า 90 วันทิ้งเพื่อไม่ให้โตไม่จำกัด
+// 90 วันยาวกว่าอายุคำขอที่ค้างในเน็ตมหาศาล แต่สั้นพอให้ขนาดข้อมูลคงที่
+var VOIDED_BILLS_PROPERTY = "POS_VOIDED_BILLS";
+var VOIDED_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+// ⚠️ เพดานจริงของ Apps Script คือ **9 KB ต่อค่า property หนึ่งค่า** (500 KB เป็นของทั้ง store)
+// เดิมยัดทุก ID ลง JSON ค่าเดียวโดยจำกัดแค่ "อายุ 90 วัน" ไม่จำกัดจำนวน
+// พอชนเพดาน setProperty จะ throw แล้วโค้ดเดิมกลืน error ทิ้ง → ตอบว่ายกเลิกสำเร็จ
+// ทั้งที่การกันคำขอย้อนหลังหายไปแล้ว บิลที่ยกเลิกจึงกลับขึ้นชีตได้แบบไม่มีใครรู้
+// ตอนนี้ตัดของเก่าออกให้อยู่ในงบ "ก่อน" เขียนเสมอ แล้วอ่านกลับมายืนยันว่าเขียนติดจริง
+var VOIDED_BUDGET_BYTES = 8000;
+
+// อ่านแบบไม่กลืน error — ผู้เรียกต้องตัดสินใจเองว่าจะทำอย่างไรเมื่ออ่านไม่ได้
+function readVoidedBillsStrict_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(VOIDED_BILLS_PROPERTY);
+  if (!raw) return {};
+  var obj = JSON.parse(raw);
+  return (obj && typeof obj === "object" && !Array.isArray(obj)) ? obj : {};
+}
+
+function readVoidedBills_() {
+  try { return readVoidedBillsStrict_(); } catch (err) { return {}; }
+}
+
+// ตัดทะเบียนให้อยู่ในงบ: หมดอายุก่อน แล้วค่อยตัด "ตัวเก่าสุด" ทีละตัวจนขนาดพอดี
+// ⚠️ เทียบอายุกับรายการใหม่สุดในทะเบียน ไม่ใช่นาฬิกาของ Google
+// เพราะค่าที่เก็บคือเวลาจากนาฬิกาเครื่องขาย (ต้องเทียบกับ restoredAt ที่มาจากนาฬิกาเดียวกัน)
+// ถ้าเอาไปเทียบกับนาฬิกาคนละเรือน วันที่เพี้ยนนิดเดียวก็ล้างทะเบียนทิ้งทั้งชุดได้
+// ค่าที่เก็บเป็นเลขมีเครื่องหมาย: **บวก = ยกเลิกเมื่อ v** · **ลบ = กู้คืนเมื่อ |v|**
+// ⚠️ เดิมพอกู้บิลสำเร็จแล้ว "ลบทะเบียนทิ้ง" ซึ่งแปลว่าไม่เหลือหลักฐานว่ามีการกู้เกิดขึ้นตอนไหน
+// คำสั่งยกเลิกใบเดิม (voidedAt เก่า) ที่ถูกส่งซ้ำ/มาถึงทีหลัง จึงลบบิลที่เพิ่งกู้คืนได้
+// การเก็บเวลาของการกู้ไว้ด้วย ทำให้เทียบลำดับได้ทั้งสองทิศทาง โดยไม่ต้องใช้ธงถาวรที่ทำให้บิลค้าง
+function billEventAt_(map, billId) {
+  var raw = Number(map[billId]);
+  if (!isFinite(raw) || raw === 0) return null;
+  return raw > 0 ? { type: "voided", at: raw } : { type: "restored", at: -raw };
+}
+
+function trimVoidedBills_(map) {
+  var keys = Object.keys(map), i, newest = 0, v;
+  for (i = 0; i < keys.length; i++) { v = Math.abs(Number(map[keys[i]]) || 0); if (v > newest) newest = v; }
+  for (i = 0; i < keys.length; i++) {
+    if (newest - Math.abs(Number(map[keys[i]]) || 0) > VOIDED_RETENTION_MS) delete map[keys[i]];
+  }
+  keys = Object.keys(map);
+  keys.sort(function (a, b) { return Math.abs(Number(map[a]) || 0) - Math.abs(Number(map[b]) || 0); });   // เก่า → ใหม่
+  var idx = 0;
+  while (idx < keys.length && JSON.stringify(map).length > VOIDED_BUDGET_BYTES) {
+    delete map[keys[idx]];
+    idx++;
+  }
+  return map;
+}
+
+// คืน true เมื่อ "ยืนยันได้ว่าทะเบียนถูกบันทึกจริง" เท่านั้น
+function markBillVoided_(billId, clientTs) {
+  try {
+    var map = readVoidedBillsStrict_();
+    var ts = Number(clientTs);
+    if (!isFinite(ts) || ts <= 0) ts = Date.now();   // client รุ่นเก่าไม่ส่งเวลามา
+    map[billId] = ts;
+    trimVoidedBills_(map);
+    if (map[billId] === undefined) return false;     // ตัวเองโดนตัด = งบเล็กเกินกว่าจะรับ
+    PropertiesService.getScriptProperties().setProperty(VOIDED_BILLS_PROPERTY, JSON.stringify(map));
+    return readVoidedBillsStrict_()[billId] !== undefined;   // อ่านกลับมายืนยัน
+  } catch (err) {
+    Logger.log("markBillVoided_ failed: " + err);
+    return false;
+  }
+}
+
+// ใช้ตอนกู้ข้อมูล/คืนบิลโดยตั้งใจ
+// ⚠️ ห้าม "ลบทะเบียนทิ้ง" — ต้องบันทึกว่ากู้คืนเมื่อไหร่ (เก็บเป็นค่าติดลบ)
+// ไม่งั้นคำสั่งยกเลิกเก่าที่มาถึงทีหลังจะลบบิลที่เพิ่งกู้คืนได้ โดยไม่มีอะไรบอกว่ามันเก่า
+// คืน true เมื่อ "ยืนยันได้ว่าบันทึกสถานะกู้คืนลงทะเบียนจริง" เท่านั้น (กติกาเดียวกับ markBillVoided_)
+// ⚠️ เดิมกลืน error แล้วปล่อยให้ตอบว่าบันทึกบิลสำเร็จ ผลคือแถวกลับขึ้นชีตแล้ว
+// แต่ทะเบียนยังบอกว่า "ถูกยกเลิกเมื่อ T" → คำสั่งยกเลิกเก่า (voidedAt = T) ลบบิลที่เพิ่งกู้ได้อีก
+// และการแก้บิลใบนี้ครั้งถัดไปจะโดน ALREADY_VOIDED ค้าง โดยแอปเข้าใจว่าซิงก์สำเร็จไปแล้ว
+function markBillRestored_(billId, restoredAt) {
+  try {
+    var map = readVoidedBillsStrict_();
+    var ts = Number(restoredAt);
+    if (!isFinite(ts) || ts <= 0) ts = Date.now();
+    map[billId] = -ts;
+    trimVoidedBills_(map);
+    if (map[billId] === undefined) return false;
+    PropertiesService.getScriptProperties().setProperty(VOIDED_BILLS_PROPERTY, JSON.stringify(map));
+    return Number(readVoidedBillsStrict_()[billId]) < 0;   // อ่านกลับมายืนยัน
+  } catch (err) {
+    Logger.log("markBillRestored_ failed: " + err);
+    return false;
+  }
+}
+
 function handleVoidTransaction(data, ss) {
+  // ⚠️ ตรวจเลขที่บิลให้จบก่อนแตะชีตใด ๆ
+  // เดิมเทียบ ids[i][0] === data.id ตรง ๆ โดยไม่ตรวจอะไรเลย
+  // ถ้า data.id เป็น "" (หรือหายไป) มันจะไป "ตรงกับ" ช่องเลขที่บิลที่ว่างของแถวไหนก็ได้
+  // แล้วสั่ง deleteRow ทั้งแถวนั้นทิ้ง ทั้งที่แถวนั้นอาจมีข้อมูลบิลอื่นอยู่ครบ
+  var billId = readBillId_(data.id);
+  if (!BILL_ID_RE.test(billId)) {
+    return json("error", "เลขที่บิลไม่ถูกต้อง — ไม่ได้ลบอะไรทั้งสิ้น", null, "INVALID_BILL_ID");
+  }
+
   var txDate = (data.date) ? new Date(data.date) : new Date();
   if (isNaN(txDate.getTime())) {
     txDate = new Date();
@@ -494,6 +845,35 @@ function handleVoidTransaction(data, ss) {
   // กันบิลที่วันที่หายไปแล้วกลายเป็นปี 1970 — จะได้แท็บ "01-1970" ค้างอยู่ในไฟล์ถาวร
   if (!isValidMonthKey_(monthYear))
     return json("error", "เดือนของบิลไม่ถูกต้อง (" + monthYear + ") — ตรวจสอบวันที่ของบิลใบนี้");
+  // ⚠️ ลงทะเบียนก่อนแตะชีตเสมอ — แม้จะไม่พบแท็บหรือไม่พบแถว
+  // เพราะคำขอ "บันทึกบิล" ที่ยังลอยอยู่ในเน็ตอาจมาถึงทีหลังและสร้างแถวขึ้นมาใหม่
+  //
+  // ⚠️ ยืนยันไม่ได้ = ห้ามลบแถวและห้ามตอบว่าสำเร็จ
+  // เดิมกลืน error แล้วลบแถวต่อ ผลคือ "ลบสำเร็จแต่ไม่มีทะเบียน" ซึ่งเป็นสภาพที่แย่ที่สุด:
+  // แถวหายจากชีตแล้ว และคำขอบันทึกเก่าที่มาถึงทีหลังสร้างแถวคืนได้โดยไม่มีอะไรกัน
+  // คืน error ให้แอปเก็บงานไว้ retry แทน — งานลบยังอยู่ใน outbox ไม่หายไปไหน
+  // ⚠️ คำสั่งยกเลิกใบเดิมที่ถูกส่งซ้ำ/มาถึงหลังการกู้คืน ต้องไม่ลบบิลที่เพิ่งกู้กลับมา
+  // (พิสูจน์แล้ว: void ที่ T → กู้คืนที่ T+1000 → ส่ง void ใบเดิมซ้ำ → บิลหายจากชีต)
+  // ยกเลิก "ใหม่" หลังการกู้ยังทำได้ตามปกติ เพราะเวลาของมันใหม่กว่าเวลาที่กู้
+  // ⚠️ กติกาคือ "ต้องพิสูจน์ได้ว่าใหม่กว่าการกู้คืน" ไม่ใช่ "ไม่พิสูจน์ว่าเก่ากว่า"
+  // งานลบที่ค้างในคิวมาตั้งแต่ก่อนอัปเดต (rebuildCloudOutboxFromBackup ใส่ voidedAt = 0)
+  // ไม่มีเวลาให้เทียบเลย ถ้าปล่อยผ่านมันจะลบบิลที่เพิ่งกู้คืนได้เหมือนเดิม = รูเดิมยังเปิดอยู่
+  // ปฏิเสธไว้ปลอดภัยกว่า เพราะ "ไม่ลบ" ย้อนกลับได้ด้วยการกดยกเลิกใหม่ ส่วน "ลบผิด" ย้อนไม่ได้
+  var lastVoidEvent = billEventAt_(readVoidedBills_(), billId);
+  var incomingVoidAt = Number(data.voidedAt);
+  if (lastVoidEvent && lastVoidEvent.type === "restored" &&
+      !(isFinite(incomingVoidAt) && incomingVoidAt > lastVoidEvent.at)) {
+    return json("error",
+      "คำสั่งยกเลิกนี้พิสูจน์ไม่ได้ว่าใหม่กว่าการกู้คืนบิล จึงไม่ลบแถว",
+      { billId: billId, restoredAt: lastVoidEvent.at }, "VOID_SUPERSEDED_BY_RESTORE");
+  }
+
+  if (!markBillVoided_(billId, data.voidedAt)) {
+    return json("error",
+      "บันทึกทะเบียนบิลที่ยกเลิกไม่สำเร็จ จึงยังไม่ลบแถวใดทั้งสิ้น — ระบบจะลองใหม่ให้เอง",
+      { billId: billId }, "VOID_REGISTRY_FAILED");
+  }
+
   var sheet = ss.getSheetByName(monthYear);
   if (!sheet) {
     // ไม่มีแท็บเดือนนี้ = ไม่เคยมีแถวให้ลบตั้งแต่แรก ปลายทางถือว่า "ลบแล้ว"
@@ -505,7 +885,9 @@ function handleVoidTransaction(data, ss) {
   if (lastRow > 1) {
     var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
     for (var i = 0; i < ids.length; i++) {
-      if (ids[i][0] === data.id) {
+      // เทียบค่าที่ตัดช่องว่างหัวท้ายแล้วทั้งสองฝั่ง — ช่องว่างที่มองไม่เห็นในชีต
+      // ไม่ควรทำให้ "ลบไม่โดน" แล้วแอปวนลองใหม่ไปเรื่อย ๆ
+      if (readBillId_(ids[i][0]) === billId) {
         foundRow = i + 2;
         break;
       }
@@ -514,10 +896,10 @@ function handleVoidTransaction(data, ss) {
 
   if (foundRow > -1) {
     sheet.deleteRow(foundRow);
-    return json("success", "ลบบิลออกจาก Sheets แล้ว", { billId: data.id });
+    return json("success", "ลบบิลออกจาก Sheets แล้ว", { billId: billId });
   } else {
     // ไม่มีแถวนี้แล้ว = ลบไปก่อนหน้าแล้ว ฝั่งแอปต้องถือว่าสำเร็จ ไม่ใช่วนลองใหม่ตลอดกาล
-    return json("error", "ไม่พบบิลเลขที่ " + data.id + " ใน Sheets", null, "NOT_FOUND");
+    return json("error", "ไม่พบบิลเลขที่ " + billId + " ใน Sheets", null, "NOT_FOUND");
   }
 }
 
@@ -541,6 +923,51 @@ function isValidMonthKey_(k) {
   return y >= 2020 && y <= 2100 && m >= 1 && m <= 12;
 }
 
+// ─────────────────────────────────────────────
+//  รหัสรุ่นของชีตสรุป — กันคำขอเก่าทับข้อมูลใหม่
+// ─────────────────────────────────────────────
+// ⚠️ ชีตสรุปถูก "เขียนทับทั้งแท็บ" ทุกครั้ง จึงไม่มีอะไรบอกได้เลยว่าคำขอที่เพิ่งมาถึง
+// เป็นของใหม่หรือเป็นคำขอเก่าที่ client หมดเวลารอไปแล้วแต่ยังเดินทางมาถึงทีหลัง
+// เคสจริง: ส่งยอด 300 → แก้เป็น 400 → คำขอ 300 timeout → ส่ง 400 สำเร็จ → คำขอ 300 มาถึง
+//          ชีตกลับไปเป็น 300 ทั้งที่ในเครื่องเป็น 400 และคิวว่างแล้ว ไม่มีอะไรมาแก้ให้อีก
+// เก็บเวลาที่ "เครื่องขาย" สร้างชุดข้อมูลไว้ในเซลล์นอกพื้นที่รายงาน แล้วปฏิเสธคำขอที่เก่ากว่า
+// เซลล์หายหรืออ่านไม่ได้ = ถือว่าไม่มีรุ่นเดิม (ปล่อยผ่าน) เพราะกันไม่ได้ดีกว่าสรุปส่งไม่ขึ้นเลย
+var SUMMARY_STAMP_ROW = 1;
+var SUMMARY_STAMP_COL = 26;   // Z1 — นอกพื้นที่รายงาน (รายงานใช้ A–E)
+
+function readSummaryStamp_(ss, sheetName) {
+  try {
+    var sh = ss.getSheetByName(sheetName);
+    if (!sh) return 0;
+    var v = sh.getRange(SUMMARY_STAMP_ROW, SUMMARY_STAMP_COL, 1, 1).getValues()[0][0];
+    var n = Number(v);
+    return (isFinite(n) && n > 0) ? n : 0;
+  } catch (err) { return 0; }
+}
+
+function checkSummaryStale_(ss, sheetName, data) {
+  var incoming = Number(data.generatedAt);
+  if (!isFinite(incoming) || incoming <= 0) return null;   // client รุ่นเก่าไม่ส่งมา — พฤติกรรมเดิม
+  var stored = readSummaryStamp_(ss, sheetName);
+  if (stored > 0 && incoming <= stored) {
+    return json("error",
+      "คำขอสรุปนี้เก่ากว่าข้อมูลที่อยู่บนชีตแล้ว จึงไม่เขียนทับ (กันยอดเก่าทับยอดใหม่)",
+      { sheet: sheetName, storedAt: stored }, "STALE_SUMMARY");
+  }
+  return null;
+}
+
+function writeSummaryStamp_(sheet, data) {
+  try {
+    var n = Number(data.generatedAt);
+    if (!isFinite(n) || n <= 0) return;
+    sheet.getRange(SUMMARY_STAMP_ROW, SUMMARY_STAMP_COL - 1, 1, 2)
+      .setValues([["รหัสรุ่นข้อมูล (ระบบใช้กันยอดเก่าทับยอดใหม่ — ห้ามแก้/ห้ามลบ)", n]]);
+    // ซ่อนไว้ไม่ให้รกสายตาเจ้าของ — ถ้าเมธอดนี้ไม่มี (ชีตจำลองในเทสต์) ก็แค่ไม่ซ่อน ไม่ใช่ข้อผิดพลาด
+    try { sheet.hideColumns(SUMMARY_STAMP_COL - 1, 2); } catch (hideErr) {}
+  } catch (err) { Logger.log("writeSummaryStamp_ failed: " + err); }
+}
+
 function handleDailySummary(data, ss) {
   var dateKey   = data.dateKey;          // "2026-06-06"
   if (!isValidDateKey_(dateKey))
@@ -551,6 +978,8 @@ function handleDailySummary(data, ss) {
     return json("error", "ข้อมูลสรุปรายวันไม่ถูกต้อง: " + err.toString());
   }
   var sheetName = "สรุป-" + dateKey;
+  var staleDay = checkSummaryStale_(ss, sheetName, data);
+  if (staleDay) return staleDay;
   replaceSummarySheet_(ss, sheetName, data, "รายวัน: " + dateKey, "day", dateKey);
   pruneOldDailySheets(ss, DAILY_SHEET_RETENTION_DAYS);
   pruneOrphanSwapSheets_(ss);
@@ -571,6 +1000,8 @@ function handleMonthlySummary(data, ss) {
     return json("error", "ข้อมูลสรุปรายเดือนไม่ถูกต้อง: " + err.toString());
   }
   var sheetName = "สรุป-" + monthKey;
+  var staleMonth = checkSummaryStale_(ss, sheetName, data);
+  if (staleMonth) return staleMonth;
   replaceSummarySheet_(ss, sheetName, data, "รายเดือน: " + monthKey, "month", monthKey);
   pruneOrphanSwapSheets_(ss);
 
@@ -615,6 +1046,7 @@ function replaceSummarySheet_(ss, sheetName, data, periodLabel, periodType, peri
 
   try {
     writeSummarySheet(staging, data, periodLabel);
+    writeSummaryStamp_(staging, data);   // รุ่นของข้อมูลชุดนี้ ติดไปกับแท็บที่กำลังจะกลายเป็นตัวจริง
     updateMasterSummarySheet(ss, data, periodType, periodKey);
   } catch (err) {
     try { ss.deleteSheet(staging); } catch (cleanupErr) {}
@@ -854,7 +1286,13 @@ function writeSummarySheet(sheet, data, periodLabel) {
     vcats.forEach(function(c) {
       sheet.getRange(r,1).setValue(safeCell(c.name || "-")).setBackground("#FAEEDA").setFontColor("#412402");
       sheet.getRange(r,2).setValue(Number(c.base)||0).setBackground("#FAEEDA").setFontColor("#412402").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
-      sheet.getRange(r,3).setValue((Number(data.vatRate)||0) + "%").setBackground("#FAEEDA").setFontColor("#412402").setHorizontalAlignment("center");
+      // อัตราต้องอ่านจาก "แถวนั้น" ก่อน (c.rate) — งวดที่มีหลายอัตราจะมีหลายแถว แต่ละแถวคนละอัตรา
+      // เดิมพิมพ์ data.vatRate ทับทุกแถว ทำให้งวดที่อัตราเปลี่ยนกลางทางแสดงอัตราเดียวผิด ๆ ทั้งตาราง
+      // payload จากแอปรุ่นเก่าไม่มี c.rate → ถอยไปใช้อัตราระดับงวดเหมือนเดิม (ถูกต้องเมื่อมีอัตราเดียว)
+      var rowRate = (c.rate === undefined || c.rate === null || c.rate === "")
+        ? (Number(data.vatRate) || 0)
+        : (Number(c.rate) || 0);
+      sheet.getRange(r,3).setValue(rowRate + "%").setBackground("#FAEEDA").setFontColor("#412402").setHorizontalAlignment("center");
       sheet.getRange(r,4).setValue(Number(c.vat)||0).setBackground("#FAEEDA").setFontColor("#412402").setNumberFormat("#,##0.00").setFontWeight("bold").setHorizontalAlignment("right");
       r++;
     });
@@ -1232,10 +1670,18 @@ function numFmt(n) {
   return (n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+// ⚠️ เดิมช่องทางที่ไม่รู้จัก "อะไรก็ตาม" ถูกแปลงเป็น "เงินสด" เงียบ ๆ
+// ผลคือบิลที่ส่งช่องทางผิดมาจะถูกบันทึกเป็นเงินสด แล้วยอดเงินสดในชีตไม่ตรงกับลิ้นชักจริง
+// ตอนนี้แยกเป็นสองอย่าง: แปลงเฉพาะค่าที่รองรับ · ค่าที่ไม่รู้จักให้ผู้เรียกปฏิเสธไปเลย
+var PAYMENT_LABELS = { cash: "เงินสด", promptpay: "Scan (QR)", credit: "Credit Card" };
+function isKnownPayment_(method) {
+  // บิลรุ่นเก่ามากที่ไม่ส่งช่องทางมาเลย ยังถือว่าเป็นเงินสดตามเดิม (ค่าตั้งต้นของระบบ)
+  if (method === undefined || method === null || method === "") return true;
+  return Object.prototype.hasOwnProperty.call(PAYMENT_LABELS, String(method));
+}
 function payLabel(method) {
-  if (method === "promptpay") return "Scan (QR)";
-  if (method === "credit")    return "Credit Card";
-  return "เงินสด";
+  if (method === undefined || method === null || method === "") return PAYMENT_LABELS.cash;
+  return PAYMENT_LABELS[String(method)] || PAYMENT_LABELS.cash;
 }
 
 // กัน Google Sheets Formula Injection — ถ้าข้อความขึ้นต้นด้วย = + - @ ให้เติม ' นำหน้า

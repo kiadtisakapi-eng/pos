@@ -42,7 +42,15 @@ app.state.cloudOutbox=[{needSummary:true}];
 app.shopLogo='';
 await app.applyBackupData(goodBackup());
 t('บันทึกลง DB 1 ครั้ง',()=>eq(saved,1));
-t('cloudOutbox ถูกล้าง',()=>eq(app.state.cloudOutbox,[]));
+// ⚠️ เปลี่ยนพฤติกรรมโดยตั้งใจ (ชุด D · ก.ย. 2569)
+// เดิม: กู้ข้อมูลแล้วล้าง outbox ทิ้งทั้งหมด
+// ผลคือแถวบิลบนชีตกลับเป็นค่าที่กู้มา แต่ "สรุปวัน/เดือน" ยังค้างเป็นค่าเก่า ไม่มีใครไปแก้
+// ใหม่: ล้างงานของข้อมูลชุดเก่า แต่เติมงานรีเฟรชสรุปของงวดที่ได้รับผลจากการกู้
+t('outbox หลังกู้: ไม่มีงานของข้อมูลชุดเก่าหลงเหลือ',()=>{
+  eq(app.state.cloudOutbox.filter(x=>x.needTelegram||x.needVoidDelete).length,0);});
+t('outbox หลังกู้: มีงานรีเฟรชสรุปของงวดที่ได้รับผล',()=>{
+  const sum=app.state.cloudOutbox.filter(x=>x.needSummary);
+  eq(sum.length,1); ok(sum[0].dateKeys.length>0,'ไม่มีงวดให้รีเฟรช');});
 t('voidLog เข้ามาครบ',()=>eq(app.state.voidLog.length,1));
 t('shift.history ที่พังถูกซ่อมเป็น []',()=>eq(app.state.shift.history,[]));
 t('shift.expenses null ถูกซ่อมเป็น []',()=>eq(app.state.shift.expenses,[]));
@@ -73,9 +81,23 @@ let resumedTx=0,resumedOutbox=0;
 app.googleSheetsUrl='https://gas/exec'; app.googleSheetsApiToken='A'.repeat(24);
 app.syncPendingTransactions=(silent)=>{if(silent)resumedTx++;};
 app.flushCloudOutbox=()=>{resumedOutbox++;};
-app.resumePendingCloudWork();
+// ตอนนี้ resumePendingCloudWork รอให้ส่งบิลจบก่อนค่อยยิง outbox จึงต้อง await ผลก่อนตรวจ
+await app.resumePendingCloudWork();
 t('เปิดแอป/เน็ตกลับ -> ส่งบิลและ outbox ที่ค้าง',()=>{eq(resumedTx,1);eq(resumedOutbox,1);});
-app.googleSheetsApiToken=''; app.resumePendingCloudWork();
+// ลำดับต้องเป็น "บิลก่อน outbox" เสมอ — ถ้าสลับ คำขอลบบิลอาจไปถึงก่อนคำขอบันทึก แล้วบิลที่ยกเลิกจะโผล่กลับบนชีต
+let order=[];
+app.syncPendingTransactions=async()=>{ await new Promise(r=>setTimeout(r,5)); order.push('tx'); };
+app.flushCloudOutbox=async()=>{ order.push('outbox'); };
+await app.resumePendingCloudWork();
+t('ส่งบิลให้จบก่อนค่อยยิง outbox (กันบิลที่ void แล้วกลับมา)',()=>eq(order,['tx','outbox']));
+// การส่งบิลล้มเหลวต้องไม่ทำให้งาน outbox ค้างตามไปด้วย
+order=[];
+app.syncPendingTransactions=async()=>{ throw new Error('เน็ตหลุด'); };
+await app.resumePendingCloudWork();
+t('ส่งบิลล้มเหลว -> outbox ยังได้ทำงานต่อ',()=>eq(order,['outbox']));
+app.syncPendingTransactions=(silent)=>{if(silent)resumedTx++;};
+app.flushCloudOutbox=()=>{resumedOutbox++;};
+app.googleSheetsApiToken=''; await app.resumePendingCloudWork();
 t('ไม่มีรหัสคลาวด์ -> ไม่พยายามส่ง',()=>{eq(resumedTx,1);eq(resumedOutbox,1);});
 
 console.log('\n--- คิวสรุประหว่างตั้งค่า token ---');
@@ -104,7 +126,9 @@ app.loadFailed=false;
 
 console.log('\n--- restoreFromDriveBackup ---');
 let sentBody=null;
-app.fetchWithTimeout=async(url,opt)=>{ sentBody=JSON.parse(opt.body);
+// ชุด F: หลังกู้ข้อมูลสำเร็จ แอปจะชวน "ตรวจความตรงกันกับชีต" ซึ่งยิง list_bills ตามหลัง
+// คำขอนั้นไม่ใช่สิ่งที่บล็อกนี้ตรวจ จึงไม่ให้มันทับ sentBody
+app.fetchWithTimeout=async(url,opt)=>{ const _b=JSON.parse(opt.body); if(_b.action!=='list_bills') sentBody=_b;
   return { ok:true, json:async()=>({status:'success',details:{fileName:'pos_backup_a.json',backupData:goodBackup()}}) }; };
 app._exported=0; saved=0;
 await doRestore('FILEID123','27/7/2569 21:40 น.');

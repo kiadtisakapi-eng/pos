@@ -368,11 +368,83 @@ ctx.handleTransaction({ ...vatBill('TX-ALLVAT'), subtotal:100, discount:0,
 bg = sheets['08-2026']._grid;
 t('0 ต้องถูกเก็บเป็น 0 ไม่ใช่ถูกคำนวณย้อนทับ',()=>eq(bg[1].slice(7,12),[0,100,7,0,107]));
 
-console.log('\n  · แท็บที่ migrate ไม่ผ่าน ต้องยังเขียนแบบเดิมได้');
+// ⚠️ เปลี่ยนพฤติกรรมโดยตั้งใจ (ชุด B · ก.ย. 2569)
+// เดิม: โครงสร้างที่ไม่รู้จัก -> fallback ไปเขียน 9 ช่อง + ตอบ success
+//       ผลคือแท็บที่หัวตารางถูกสลับ/แทรกคอลัมน์ จะได้ข้อมูลลงผิดช่องทั้งแถวแบบเงียบ ๆ
+// ใหม่: ต้องตรงกับโครงที่รู้จักเป๊ะเท่านั้น นอกนั้นหยุด ไม่แตะข้อมูล และตอบ SCHEMA_MISMATCH
+console.log('\n  · แท็บที่โครงสร้างไม่ตรง ต้องหยุด ไม่ใช่เดาแล้วเขียน');
 sheets={'08-2026':FakeSheet(["เลขที่บิล","ลูกค้า"],[])};
 res = JSON.parse(ctx.handleTransaction(vatBill('TX-ODD'), mkSS(sheets)));
-t('โครงสร้างแปลก -> ยังบันทึกได้ ไม่ล้ม',()=>eq(res.status,'success'));
-t('โครงสร้างแปลก -> เขียนแบบ 9 คอลัมน์เดิม ไม่ยัด 13 ช่องทับ',()=>eq(sheets['08-2026']._grid[1].length,9));
+t('โครงสร้างไม่รู้จัก -> ตอบ SCHEMA_MISMATCH ไม่ใช่ success',()=>{
+  eq(res.status,'error'); eq(res.code,'SCHEMA_MISMATCH');});
+t('โครงสร้างไม่รู้จัก -> ต้องไม่เขียนแถวใหม่เลย',()=>eq(sheets['08-2026']._grid.length,1));
+
+console.log('\n  · แท็บเก่า 9 คอลัมน์แท้ ๆ ต้องยังทำงานได้ (นี่คือเคสที่ fallback เดิมพยายามปกป้อง)');
+sheets={'08-2026':FakeSheet(BILL_OLD,[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-LEGACY'), mkSS(sheets)));
+t('แท็บ 9 คอลัมน์ -> migrate เป็น 13 แล้วบันทึกสำเร็จ',()=>eq(res.status,'success'));
+t('หัวตารางกลายเป็นชุดใหม่ครบ',()=>eq(sheets['08-2026']._grid[0].slice(0,13),BILL_NEW));
+
+console.log('\n  · หัวตารางถูกแก้แบบต่าง ๆ ต้องหยุดทุกแบบ');
+// สลับตำแหน่ง 2 คอลัมน์
+let swapped = BILL_NEW.slice(); swapped[2]=BILL_NEW[3]; swapped[3]=BILL_NEW[2];
+sheets={'08-2026':FakeSheet(swapped,[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-SWAP'), mkSS(sheets)));
+t('สลับคอลัมน์ -> SCHEMA_MISMATCH และไม่เขียน',()=>{
+  eq(res.code,'SCHEMA_MISMATCH'); eq(sheets['08-2026']._grid.length,1);});
+// แทรกคอลัมน์กลางตาราง
+let inserted = BILL_NEW.slice(); inserted.splice(4,0,'คอลัมน์ที่เพิ่งเพิ่ม');
+sheets={'08-2026':FakeSheet(inserted,[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-INS'), mkSS(sheets)));
+t('แทรกคอลัมน์กลางตาราง -> SCHEMA_MISMATCH และไม่เขียน',()=>{
+  eq(res.code,'SCHEMA_MISMATCH'); eq(sheets['08-2026']._grid.length,1);});
+// ลบหัวคอลัมน์ทิ้ง
+let blanked = BILL_NEW.slice(); blanked[9]='';
+sheets={'08-2026':FakeSheet(blanked,[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-BLANK'), mkSS(sheets)));
+t('หัวคอลัมน์หายไปหนึ่งช่อง -> SCHEMA_MISMATCH และไม่เขียน',()=>{
+  eq(res.code,'SCHEMA_MISMATCH'); eq(sheets['08-2026']._grid.length,1);});
+// หัวซ้ำ
+let dup = BILL_NEW.slice(); dup[10]=BILL_NEW[9];
+sheets={'08-2026':FakeSheet(dup,[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-DUP'), mkSS(sheets)));
+t('หัวคอลัมน์ซ้ำ -> SCHEMA_MISMATCH และไม่เขียน',()=>{
+  eq(res.code,'SCHEMA_MISMATCH'); eq(sheets['08-2026']._grid.length,1);});
+
+console.log('\n  · แท็บว่างสนิท (คนสร้างแท็บชื่อเดือนไว้เองแต่ไม่ใส่หัว) ต้องเติมหัวให้แล้วไปต่อ');
+sheets={'08-2026':FakeSheet([],[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-BLANKTAB'), mkSS(sheets)));
+t('แท็บว่างเปล่า -> เติมหัวตารางแล้วบันทึกได้ ไม่ใช่ปฏิเสธจนบิลค้าง',()=>eq(res.status,'success'));
+t('หัวตารางที่เติมให้เป็นชุด 13 คอลัมน์',()=>eq(sheets['08-2026']._grid[0].slice(0,13),BILL_NEW));
+sheets={'08-2026':FakeSheet(['','',''],[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-EMPTYHEAD'), mkSS(sheets)));
+t('แท็บที่มีแต่หัวว่าง -> เติมหัวแล้วบันทึกได้',()=>eq(res.status,'success'));
+
+console.log('\n  · แต่ถ้ามีข้อมูลอยู่แล้ว ห้ามเขียนหัวทับเด็ดขาด');
+sheets={'08-2026':FakeSheet(['','',''],[['ข้อมูลของใครไม่รู้','อย่าทับ','นะ']])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-HASDATA'), mkSS(sheets)));
+t('หัวว่างแต่มีแถวข้อมูล -> SCHEMA_MISMATCH ไม่แตะ',()=>eq(res.code,'SCHEMA_MISMATCH'));
+t('ข้อมูลเดิมยังอยู่ครบ ไม่ถูกหัวตารางเขียนทับ',()=>
+  eq(sheets['08-2026']._grid[1],['ข้อมูลของใครไม่รู้','อย่าทับ','นะ']));
+
+console.log('\n  · migrate ค้างกลางคัน (หัว VAT ไม่ครบ 4 ช่อง) — เคสที่ต้องหยุดจริง');
+sheets={'08-2026':FakeSheet(['เลขที่บิล','วันที่-เวลา','ลูกค้า','รายการบริการ','ช่องทางชำระเงิน',
+  'ราคารวม (฿)','ส่วนลด (฿)','ไม่คิด VAT (฿)','คิด VAT (฿)','ยอดสุทธิ (฿)','พนักงาน'],[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-HALF'), mkSS(sheets)));
+t('หัว VAT ครบบ้างไม่ครบบ้าง -> SCHEMA_MISMATCH ไม่เดาเขียน',()=>{
+  eq(res.code,'SCHEMA_MISMATCH'); eq(sheets['08-2026']._grid.length,1);});
+
+console.log('\n  · หัวที่มีช่องว่างนำหน้า/ตามหลัง ต้องยังอ่านออก (คนก๊อปวางมาบ่อย)');
+sheets={'08-2026':FakeSheet(BILL_NEW.map((x,i)=>i===3?'  '+x+' ':x),[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-PAD'), mkSS(sheets)));
+t('หัวมีช่องว่างหัวท้าย -> ยังบันทึกได้ปกติ',()=>eq(res.status,'success'));
+
+console.log('\n  · คอลัมน์ที่คนไปเติมต่อท้ายเอง ต้องไม่ทำให้ระบบหยุด');
+sheets={'08-2026':FakeSheet(BILL_NEW.concat(['โน้ตของเจ๊']),[])};
+res = JSON.parse(ctx.handleTransaction(vatBill('TX-EXTRA'), mkSS(sheets)));
+t('มีคอลัมน์งอกต่อท้าย -> ยังบันทึกได้ปกติ',()=>eq(res.status,'success'));
+t('ข้อมูลลงช่อง 1-13 ถูกต้อง',()=>{
+  const r=sheets['08-2026']._grid[1]; eq(r[0],'TX-EXTRA'); eq(r[11],386);});
 
 console.log('\n  · แท็บสร้างใหม่เอี่ยม');
 sheets={};
@@ -451,9 +523,10 @@ t('เหลือ 2 แถว และเป็นแถวที่ต้อ�
 vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-GONE-1', monthKey:'08-2026', date:'2026-08-10T11:00:00+07:00' }, vSS));
 t('ลบซ้ำ -> ตอบ NOT_FOUND (ฝั่งแอปถือว่าสำเร็จ ไม่วน retry ตลอดกาล)',()=>{
   eq(vRes.status,'error'); eq(vRes.code,'NOT_FOUND');});
-vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-X', monthKey:'01-2026', date:'2026-01-01T00:00:00+07:00' }, vSS));
+// ⚠️ เลขที่บิลต้องยาวพอผ่านกฎ {6,160} เหมือนตอนบันทึก — 'TX-X' สั้นเกินไป จะถูกปฏิเสธก่อนถึงการค้นชีต
+vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-ABSENT-1', monthKey:'01-2026', date:'2026-01-01T00:00:00+07:00' }, vSS));
 t('ไม่มีแท็บเดือนนั้น -> ตอบ NOT_FOUND เช่นกัน',()=>eq(vRes.code,'NOT_FOUND'));
-vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-X', monthKey:'99-1970', date:'x' }, vSS));
+vRes = JSON.parse(ctx.handleVoidTransaction({ id:'TX-ABSENT-1', monthKey:'99-1970', date:'x' }, vSS));
 t('เดือนเพี้ยน -> ปฏิเสธ และต้องไม่ใช่ NOT_FOUND (จะได้ลองใหม่ ไม่ใช่ทิ้งคำสั่งลบ)',()=>{
   eq(vRes.status,'error'); ok(vRes.code!=='NOT_FOUND', JSON.stringify(vRes));});
 

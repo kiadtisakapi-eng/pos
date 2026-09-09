@@ -9,7 +9,7 @@ const srv=http.createServer((q,s)=>{let f=decodeURIComponent(q.url.split('?')[0]
  s.writeHead(200,{'Content-Type':MIME[path.extname(p)]||'application/octet-stream'});fs.createReadStream(p).pipe(s);});
 const SEED=require('./seed.js');
 const MODALS=[['modal-cash-counter','นับเงินเปิด/ปิดกะ'],['modal-payment','ชำระเงิน'],['modal-receipt','ใบเสร็จ'],
-              ['modal-staff','เพิ่มพนักงาน'],['modal-service','เพิ่มบริการ'],['modal-edit-transaction','แก้ไขบิล'],['modal-login','เข้าสู่ระบบ']];
+              ['modal-staff','เพิ่มพนักงาน'],['modal-service','เพิ่มบริการ'],['modal-edit-transaction','แก้ไขบิล'],['modal-login','เข้าสู่ระบบ'],['modal-reconcile','ตรวจความตรงกันกับชีต']];
 (async()=>{ await new Promise(r=>srv.listen(8090,r));
  const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium'}).catch(()=>chromium.launch());
  const pad=(s,n)=>String(s)+' '.repeat(Math.max(0,n-[...String(s)].length));
@@ -27,6 +27,7 @@ const MODALS=[['modal-cash-counter','นับเงินเปิด/ปิด
       else if(id==='modal-receipt'){app.showThermalReceipt(app.state.transactions[0]);}
       else if(id==='modal-edit-transaction'){app.openTransactionEdit(app.state.transactions[0].id);}
       else if(id==='modal-payment'){app.openCheckoutModal(); app.selectPaymentMethod('cash');}
+      else if(id==='modal-reconcile'){app.openReconcileModal();}
       else app.openModal(id);
       await new Promise(r=>setTimeout(r,250));
       const ov=document.getElementById(id); const card=ov.querySelector('.modal-card');

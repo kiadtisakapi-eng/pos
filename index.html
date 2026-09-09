@@ -18,7 +18,12 @@
   <!-- ไม่มีบรรทัดนี้ เบราว์เซอร์จะยิงขอ /favicon.ico ทุกครั้งที่เปิดแอปแล้วได้ 404 กลับมาเปล่า ๆ -->
   <link rel="icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- ⚠️ ห้ามเปลี่ยนกลับเป็น black-translucent
+       black-translucent = ให้เนื้อแอปไหลขึ้นไปอยู่ "ใต้" แถบนาฬิกา/แบตเตอรี่ของ iPad
+       ซึ่งจะใช้ได้ก็ต่อเมื่อมี viewport-fit=cover + env(safe-area-inset-top) เผื่อที่ไว้ให้
+       โปรเจกต์นี้ไม่มีทั้งสองอย่าง หัวแอปจึงถูกแถบสถานะทับ
+       black = แถบสถานะมีพื้นที่ของตัวเอง (พื้นทึบ ตัวหนังสือขาว เข้ากับธีมมืด) เนื้อแอปเริ่มใต้แถบพอดี -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Erotica POS">
 
   <!-- Icon & Font Libraries -->
@@ -695,7 +700,14 @@
               <button class="btn-small secondary" onclick="app.openRestoreModal()" style="padding: 10px 16px; border-color: #4285F4; color: #4285F4;">
                 <i class="fa-brands fa-google-drive"></i> กู้ข้อมูลจาก Google Drive
               </button>
+              <button class="btn-small secondary" onclick="app.openReconcileModal()" style="padding: 10px 16px;">
+                <i class="fa-solid fa-scale-balanced"></i> ตรวจความตรงกันกับชีต
+              </button>
             </div>
+            <p style="color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 1rem;">
+              "ตรวจความตรงกันกับชีต" ใช้หลังกู้ข้อมูล — เทียบบิลบน Google Sheets กับในเครื่องแล้วบอกว่าต่างกันตรงไหน
+              ระบบไม่ลบอะไรให้เอง คุณเป็นคนเลือกทีละรายการ
+            </p>
             <p style="color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 1rem;">
               ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ — ปุ่ม "กู้ข้อมูล" ใช้ดึงไฟล์เหล่านั้นกลับมาได้เลย ไม่ต้องเข้า Drive เอง
             </p>
@@ -909,7 +921,8 @@
         </div>
 
         <!-- ประวัติการแก้ไขย้อนหลัง — ข้อมูลถูกเก็บมาตลอด แต่เดิมไม่มีหน้าไหนแสดงเลย
-             ทั้งสองตารางคือรายการที่ทำให้เงินหายจากระบบโดยไม่มีบิลรองรับ จึงต้องเห็นได้จากในแอป -->
+             ทั้งสามตารางคือรายการที่ทำให้ "เงินในระบบเปลี่ยน" โดยไม่มีบิลใหม่รองรับ จึงต้องเห็นได้จากในแอป
+             (ยกเลิกบิล · ลบค่าใช้จ่าย · แก้ยอดบิลย้อนหลัง) -->
         <div class="glass-card" style="padding: 1.25rem; margin-top: 1.25rem;">
           <div class="section-title" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
             <span><i class="fa-solid fa-ban"></i> บิลที่ถูกยกเลิก</span>
@@ -950,6 +963,29 @@
                 </tr>
               </thead>
               <tbody id="report-expense-deletions-body">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="glass-card" style="padding: 1.25rem; margin-top: 1.25rem;">
+          <div class="section-title" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <span><i class="fa-solid fa-pen-to-square"></i> บิลที่ถูกแก้ย้อนหลัง</span>
+            <span id="report-bill-edits-count" style="font-size:0.78rem; font-weight:700; color:var(--accent-barber);"></span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="customer-table" style="width: 100%;">
+              <thead>
+                <tr>
+                  <th>เวลาที่แก้</th>
+                  <th>เลขที่บิล</th>
+                  <th>สิ่งที่เปลี่ยน</th>
+                  <th>ยอดเดิม → ยอดใหม่</th>
+                  <th>แก้โดย</th>
+                </tr>
+              </thead>
+              <tbody id="report-bill-edits-body">
                 <!-- Rendered dynamically -->
               </tbody>
             </table>
@@ -1485,6 +1521,25 @@
       <div class="modal-footer">
         <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-restore')">ปิด</button>
         <button type="button" class="btn-small primary" onclick="app.loadDriveBackups()">โหลดรายการใหม่</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: ตรวจความตรงกันระหว่างเครื่องกับชีต -->
+  <div class="modal-overlay" id="modal-reconcile">
+    <div class="modal-card" style="max-width: 720px;">
+      <div class="modal-header">
+        <h2 class="modal-title"><i class="fa-solid fa-scale-balanced"></i> ตรวจความตรงกันกับชีต</h2>
+        <button class="modal-close" onclick="app.closeModal('modal-reconcile')">&times;</button>
+      </div>
+      <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 8px;">
+        อ่านรายการบิลบน Google Sheets แล้วเทียบกับข้อมูลในเครื่องนี้ — <b>อ่านอย่างเดียว ไม่แก้อะไรจนกว่าคุณจะกดเลือกเอง</b>
+      </p>
+      <p id="reconcile-status" style="font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 10px; min-height: 1em;"></p>
+      <div id="reconcile-body" style="max-height: 52vh; overflow-y: auto;"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-reconcile')">ปิด</button>
+        <button type="button" class="btn-small primary" onclick="app.runCloudReconcile()">เริ่มตรวจ</button>
       </div>
     </div>
   </div>

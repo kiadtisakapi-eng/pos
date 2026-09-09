@@ -92,6 +92,29 @@ $content = [regex]::Replace($content, "jahn-pos-v\d+", "jahn-pos-v$new")
 [System.IO.File]::WriteAllText($swPath, $content, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "[3/6] Service Worker cache: v$old -> v$new" -ForegroundColor Green
 
+# --- 3.1) ประทับวันที่ลงเลขเวอร์ชันแอป ----------------------------------
+# ป้ายเวอร์ชันในหน้าตั้งค่าเคยค้างที่ 1.5.6 (2026-08-27) ทั้งที่แก้ไปแล้วสองพันบรรทัด
+# เวลามีปัญหาแล้วถามว่า "ตอนนี้เครื่องใช้รุ่นไหน" จะได้คำตอบผิด
+# เลข x.y.z ยังตั้งเองตามความหมายของการเปลี่ยนแปลง แต่ "วันที่" ให้สคริปต์ประทับให้ทุกครั้งที่ปล่อยของจริง
+# หา pattern ไม่เจอ = เตือนอย่างเดียว ไม่ล้ม deploy (ป้ายผิดไม่ใช่เหตุผลที่ควรบล็อกการปล่อยของ)
+$appPath = Join-Path $PSScriptRoot 'app.js'
+if (Test-Path $appPath) {
+    $appTxt = [System.IO.File]::ReadAllText($appPath)
+    $today  = Get-Date -Format 'yyyy-MM-dd'
+    $verRe  = "const APP_VERSION = '([0-9]+\.[0-9]+\.[0-9]+) \(\d{4}-\d{2}-\d{2}\)';"
+    $vm = [regex]::Match($appTxt, $verRe)
+    if ($vm.Success) {
+        $newLine = "const APP_VERSION = '" + $vm.Groups[1].Value + " ($today)';"
+        if ($vm.Value -ne $newLine) {
+            $appTxt = [regex]::Replace($appTxt, $verRe, $newLine)
+            [System.IO.File]::WriteAllText($appPath, $appTxt, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "[3/6] app version stamp -> $($vm.Groups[1].Value) ($today)" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "[3/6] WARNING: APP_VERSION pattern not found in app.js - the version label on screen may be stale" -ForegroundColor Yellow
+    }
+}
+
 # --- 4) add ------------------------------------------------------------
 # git add -A เคยกวาดไฟล์ backup/secret ที่เผลอวางไว้ในโฟลเดอร์ไปด้วย
 # ขั้นแรกเก็บเฉพาะไฟล์ที่ git ติดตามอยู่ แล้วอนุญาต untracked เฉพาะ source/test ที่ระบุชัดเจน
