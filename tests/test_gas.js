@@ -504,7 +504,14 @@ const otherF = { _trashed:false, getName:()=>'เอกสารสำคัญ�
   getId:()=>'other', getBlob:()=>({getDataAsString:()=>'{}'}), getSize:()=>2 };
 folder._files.push(oldF, keepF, otherF);
 ctx.handleBackup({ backupData: backupPayload }, null);
-t('ไฟล์สำรองเก่าเกิน 90 วัน ถูกย้ายลงถังขยะ',()=>eq(oldF._trashed,true));
+// ⚠️ ก.ย. 2569: เก็บไฟล์ล่าสุดอย่างน้อย BACKUP_MIN_KEEP ไฟล์เสมอ — ตอนนี้มีไฟล์สำรองแค่ 4 ไฟล์ ไฟล์เก่าจึงต้องยังอยู่
+t('มีไฟล์สำรองไม่ถึงจำนวนขั้นต่ำ -> ไฟล์เก่าเกิน 90 วันยังไม่ถูกลบ (กันเหลือไฟล์เดียวหลังหยุดร้านนาน)',()=>eq(oldF._trashed,false));
+// เติมไฟล์สำรองใหม่ ๆ ให้เกินจำนวนขั้นต่ำ แล้วสำรองอีกรอบ
+for (let i=0;i<ctx.BACKUP_MIN_KEEP;i++) folder._files.push({ _trashed:false, getName:()=>`pos_backup_2026-09-0${i%9+1}_00-00-0${i}.json`,
+  getDateCreated:()=>new Date(Date.now()-(i+1)*3600e3), setTrashed(v){this._trashed=v;}, getId:()=>'recent-'+i,
+  getBlob:()=>({getDataAsString:()=>'{}'}), getSize:()=>2 });
+ctx.handleBackup({ backupData: backupPayload }, null);
+t('ไฟล์สำรองเก่าเกิน 90 วัน (นอกกลุ่มล่าสุด) ถูกย้ายลงถังขยะ',()=>eq(oldF._trashed,true));
 t('ไฟล์สำรองที่ยังไม่เก่า ไม่ถูกแตะ',()=>eq(keepF._trashed,false));
 t('ไฟล์อื่นที่ไม่ใช่ไฟล์สำรอง ต้องไม่ถูกลบ แม้จะเก่ามาก',()=>eq(otherF._trashed,false));
 

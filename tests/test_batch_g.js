@@ -307,10 +307,11 @@ const renderTableAs = (role) => {
   app.currentRole = role;
   app.currentUser = { id: 'u', name: role };
   app.state.selectedReportType = 'daily';
-  app.state.transactions = [mkBill('TX-BTN-1')];
+  // บิลของวันนี้ — ผู้จัดการดูได้เฉพาะวันทำการปัจจุบัน (เจ้าของสั่ง 26 ก.ย. 2569) เทสต์นี้วัดเรื่องปุ่ม ไม่ใช่เรื่องวัน
+  app.state.transactions = [Object.assign(mkBill('TX-BTN-1'), { date: Date.now() })];
   app.state.staff = [{ id: 'st1', name: 'A', accessLevel: 'staff' }];
   app.state.shift = { active: false, startTime: null, startCash: 0, startDetails: {}, expenses: [], history: [] };
-  E('report-date-input').value = app.getBusinessISODate(ts(2026, 9, 5, 20));
+  E('report-date-input').value = app.getBusinessISODate(Date.now());
   E('report-month-input').value = '2026-09';
   E('report-staff-filter').value = 'all';
   E('report-transactions-body').innerHTML = '';
@@ -340,6 +341,29 @@ t('ห้ามใช้ black-translucent ถ้าไม่มีที่เ�
     (/env\(safe-area-inset/.test(HTML) || /env\(safe-area-inset/.test(fs.readFileSync(path.join(root, 'style_v2.css'), 'utf8')));
   ok(m[1] !== 'black-translucent' || hasSafeArea,
      'black-translucent ใช้ได้ต่อเมื่อมี viewport-fit=cover + env(safe-area-inset-*)');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// G08 — ป้ายข้อความบนชีตห้ามขึ้นต้นด้วย = + @ (Sheets จะตีความเป็นสูตร)
+// ═══════════════════════════════════════════════════════════════
+console.log('\n--- G08 ป้ายที่กลายเป็นสูตร ---');
+const GASRC = fs.readFileSync(path.join(root, 'google_apps_script.js'), 'utf8');
+
+t('ป้าย "กำไรสุทธิ" ต้องมีช่องว่างนำหน้า = (เคยขึ้น #ERROR! บนชีตสรุปทุกใบ)', () => {
+  ok(/\[" = กำไรสุทธิ"/.test(GASRC), 'ต้องเป็น [" = กำไรสุทธิ" ไม่ใช่ ["= กำไรสุทธิ"');
+  ok(!/\["= /.test(GASRC), 'ยังมีป้ายที่ขึ้นต้นด้วย = อยู่');
+});
+
+t('ไม่มีป้ายอื่นในไฟล์ที่ขึ้นต้นด้วย = + @ (กวาดทั้งชนิด ไม่ใช่แก้จุดเดียว)', () => {
+  // ดูเฉพาะ "ป้ายในอาเรย์" กับค่าที่ส่งเข้า setValue โดยตรง
+  // ไม่รวมรูปแบบตัวเลข (setNumberFormat) ซึ่งขึ้นต้นด้วย + หรือ @ ได้ตามปกติ
+  const hits = [];
+  GASRC.split('\n').forEach((line, i) => {
+    if (/setNumberFormat/.test(line)) return;
+    const m = line.match(/(\[|setValue\(|,\s)"[=+@][^"]*"/g);
+    if (m) hits.push((i + 1) + ': ' + m.join(' · '));
+  });
+  ok(hits.length === 0, 'พบป้ายที่ Sheets จะอ่านเป็นสูตร:\n' + hits.join('\n'));
 });
 
 // ═══════════════════════════════════════════════════════════════

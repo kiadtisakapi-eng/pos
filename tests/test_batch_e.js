@@ -57,7 +57,7 @@ await t('หน้าต่างรองส่งสรุปด้วยม�
 console.log('\n--- D-F04: สมาชิกใน array ไม่ใช่แค่ตัวห่อ ---');
 t('sanitize กรองสมาชิกที่ใช้ไม่ได้ทิ้ง', () => {
   const f = { queue:[{id:'q-1',services:[null,{name:'ตัดผม'},'ไม่ใช่อ็อบเจกต์']}],
-              transactions:[{id:'t1',total:1,details:[null,{name:'x'}],services:[null,'ตัดผม'],staffNames:[{},'เอ']}],
+              transactions:[{id:'t1',date:Date.now(),total:1,details:[null,{name:'x',price:1}],services:[null,'ตัดผม'],staffNames:[{},'เอ']}],
               shift:{expenses:[null,{amount:1}],history:[null]} };
   app.sanitizeBackupData(f);
   eq(f.queue[0].services.length, 1);
@@ -75,6 +75,7 @@ t('audit นับสมาชิกเสีย -> ไม่บอกว่า 
 console.log('\n--- D-F06: กู้ข้อมูลต้องรีเฟรชสรุปของงวดที่ได้รับผล ---');
 await t('outbox หลังกู้มีงานสรุปของทั้งงวดเก่าและงวดใหม่', async () => {
   app.isReadOnlyWindow = false; app.loadFailed = false;
+  app.currentRole='owner'; app.currentUser={id:'__owner__',name:'เจ้าของร้าน'};  // กู้ข้อมูล = งานของเจ้าของที่ล็อกอินอยู่
   app.saveState = async () => true; app.renderEveryScreen = () => {};
   app.state.transactions = [{ id:'TX-1757000000000-OLDOLDOL', date:'2026-08-15T14:00:00+07:00', total:1 }];
   const f = { backupSchemaVersion:3, services:[{id:'s1',name:'ตัดผม',price:300}], staff:[{id:'st-1',name:'เอ'}],
@@ -124,7 +125,9 @@ t('เปิดทางคืนบิลตอนกู้ข้อมูล�
 });
 t('แอปถือ ALREADY_VOIDED เป็นสถานะสุดท้าย ไม่วน retry', () => {
   const m = SRC.match(/\n  async syncSingleTransaction\(/);
-  ok(SRC.slice(m.index, m.index + 3000).includes("code === 'ALREADY_VOIDED'"));
+  // ทั้งตัวฟังก์ชัน (เดิมตัดที่ 3,000 ตัวอักษร — แค่เพิ่มคอมเมนต์ก็ทำให้เทสต์พังทั้งที่พฤติกรรมไม่เปลี่ยน)
+  const body = SRC.slice(m.index, SRC.indexOf('\n  }\n', m.index + 1));
+  ok(body.includes("code === 'ALREADY_VOIDED'"));
 });
 t('ส่งฟิลด์ VAT มาไม่ครบ ต้องถูกปฏิเสธ', () => ok(/ส่งฟิลด์ VAT มาไม่ครบ/.test(GAS)));
 

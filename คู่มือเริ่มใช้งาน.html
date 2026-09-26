@@ -66,72 +66,60 @@
 <header class="hero">
   <h1>📘 คู่มือเริ่มใช้งานระบบ POS</h1>
   <p>Erotica Barber &amp; Massage — ติดตั้งและใช้งานบน iPad ตั้งแต่ต้นจนพร้อมขายจริง</p>
-  <span class="badge">PWA • ออฟไลน์ได้ • PromptPay สแกนจ่ายจริง • Sync Google Sheets</span>
+  <span class="badge">ปรับปรุง 26 ก.ย. 2569 · ใช้กับรุ่น 1.8 ขึ้นไป</span>
 </header>
 
-<p>ทำตาม 4 ขั้นตอนนี้ตามลำดับ แล้วระบบจะพร้อมใช้งานจริงบน iPad:</p>
+<div class="warn"><b>อ่านก่อน:</b> โฟลเดอร์โปรเจกต์มีไฟล์ทำงานส่วนตัวที่ <b>ห้ามขึ้นเว็บ</b> ปนอยู่ (สำเนาสำรอง · บันทึกงาน · รายงานภายใน) และ repo บน GitHub <b>เปิดสาธารณะ</b> —
+ใครก็เปิดอ่านได้ <b>ห้ามลากทั้งโฟลเดอร์ขึ้นเว็บ และห้ามอัปโหลดไฟล์เองผ่านหน้าเว็บ GitHub/Netlify</b> ให้นำขึ้นด้วย <code>deploy.bat</code> อย่างเดียว (มันส่งเฉพาะไฟล์ในรายการอนุญาต)</div>
+
+<p>ทำตามลำดับนี้ แล้วระบบจะพร้อมใช้งานจริงบน iPad:</p>
 <div class="flow">
-  <div class="step"><div class="ic">🌐</div><div class="t">1. นำขึ้นเว็บ</div><div class="d">GitHub Pages / Netlify</div></div>
+  <div class="step"><div class="ic">🌐</div><div class="t">1. นำขึ้นเว็บ</div><div class="d">deploy.bat เท่านั้น</div></div>
   <div class="arrow">→</div>
-  <div class="step"><div class="ic">📱</div><div class="t">2. ติดตั้ง iPad</div><div class="d">Safari → Add to Home Screen</div></div>
+  <div class="step"><div class="ic">☁️</div><div class="t">2. ต่อ Apps Script</div><div class="d">รหัสเชื่อมต่อ + Owner key</div></div>
   <div class="arrow">→</div>
-  <div class="step"><div class="ic">☁️</div><div class="t">3. ต่อ Backend</div><div class="d">Google Apps Script</div></div>
+  <div class="step"><div class="ic">📱</div><div class="t">3. ติดตั้ง iPad</div><div class="d">iPad ร้านก่อนเครื่องอื่น</div></div>
   <div class="arrow">→</div>
   <div class="step"><div class="ic">⚙️</div><div class="t">4. ตั้งค่า</div><div class="d">PIN • พร้อมเพย์ • Sheets</div></div>
 </div>
 
 <!-- ============ STEP 1 ============ -->
-<h2><span class="num">1</span> นำแอปขึ้นเว็บ</h2>
-<p>iPad เปิดไฟล์จากคอมโดยตรงไม่ได้ และระบบ PWA (ติดตั้ง+ออฟไลน์) ต้องการ <b>HTTPS</b> จึงต้องนำไฟล์ขึ้นเว็บก่อน เลือกวิธีใดวิธีหนึ่ง</p>
-
+<h2><span class="num">1</span> นำแอปขึ้นเว็บ (ใช้ deploy.bat เท่านั้น)</h2>
+<p>iPad เปิดไฟล์จากคอมโดยตรงไม่ได้ และแอปแบบติดตั้งบนหน้าจอโฮม (ใช้ออฟไลน์ได้) ต้องมาจากเว็บ <b>HTTPS</b> จึงต้องนำขึ้นเว็บก่อน
+ร้านนี้ใช้ GitHub Pages ที่ <code>https://kiadtisakapi-eng.github.io/pos/</code></p>
 <div class="card">
-  <h3>วิธี A — Netlify (ง่ายสุด ไม่ต้องมีบัญชี Git) <span class="pill">แนะนำสำหรับเริ่มต้น</span></h3>
+  <h3>ครั้งแรกบนคอมเครื่องใหม่ (คอมเครื่องปัจจุบันตั้งไว้แล้ว ข้ามได้)</h3>
   <ol>
-    <li>บนคอม เปิด <code>https://app.netlify.com/drop</code></li>
-    <li>ลาก <b>ทั้งโฟลเดอร์</b> <code>โปรเจค POS</code> ไปวางในหน้าเว็บ</li>
-    <li>ระบบจะอัปโหลดและให้ลิงก์ HTTPS ทันที เช่น <code>https://ชื่อสุ่ม.netlify.app</code></li>
-    <li>(ทางเลือก) สมัครบัญชีฟรีเพื่อเก็บลิงก์ไว้ถาวรและตั้งชื่อเองได้</li>
+    <li>ติดตั้ง <b>Git for Windows</b> และ <b>Node.js</b> (ใช้รันชุดทดสอบก่อนขึ้นเว็บ) แล้วปิด-เปิดหน้าต่างใหม่</li>
+    <li>โฟลเดอร์โปรเจกต์ต้องเป็นสำเนาที่ clone มาจาก repo <code>kiadtisakapi-eng/pos</code> และล็อกอิน GitHub ในเครื่องแล้ว (push ได้)</li>
   </ol>
-</div>
-
-<div class="card">
-  <h3>วิธี B — GitHub Pages (ลิงก์ถาวร เหมาะใช้จริงระยะยาว)</h3>
+  <h3>ทุกครั้งที่จะนำรุ่นใหม่ขึ้นเว็บ</h3>
   <ol>
-    <li>สมัคร/ล็อกอิน <code>github.com</code> → กด <b>New repository</b> ตั้งชื่อ เช่น <code>erotica-pos</code> → Create</li>
-    <li>ในหน้า repo กด <b>Add file → Upload files</b> แล้วลากไฟล์ <b>ทั้งหมด</b> ในโฟลเดอร์นี้ขึ้นไป (รวม <code>.nojekyll</code> ที่ผมเตรียมไว้) → <b>Commit changes</b></li>
-    <li>ไปที่ <b>Settings → Pages</b></li>
-    <li>หัวข้อ <b>Source</b> เลือก <code>Deploy from a branch</code> → Branch = <code>main</code> โฟลเดอร์ <code>/ (root)</code> → <b>Save</b></li>
-    <li>รอ 1–2 นาที จะได้ลิงก์ <code>https://&lt;ชื่อผู้ใช้&gt;.github.io/&lt;ชื่อ repo&gt;/</code></li>
+    <li>ดับเบิลคลิก <code>deploy.bat</code> ในโฟลเดอร์โปรเจกต์ (มันเรียก <code>deploy.ps1</code> ให้)</li>
+    <li>สคริปต์จะ <b>รันชุดทดสอบทั้งหมดก่อน</b> — ถ้าขึ้น <code>DEPLOY STOPPED</code> แปลว่ามีเทสต์ไม่ผ่าน <b>ห้ามหาทางข้าม</b> ให้ส่งข้อความนั้นให้ผู้ดูแลระบบ</li>
+    <li>ผ่านแล้วสคริปต์จะเพิ่มเลขรุ่นของแคช (<code>jahn-pos-vN</code>) ประทับวันที่ในเลขเวอร์ชัน แล้วส่งขึ้น GitHub ให้เอง</li>
+    <li>จบด้วยข้อความ <code>DEPLOYED -&gt; https://kiadtisakapi-eng.github.io/pos/</code> และ <code>cache version now: jahn-pos-vN</code> — <b>จดเลข N ไว้</b></li>
+    <li>รอ 1–2 นาทีให้ GitHub Pages อัปเดต</li>
   </ol>
-  <div class="note"><b>หมายเหตุ:</b> ไฟล์ <code>.nojekyll</code> (ไฟล์ว่าง) สำคัญ — กันไม่ให้ GitHub ประมวลผลแบบ Jekyll อย่าลบทิ้ง</div>
+  <div class="note"><b>สิ่งที่ deploy.bat ไม่ทำ:</b> ไม่อัปเดตโค้ด Apps Script — ถ้ารุ่นใหม่แก้ <code>google_apps_script.js</code> ด้วย ต้องวางเองตามขั้นที่ 2 (ทำ <b>ก่อน</b> deploy)</div>
+  <div class="note"><b>ไฟล์ใหม่ในโปรเจกต์:</b> สคริปต์ส่งเฉพาะไฟล์ในรายการ <code>$safeNewPaths</code> ของ <code>deploy.ps1</code> — ไฟล์นอกรายการจะถูกข้ามและขึ้นรายชื่อเตือนเป็นสีเหลือง นี่คือสิ่งที่กันไฟล์ส่วนตัวหลุดขึ้นเว็บ</div>
 </div>
 
 <!-- ============ STEP 2 ============ -->
-<h2><span class="num">2</span> ติดตั้งบน iPad (เพิ่มลงหน้าจอ)</h2>
+<h2><span class="num">2</span> ต่อ Google Apps Script (Sheets + Drive)</h2>
+<p>ส่วนนี้ทำให้บิลและสรุปขึ้น Google Sheets และสำรองข้อมูลขึ้น Google Drive อัตโนมัติ</p>
 <div class="card">
-  <ol>
-    <li>บน iPad เปิดลิงก์ที่ได้จากขั้นตอนที่ 1 ด้วย <b>Safari</b>
-      <div class="warn" style="margin-top:8px"><b>สำคัญ:</b> ต้องเป็น <b>Safari</b> เท่านั้น — Chrome บน iPad ติดตั้ง PWA แบบเต็มจอ/ออฟไลน์ไม่ได้</div>
-    </li>
-    <li>แตะปุ่ม <b>แชร์</b> <span class="kbd">⬆️ สี่เหลี่ยมมีลูกศรขึ้น</span> ที่แถบด้านบน/ล่าง</li>
-    <li>เลื่อนหาเมนู <b>"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</b> → แตะ</li>
-    <li>ตั้งชื่อแอป (เช่น "POS ร้าน") → แตะ <b>เพิ่ม</b></li>
-    <li>จะมีไอคอนแอปขึ้นบนหน้าจอ iPad — เปิดจากไอคอนนี้จะได้แบบ <b>เต็มจอเหมือนแอปจริง</b></li>
-  </ol>
-  <div class="note"><b>ครั้งแรกต้องต่ออินเทอร์เน็ต</b> เพื่อโหลดและแคชไฟล์ หลังจากนั้นเปิดใช้แบบ<b>ออฟไลน์</b>ได้</div>
-</div>
-
-<!-- ============ STEP 3 ============ -->
-<h2><span class="num">3</span> Deploy Backend (Google Apps Script)</h2>
-<p>ส่วนนี้ทำให้ระบบ sync ยอดขาย/สรุปขึ้น Google Sheets และสำรองข้อมูลขึ้น Google Drive อัตโนมัติ</p>
-<div class="card">
+  <h3>ตั้งครั้งแรก</h3>
   <ol>
     <li>เปิด <b>Google Sheets</b> สร้างไฟล์ใหม่ 1 ไฟล์ (จะใช้เก็บข้อมูลทั้งหมด)</li>
     <li>เมนู <b>Extensions → Apps Script</b></li>
-    <li>ลบโค้ดตัวอย่างที่มี แล้ว <b>วางโค้ดทั้งหมด</b> จากไฟล์ <code>google_apps_script.js</code> → กด <b>บันทึก</b> (รูปแผ่นดิสก์)</li>
-    <li>เลือกฟังก์ชัน <code>setupPosApiToken</code> ด้านบน → กด <b>Run</b> 1 ครั้ง → อนุญาตสิทธิ์ → คัดลอก <b>รหัสเชื่อมต่อ</b> ที่แสดงใน Execution log เก็บไว้</li>
-    <li>กด <b>Deploy → New deployment</b></li>
-    <li>กดรูปเฟือง ⚙️ ข้าง "Select type" → เลือก <b>Web app</b></li>
+    <li>ลบโค้ดตัวอย่าง แล้ว <b>วางโค้ดทั้งหมด</b> จากไฟล์ <code>google_apps_script.js</code> → กด <b>บันทึก</b></li>
+    <li>เลือกฟังก์ชัน <code>setupPosApiToken</code> ด้านบน → <b>Run</b> → อนุญาตสิทธิ์ → คัดลอก <b>รหัสเชื่อมต่อ</b> จาก Execution log</li>
+    <li>เลือกฟังก์ชัน <code>setupPosOwnerKey</code> → <b>Run</b> → คัดลอก <b>Owner key</b> (หน้าตา <code>XXXX-XXXX-XXXX-XXXX-XXXX</code>) จาก Execution log
+      <div class="warn" style="margin-top:8px"><b>จด Owner key เก็บไว้กับเจ้าของร้านเท่านั้น</b> (กระดาษ/ที่เก็บรหัสส่วนตัว) — ไม่ต้องใส่ไว้ในเครื่องไหน แอปจะถามตอนใช้<br>
+      <b>ไม่มีรหัสนี้ = กู้ข้อมูลจาก Drive ไม่ได้ · ตั้งเครื่องหลักใหม่ไม่ได้ · ตรวจความตรงกันกับชีตไม่ได้</b></div>
+    </li>
+    <li>กด <b>Deploy → New deployment</b> → รูปเฟือง ⚙️ ข้าง "Select type" → <b>Web app</b></li>
     <li>ตั้งค่าให้ตรงนี้ <b>เป๊ะ ๆ</b>:
       <table>
         <tr><th>ช่อง</th><th>ตั้งเป็น</th></tr>
@@ -139,79 +127,134 @@
         <tr><td>Who has access</td><td><b>Anyone</b></td></tr>
       </table>
     </li>
-    <li>กด <b>Deploy</b> → อนุญาตสิทธิ์ (Authorize) → เลือกบัญชี → "Advanced" → "Go to (project) (unsafe)" → Allow <span class="pill">ทำครั้งเดียว</span></li>
-    <li>คัดลอก <b>Web app URL</b> (ลงท้าย <code>/exec</code>) เก็บไว้คู่กับรหัสเชื่อมต่อ ใช้ในขั้นตอนที่ 4</li>
+    <li>กด <b>Deploy</b> → Authorize → เลือกบัญชี → "Advanced" → "Go to (project) (unsafe)" → Allow <span class="pill">ทำครั้งเดียว</span></li>
+    <li>คัดลอก <b>Web app URL</b> (ลงท้าย <code>/exec</code>) เก็บไว้คู่กับรหัสเชื่อมต่อ ใช้ในขั้นที่ 4</li>
   </ol>
-  <div class="warn"><b>เมื่อแก้โค้ด GAS ภายหลัง:</b> ต้องไป <b>Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy</b> ทุกครั้ง ไม่งั้นของเก่าจะยังทำงานอยู่ (URL เดิมใช้ได้ต่อ)</div>
+  <h3>อัปเดตโค้ด Apps Script (รุ่นใหม่ที่แก้ไฟล์นี้)</h3>
+  <ol>
+    <li>Extensions → Apps Script → ลบโค้ดเดิมทั้งหมด → วาง <code>google_apps_script.js</code> ตัวใหม่ → บันทึก</li>
+    <li><b>Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy</b> — ไม่ทำขั้นนี้ ของเก่าจะยังทำงานอยู่ (URL เดิมใช้ต่อได้ ไม่ต้องแก้ในแอป)</li>
+    <li>ถ้ายังไม่เคยตั้ง Owner key ให้รัน <code>setupPosOwnerKey</code> แล้วจดรหัส (ถ้าตั้งไว้แล้ว log จะขึ้นว่า "ตั้งรหัสเจ้าของไว้แล้ว" และไม่เปลี่ยนอะไร)</li>
+  </ol>
+  <div class="warn"><b>ห้ามรัน <code>rotatePosApiToken</code></b> — อยู่ติดกับ <code>setupPosApiToken</code> ในเมนูเลือกฟังก์ชัน กดพลาดง่าย
+  มันสร้างรหัสเชื่อมต่อใหม่ทับทันที ทุกเครื่องที่ถือรหัสเก่าหลุดการเชื่อมต่อหมด (บิลไม่ขึ้นชีต · สำรองขึ้น Drive ไม่ได้)<br>
+  <code>setupPosApiToken</code> ปลอดภัย รันซ้ำได้ — ถ้ามีรหัสอยู่แล้วจะแสดงรหัสเดิม ใช้ "ดูรหัสที่ถูกต้อง" ได้เสมอ</div>
+  <div class="note"><b>ลืม Owner key:</b> รัน <code>rotatePosOwnerKey</code> ได้ — ได้รหัสใหม่ รหัสเก่าใช้ไม่ได้ทันที ไม่กระทบการขาย/สำรองอัตโนมัติ (คนละตัวกับ rotatePosApiToken)</div>
 </div>
-<div class="note">โครงสร้างชีตที่ระบบจะสร้างให้อัตโนมัติ: <code>สรุปรายเดือน</code> (master), <code>MM-yyyy</code> (รายการบิล), <code>สรุป-MM-yyyy</code> และ <code>สรุป-YYYY-MM-DD</code> — ไม่ต้องสร้างเอง</div>
+<div class="note">ชีตที่ระบบสร้างให้เอง: <code>สรุปรายเดือน</code> (ตารางรวม), <code>MM-yyyy</code> (รายการบิล — เก็บถาวร), <code>สรุป-MM-yyyy</code> (เก็บถาวร) และ <code>สรุป-YYYY-MM-DD</code> (สรุปรายวัน — <b>ลบเองเมื่อเกิน 62 วัน</b>) — ไม่ต้องสร้างเอง</div>
+
+<!-- ============ STEP 3 ============ -->
+<h2><span class="num">3</span> ติดตั้งบน iPad (เพิ่มลงหน้าจอโฮม)</h2>
+<div class="card">
+  <ol>
+    <li>บน iPad เปิด <code>https://kiadtisakapi-eng.github.io/pos/</code> ด้วย <b>Safari</b>
+      <div class="warn" style="margin-top:8px"><b>สำคัญ:</b> ต้องเป็น <b>Safari</b> เท่านั้น — Chrome บน iPad ติดตั้งแบบเต็มจอ/ออฟไลน์ไม่ได้</div>
+    </li>
+    <li>แตะปุ่ม <b>แชร์</b> <span class="kbd">⬆️ สี่เหลี่ยมมีลูกศรขึ้น</span> → <b>"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</b> → ตั้งชื่อ → <b>เพิ่ม</b></li>
+    <li>เปิดแอปจากไอคอนบนหน้าจอโฮมเสมอ (ไม่ใช่เปิดผ่าน Safari) — iOS จะถือว่าเป็นแอปที่ใช้งานอยู่ และไม่ล้างข้อมูลทิ้ง</li>
+  </ol>
+  <div class="note"><b>ครั้งแรกต้องต่ออินเทอร์เน็ต</b> เพื่อโหลดไฟล์เก็บไว้ในเครื่อง หลังจากนั้นขายแบบออฟไลน์ได้</div>
+  <div class="warn"><b>เครื่องหลัก — ต้องเปิด iPad ร้านก่อนเครื่องอื่น:</b> Apps Script รับสรุปวัน/เดือนและไฟล์สำรองจาก "เครื่องหลัก" เครื่องเดียว
+  และถือว่า <b>เครื่องแรกที่ส่งสรุปหรือไฟล์สำรองขึ้นไป</b> คือเครื่องหลัก ถ้าคอมที่ใส่ URL+รหัสไว้ส่งก่อน iPad ร้านจะสำรองขึ้น Drive ไม่ได้<br>
+  แก้ได้: iPad ร้าน → หน้าตั้งค่า → บรรทัด "เครื่องนี้" → ปุ่ม <b>ตั้งเครื่องนี้เป็นเครื่องหลัก</b> (ต้องใช้ Owner key)</div>
+</div>
 
 <!-- ============ STEP 4 ============ -->
 <h2><span class="num">4</span> ตั้งค่าครั้งแรกในแอป</h2>
 <div class="card">
-  <p>เปิดแอปบน iPad → เข้าหน้า <b>ตั้งค่า</b> (ต้องใส่ PIN เจ้าของ ค่าเริ่มต้น <code>123456</code>) แล้วตั้งค่าตามนี้:</p>
+  <p>เครื่องใหม่จะขึ้นข้อความ "เครื่องนี้ยังไม่ได้ตั้ง PIN เจ้าของร้าน" — เลือก <b>เจ้าของร้าน</b> ใส่ PIN เริ่มต้น <code>123456</code> ระบบจะบังคับให้ตั้ง PIN ใหม่ 6 หลักทันที แล้วเข้าหน้า <b>ตั้งค่า</b>:</p>
   <table>
     <tr><th>รายการ</th><th>ทำอะไร</th></tr>
-    <tr><td>🔑 PIN เจ้าของร้าน</td><td>เปลี่ยนจาก <code>123456</code> เป็นรหัส 6 หลักของคุณ <b>(สำคัญมาก)</b></td></tr>
-    <tr><td>💸 เลขพร้อมเพย์</td><td>ใส่เบอร์มือถือ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก → QR จะสแกนจ่ายเข้าบัญชีร้านจริง</td></tr>
-    <tr><td>☁️ Google Sheets URL</td><td>วาง Web App URL จากขั้นตอนที่ 3</td></tr>
-    <tr><td>🔐 รหัสเชื่อมต่อ Apps Script</td><td>วางรหัสจาก <code>setupPosApiToken</code> → ระบบจะเริ่มส่งบิลและสรุปที่ค้างไว้</td></tr>
-    <tr><td>🔔 Telegram (ถ้าต้องการ)</td><td>ใส่ Bot Token + Chat ID เพื่อรับรายงานสรุปตอนปิดกะ</td></tr>
+    <tr><td>🔑 PIN เจ้าของร้าน</td><td>ตั้งใหม่ตอนเข้าครั้งแรก · เปลี่ยนภายหลังด้วยปุ่ม <b>เปลี่ยน PIN เจ้าของ</b> (ใส่ PIN เดิม แล้ว PIN ใหม่ 2 รอบ)</td></tr>
+    <tr><td>👥 พนักงาน</td><td>เพิ่มพนักงานพร้อมตำแหน่ง (พนักงาน / ผู้จัดการ / เจ้าของสำรอง) · ผู้จัดการและเจ้าของสำรองต้องใช้ <b>PIN 6 หลัก</b></td></tr>
+    <tr><td>💸 เลขพร้อมเพย์</td><td>เบอร์มือถือ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก → QR สแกนจ่ายเข้าบัญชีร้านจริง</td></tr>
+    <tr><td>☁️ Google Sheets URL</td><td>วาง Web App URL จากขั้นที่ 2</td></tr>
+    <tr><td>🔐 รหัสเชื่อมต่อ Apps Script</td><td>วางรหัสจาก <code>setupPosApiToken</code> → ระบบเริ่มส่งบิลและสรุปที่ค้างไว้</td></tr>
+    <tr><td>🗝️ Owner key</td><td><b>ไม่ต้องใส่ไว้ในเครื่อง</b> — แอปถามเองเมื่อใช้คำสั่งที่เปิดข้อมูลทั้งร้าน (กู้ข้อมูลจาก Drive · ตรวจกับชีต · ตั้งเครื่องหลัก) และลืมเองเมื่อออกจากระบบ</td></tr>
+    <tr><td>🔔 Telegram (ถ้าต้องการ)</td><td>ใส่ Bot Token + Chat ID เพื่อรับรายงานตอนปิดกะและตอนยกเลิกบิล</td></tr>
+    <tr><td>🔢 ตัวเลขทุกช่อง</td><td>ราคา · ส่วนลด · เงินที่รับ · ค่าใช้จ่าย · VAT เป็น <b>จำนวนเต็มเท่านั้น</b> · ค่าคอมที่ระบบคิดปัดเป็นบาทเต็ม</td></tr>
   </table>
+</div>
+
+<!-- ============ UPDATE ============ -->
+<h2><span class="num">↻</span> อัปเดตรุ่นใหม่ (ร้านใช้อยู่แล้ว)</h2>
+<div class="card">
+  <ol>
+    <li><b>ส่งออกไฟล์สำรอง .json จาก iPad ร้าน</b> (หน้าตั้งค่า → ส่งออกข้อมูลสำรอง) แล้วให้ผู้ดูแลระบบลองกับรุ่นใหม่ด้วย <code>node tools/ลองข้อมูลจริง.js &lt;ไฟล์&gt;</code> — ต้องผ่านก่อน</li>
+    <li>ถ้ารุ่นใหม่แก้ <code>google_apps_script.js</code>: วางโค้ดใหม่ → <b>Manage deployments → Edit → New version</b> (ขั้นที่ 2) และรัน <code>setupPosOwnerKey</code> ถ้ายังไม่เคยมี Owner key</li>
+    <li>ดับเบิลคลิก <code>deploy.bat</code> (ขั้นที่ 1) — จดเลข <code>jahn-pos-vN</code></li>
+    <li><b>เปิดแอปบน iPad ร้านก่อนเครื่องอื่น</b> ตอนมีเน็ต → ขึ้นแถบ "มีเวอร์ชันใหม่" ให้กด <b>อัปเดตเลย</b> → ตรวจเลขเวอร์ชันท้ายหน้าตั้งค่าให้ตรงกับที่ deploy.bat บอก</li>
+    <li>ปิดกะแรกหลังอัปเดต แล้วดูหน้าตั้งค่า บรรทัด "สถานะสำรองข้อมูล" ต้องขึ้น <b>ตรวจอ่านกลับแล้ว ✓</b> และบรรทัด "เครื่องนี้" ต้องเป็น <b>เครื่องหลัก</b></li>
+  </ol>
 </div>
 
 <!-- ============ USAGE ============ -->
 <h2><span class="num">▶</span> การใช้งานประจำวัน</h2>
 <div class="flow">
-  <div class="step"><div class="ic">🔓</div><div class="t">เปิดร้าน</div><div class="d">นับเงินสดเปิดกะ</div></div>
+  <div class="step"><div class="ic">🔓</div><div class="t">เปิดร้าน 10:00</div><div class="d">นับเงินสดเปิดกะ</div></div>
   <div class="arrow">→</div>
   <div class="step"><div class="ic">🛒</div><div class="t">ขาย</div><div class="d">เลือกบริการ→พนักงาน→ชำระเงิน</div></div>
   <div class="arrow">→</div>
   <div class="step"><div class="ic">⏳</div><div class="t">คิวงาน</div><div class="d">รอ→กำลังบริการ→เสร็จ</div></div>
   <div class="arrow">→</div>
-  <div class="step"><div class="ic">🔒</div><div class="t">ปิดร้าน</div><div class="d">นับเงิน→สรุป→ส่ง Sheets/Telegram</div></div>
+  <div class="step"><div class="ic">🔒</div><div class="t">ปิดร้าน 03:00</div><div class="d">นับเงิน→สรุป→ส่ง Sheets/Telegram</div></div>
 </div>
-<ul>
-  <li><b>รับชำระด้วย QR:</b> เลือกชำระเงิน → <b>Scan (QR)</b> ระบบจะสร้าง QR PromptPay ตามยอด → ให้ลูกค้าสแกนด้วยแอปธนาคารจากมือถือ (จอ iPad ไม่ต้องเปิดกล้อง)</li>
-  <li><b>รายงาน/แก้ไขบิล/ลบบิล:</b> อยู่ในหน้า "รายงาน" (เข้าได้เฉพาะเจ้าของร้านด้วย PIN)</li>
-</ul>
+<div class="card">
+  <table>
+    <tr><th>เรื่อง</th><th>ทำงานอย่างไร</th></tr>
+    <tr><td>รับเงินด้วย QR</td><td>เลือกชำระเงิน → Scan (QR) ระบบสร้าง QR พร้อมเพย์ตามยอด ให้ลูกค้าสแกนด้วยแอปธนาคาร · ถ้าขึ้น "สร้าง QR ไม่สำเร็จ" ปุ่มยืนยันจะกดไม่ได้ — รับเป็นเงินสด/บัตรแทน หรือรีเฟรชแอป</td></tr>
+    <tr><td>ใครทำอะไรได้</td><td><b>พนักงาน</b> ขาย · เปิดกะ · ลงค่าใช้จ่าย<br>
+      <b>ผู้จัดการ</b> + หน้ารายงาน (เฉพาะวันนี้) · ยกเลิกบิล · ปิดกะ · บันทึกเงินส่วนต่าง — ทุกรายการเสี่ยงต้องใส่ PIN ตัวเองซ้ำ · เปิดบิลได้แบบ <b>ดูอย่างเดียว</b> (แก้บิลไม่ได้)<br>
+      <b>เจ้าของ</b> ทำได้ทุกอย่าง · แก้บิล · สรุปรายเดือน · ตั้งค่า · ส่งออก/กู้ข้อมูล (ออกจากระบบเองเมื่อไม่แตะจอ 5 นาที)</td></tr>
+    <tr><td>ค่าใช้จ่าย "จ่ายจากลิ้นชัก"</td><td>แต่ละคนลงรวมกันได้ <b>300 บาทต่อกะ</b> โดยไม่ต้องขออนุมัติ · เกินจากนั้นต้องให้ผู้จัดการ/เจ้าของใส่ PIN อนุมัติ (ผู้จัดการลงเองใส่ PIN ตัวเองซ้ำ) · ชื่อผู้อนุมัติขึ้นในรายการและในข้อความปิดกะ<br>
+      ค่าใช้จ่าย "จ่ายทางอื่น" (ไม่หักลิ้นชัก) ไม่มีเพดาน</td></tr>
+    <tr><td>ลบค่าใช้จ่าย</td><td>พนักงานลบได้เฉพาะรายการที่ตัวเองลง · ผู้จัดการลบของคนอื่นได้โดยใส่ PIN ซ้ำ · เจ้าของลบได้ทุกรายการ · ทุกการลบมีประวัติในหน้ารายงาน</td></tr>
+    <tr><td>ใส่ PIN ผิด</td><td>ผิด 5 ครั้ง <b>ล็อกเฉพาะบัญชีนั้น</b> 30 วินาที และนานขึ้นทีละเท่าถ้ายังผิดต่อ (สูงสุด 15 นาที) — บัญชีอื่นยังเข้าได้ตามปกติ</td></tr>
+    <tr><td>วันทำการ</td><td>ตัดรอบตอน 06:00 — บิลหลังเที่ยงคืนถึงตี 6 นับเป็นยอดของวันก่อน</td></tr>
+  </table>
+</div>
 
-<!-- ============ BACKUP/TIPS ============ -->
-<h2><span class="num">✓</span> สำรองข้อมูล &amp; แก้ปัญหาบน iPad</h2>
-<div class="warn"><b>ข้อมูลเก็บในเครื่อง iPad (ต่อเครื่อง):</b> iOS อาจล้างข้อมูลเว็บถ้าไม่ได้เปิดแอปนานหลายสัปดาห์ หรือพื้นที่เต็ม จึงควรป้องกันไว้ดังนี้</div>
-<ul>
-  <li>ตั้ง <b>Google Sheets URL + รหัสเชื่อมต่อ Apps Script</b> ให้ครบ → ทุกบิลจะ sync ขึ้นคลาวด์อัตโนมัติ</li>
-  <li>กด <b>ส่งออกข้อมูล (Export JSON)</b> ในหน้าตั้งค่าเก็บไว้เป็นระยะ (เช่น สัปดาห์ละครั้ง)</li>
-  <li>ตอนปิดกะ ระบบสำรองขึ้น Google Drive ให้อัตโนมัติ (เมื่อใส่ URL และรหัสครบ) ไฟล์เก่าไม่ถูกลบเอง จัดระเบียบใน Drive เป็นระยะ</li>
-  <li>เปิดแอปจาก<b>ไอคอนหน้าจอโฮม</b>เป็นประจำ (ไม่ใช่เปิดผ่าน Safari ทุกครั้ง) เพื่อให้ iOS ถือว่าเป็นแอปที่ใช้งานอยู่</li>
-</ul>
-<table>
-  <tr><th>ปัญหา</th><th>วิธีแก้</th></tr>
-  <tr><td>อัปเดตโค้ดแล้วแอปยังเป็นของเก่า</td><td>ปิดแอปบน iPad (ปัดขึ้นออกจากมัลติทาสก์) แล้วเปิดใหม่ — Service Worker จะโหลดเวอร์ชันใหม่ (sw.js ปัจจุบัน <code>v16</code>)</td></tr>
-  <tr><td>QR สแกนแล้วขึ้น error</td><td>ตรวจ "เลขพร้อมเพย์" ในหน้าตั้งค่า ว่าเป็นเบอร์ 10 หลัก หรือเลขบัตร 13 หลักที่ถูกต้อง</td></tr>
-  <tr><td>กดส่งสรุป/ซิงก์แล้วไม่ขึ้น Sheets</td><td>ตรวจว่า GAS deploy แบบ "Anyone", URL ลงท้าย <code>/exec</code> และรหัสเชื่อมต่อถูกต้อง; ถ้าเพิ่งแก้โค้ดให้ deploy เวอร์ชันใหม่</td></tr>
-  <tr><td>เพิ่มลงหน้าจอโฮมไม่ได้</td><td>ตรวจว่าเปิดด้วย Safari และลิงก์เป็น <code>https://</code></td></tr>
-</table>
+<!-- ============ BACKUP ============ -->
+<h2><span class="num">✓</span> สำรองข้อมูล &amp; แก้ปัญหา</h2>
+<div class="warn"><b>ข้อมูลร้านเก็บอยู่ใน iPad เครื่องนั้น:</b> iOS อาจล้างข้อมูลเว็บถ้าไม่ได้เปิดแอปนานหลายสัปดาห์ หรือพื้นที่เครื่องเต็ม — ระบบจึงสำรองไว้ 3 ชั้น</div>
+<div class="card">
+  <ol>
+    <li><b>บิลทุกใบขึ้น Google Sheets อัตโนมัติ</b> เมื่อใส่ URL + รหัสเชื่อมต่อครบ (ออฟไลน์อยู่ = ค้างไว้ ส่งเองเมื่อเน็ตกลับมา)</li>
+    <li><b>ไฟล์สำรองขึ้น Google Drive อัตโนมัติ</b> ทุกครั้งที่ปิดกะ <b>และระหว่างกะทุก 5 บิล</b> (เฉพาะเครื่องหลัก) · Apps Script เก็บย้อนหลัง <b>90 วัน</b> แล้วลบไฟล์ที่เก่ากว่านั้นเอง แต่เก็บ <b>ไฟล์ล่าสุดอย่างน้อย 10 ไฟล์ไว้เสมอ</b> — ไม่ต้องเข้าไปจัดระเบียบใน Drive เอง · ดึงกลับได้จากปุ่ม "กู้ข้อมูลจาก Google Drive" ในหน้าตั้งค่า (ต้องใช้ Owner key)</li>
+    <li><b>ส่งออกไฟล์ .json เก็บเอง</b> เป็นระยะ (เช่น สัปดาห์ละครั้ง): หน้าตั้งค่า → <b>ส่งออกข้อมูลสำรอง (.json)</b> → บน iPad จะเปิด<b>เมนูแชร์</b> ให้เลือก <b>"บันทึกไปยังไฟล์"</b> (เก็บใน iCloud Drive ได้) → แอปขึ้นข้อความบอกผล → <b>เปิดแอป "ไฟล์" ตรวจว่ามีไฟล์จริง</b> · ถ้ากดยกเลิกเมนูแชร์ แอปจะบอกว่ายังไม่ได้บันทึก</li>
+  </ol>
+  <div class="note">กรณีฉุกเฉิน (iPad หาย/พัง/ข้อมูลหาย) ให้เปิดคู่มือ <code>วิธีกู้ข้อมูล_อ่านตอนฉุกเฉิน.md</code> — ต้องมี Google Sheets URL · รหัสเชื่อมต่อ · Owner key</div>
+</div>
+<div class="card">
+  <table>
+    <tr><th>ปัญหา</th><th>วิธีแก้</th></tr>
+    <tr><td>deploy แล้ว iPad ยังเป็นของเก่า</td><td>เปิดแอปตอนมีเน็ต → กด <b>อัปเดตเลย</b> ที่แถบ "มีเวอร์ชันใหม่" · ไม่ขึ้นแถบ ให้ปัดแอปออกจากมัลติทาสก์แล้วเปิดใหม่ · ตรวจเลขเวอร์ชันท้ายหน้าตั้งค่าให้ตรงกับที่ deploy.bat บอก</td></tr>
+    <tr><td>ขึ้น "ไม่ได้รับอนุญาต (unauthorized)" / ไอคอนคลาวด์ขึ้นค้างซิงก์</td><td>รหัสเชื่อมต่อในแอปไม่ตรงกับ Apps Script → รัน <code>setupPosApiToken</code> (ปลอดภัย) คัดลอกรหัส → วางทับในหน้าตั้งค่า → กดไอคอนคลาวด์เพื่อส่งของที่ค้าง · <b>ห้ามรัน rotatePosApiToken</b></td></tr>
+    <tr><td>"เครื่องนี้ไม่ใช่เครื่องหลัก" / สำรองขึ้น Drive ไม่ได้</td><td>หน้าตั้งค่า → ปุ่ม <b>ตั้งเครื่องนี้เป็นเครื่องหลัก</b> บน iPad ร้าน (ใส่ Owner key)</td></tr>
+    <tr><td>"บัญชีนี้ใส่ PIN ผิดหลายครั้ง — รออีก …"</td><td>รอตามเวลาที่บอก หรือให้คนอื่นล็อกอินใช้งานไปก่อน (ล็อกเฉพาะบัญชีนั้น)</td></tr>
+    <tr><td>QR สแกนแล้วขึ้น error</td><td>ตรวจ "เลขพร้อมเพย์" ในหน้าตั้งค่า ว่าเป็นเบอร์ 10 หลัก หรือเลขบัตร 13 หลักที่ถูกต้อง</td></tr>
+    <tr><td>แก้โค้ด Apps Script แล้วไม่มีผล</td><td>ลืมกด <b>Manage deployments → Edit → New version</b></td></tr>
+    <tr><td>เพิ่มลงหน้าจอโฮมไม่ได้</td><td>ตรวจว่าเปิดด้วย Safari และลิงก์เป็น https://</td></tr>
+  </table>
+</div>
 
 <!-- ============ CHECKLIST ============ -->
 <h2><span class="num">☑</span> เช็กลิสต์ก่อนเปิดใช้จริง</h2>
 <div class="card">
   <ul class="check">
-    <li>นำไฟล์ขึ้นเว็บแล้ว เปิดลิงก์ HTTPS ได้</li>
-    <li>เพิ่มแอปลงหน้าจอ iPad ผ่าน Safari แล้ว</li>
-    <li>รัน <code>setupPosApiToken</code>, Deploy Google Apps Script (Execute as Me / Anyone) และคัดลอก URL + รหัสแล้ว</li>
-    <li>เปลี่ยน PIN เจ้าของร้านจาก 123456 แล้ว</li>
+    <li>นำขึ้นเว็บด้วย <code>deploy.bat</code> แล้ว (ไม่ได้ลาก/อัปโหลดไฟล์เอง) และเปิดลิงก์ https ได้</li>
+    <li>รัน <code>setupPosApiToken</code> และ Deploy Apps Script (Execute as Me / Anyone) แล้ว — จด URL + รหัสเชื่อมต่อแล้ว</li>
+    <li>รัน <code>setupPosOwnerKey</code> แล้ว — <b>จด Owner key เก็บไว้กับเจ้าของแล้ว</b></li>
+    <li>ติดตั้งแอปบน iPad ร้านผ่าน Safari และ iPad ร้านเป็นเครื่องแรกที่ใส่ URL + รหัส</li>
+    <li>ตั้ง PIN เจ้าของใหม่แล้ว (ไม่ใช่ 123456) · ผู้จัดการทุกคนใช้ PIN 6 หลัก</li>
     <li>ใส่เลขพร้อมเพย์ และทดสอบสแกน QR ด้วยแอปธนาคารแล้ว</li>
-    <li>วาง Google Sheets URL + รหัสเชื่อมต่อ และทดสอบ sync ขึ้น Sheets แล้ว</li>
-    <li>ตรวจรายการบริการ/พนักงาน/ค่าคอมมิชชั่นให้ตรงกับร้านจริง</li>
-    <li>ทดลองขาย 1 บิล → เปิดคิว → ปิดกะ ดูว่าครบถ้วน</li>
+    <li>ตรวจรายการบริการ/พนักงาน/ค่าคอมให้ตรงกับร้านจริง</li>
+    <li>ทดลองขาย 1 บิล → ปิดกะ → หน้าตั้งค่าขึ้น "ตรวจอ่านกลับแล้ว ✓" และ "เครื่องหลัก"</li>
+    <li>ลองส่งออกไฟล์ .json แล้วเปิดแอป "ไฟล์" เจอไฟล์จริง</li>
   </ul>
 </div>
 
-<footer>
-  Erotica Barber &amp; Massage POS — คู่มือเริ่มใช้งาน · พิมพ์เป็น PDF ได้ด้วย <span class="kbd">Ctrl/⌘ + P</span>
-</footer>
-
+<footer>Erotica Barber &amp; Massage POS — คู่มือเริ่มใช้งาน · ปรับปรุง 26 ก.ย. 2569 · พิมพ์เป็น PDF ได้ด้วย Ctrl/⌘ + P</footer>
 </div>
 </body>
 </html>

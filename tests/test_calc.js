@@ -31,9 +31,13 @@ t('เศษหาร 3 ไม่ลงตัว (100/3) ยังบวกไ�
 
 console.log('\n--- ส่วนลดในตะกร้า (clamp) ---');
 const dEl={value:'0'}; h.document._els['cart-discount']=dEl;
-t('พิมพ์ค่าติดลบ -> 0',()=>{dEl.value='-500'; eq(app.getCartDiscount(300),0);});
+// กติกาตัวเลข (26 ก.ย. 2569): ค่าที่ไม่ใช่จำนวนเต็มบาท = หยุด ไม่เดาเป็น 0 (เดิมเดาเป็น 0 เงียบ ๆ)
+const badDisc=(v)=>{dEl.value=v; let e=null; try{app.getCartDiscount(300);}catch(x){e=x;} ok(e&&e.badDiscount===true,'ต้องหยุดพร้อม badDiscount: '+v);};
+t('พิมพ์ค่าติดลบ -> หยุด (ไม่เดาเป็น 0)',()=>badDisc('-500'));
 t('พิมพ์เกินยอด -> ตัดเท่ายอด',()=>{dEl.value='9999'; eq(app.getCartDiscount(300),300);});
-t('พิมพ์ตัวอักษร -> 0',()=>{dEl.value='abc'; eq(app.getCartDiscount(300),0);});
+t('พิมพ์ตัวอักษร -> หยุด',()=>badDisc('abc'));
+t('พิมพ์ทศนิยม 33.333 / 50.5 / 50.0 -> หยุด',()=>{badDisc('33.333');badDisc('50.5');badDisc('50.0');});
+t('ช่องว่าง -> 0',()=>{dEl.value=''; eq(app.getCartDiscount(300),0);});
 t('ค่าปกติผ่าน',()=>{dEl.value='50'; eq(app.getCartDiscount(300),50);});
 dEl.value='0';
 
@@ -82,9 +86,9 @@ t('บิลทุกใบต้องอยู่ครบเสมอ ไม�
 console.log('\n--- ยอดรวมตะกร้า ---');
 app.state.categories=[{id:'x',name:'x',vat:false}];
 app.vatEnabled=false;
-app.state.cart=[{price:100,category:'x'},{price:250.5,category:'x'}];
-t('ราคารวม = ผลบวกทุกชิ้น',()=>eq(app.getCartSubtotal(),350.5));
-dEl.value='50.5';
+app.state.cart=[{price:100,category:'x'},{price:250,category:'x'}];
+t('ราคารวม = ผลบวกทุกชิ้น',()=>eq(app.getCartSubtotal(),350));
+dEl.value='50';
 t('ยอดสุทธิ = ราคารวม - ส่วนลด',()=>eq(app.getCartTotal(),300));
 dEl.value='0';
 

@@ -48,6 +48,8 @@ app.state.staff=[{id:'st1',name:'เอ',role:'ช่าง',accessLevel:'staff'
 app.state.customers=[]; app.state.queue=[]; app.state.transactions=[]; app.state.cloudOutbox=[];
 app.state.shift={active:true,startTime:Date.now()-3600000,startCash:1000,startDetails:{},expenses:[],history:[]};
 app.vatEnabled=true; app.vatRate=7;
+// ตั้งแต่ ก.ย. 2569 processCheckout ตรวจเองว่ามีคนล็อกอินอยู่จริง
+app.currentRole='staff'; app.currentUser={id:'st1',name:'เอ'};
 
 const els=h.document._els;
 Object.assign(els,{
@@ -58,7 +60,9 @@ Object.assign(els,{
 (async()=>{
 console.log('\n--- ขายจริง: ตัดผม 300 + น้ำอัดลม 30 + กาแฟ 50 (เงินสด 400) ---');
 app.addToCart('s1'); app.addToCart('d1'); app.addToCart('d2');
+app.state.cart.forEach(i=>{ if(!i.staffId) app.changeItemStaff(i.uniqueCartId, app.state.staff[0].id); });   // ผู้ใช้เลือกผู้ให้บริการเอง (ข้อ 5 — ระบบไม่ใส่ให้)
 app.state.selectedPaymentMethod='cash';
+app.beginCheckoutAttempt();   // = เปิดหน้าต่างชำระเงิน
 await app.processCheckout();
 
 const tx=app.state.transactions[0];
@@ -112,7 +116,9 @@ t('ค่าใช้จ่าย/กำไรของแถวใหม่ไ�
 console.log('\n--- บิลที่ 2: บริการล้วน ไม่มี VAT ---');
 app.state.cart=[]; els['cart-discount'].value='0'; els['cash-received'].value='300';
 app.addToCart('s1');
+app.state.cart.forEach(i=>{ if(!i.staffId) app.changeItemStaff(i.uniqueCartId, app.state.staff[0].id); });   // ผู้ใช้เลือกผู้ให้บริการเอง (ข้อ 5 — ระบบไม่ใส่ให้)
 app.state.selectedPaymentMethod='cash';
+app.beginCheckoutAttempt();   // = เปิดหน้าต่างชำระเงิน
 await app.processCheckout();
 const tx2=app.state.transactions[1];
 t('ไม่มี VAT ไม่มีปัดเศษ ยอด 300',()=>{eq(tx2.total,300);eq(tx2.vatAmount,0);eq(tx2.rounding,0);});

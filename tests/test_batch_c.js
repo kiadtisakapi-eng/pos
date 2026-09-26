@@ -25,6 +25,7 @@ const voidJob = (id) => ({
   needSummary: true, needTelegram: true, telegramMessage: 'ยกเลิกบิลเมื่อวาน', tries: 0
 });
 const baseState = () => {
+  app.currentRole = 'owner'; app.currentUser = { id: '__owner__', name: 'เจ้าของ' };   // กู้ข้อมูล = งานของเจ้าของ
   app.state.services = [{ id: 's1', name: 'ตัดผม', price: 300 }];
   app.state.staff = [{ id: 'st-1', name: 'เอ' }];
   app.state.transactions = [];
@@ -138,6 +139,8 @@ app.renderAll = () => {};
 app.saveState = async () => true;
 // ⚠️ voidTransaction() อ่านเลขที่บิลจากช่องในหน้าต่างแก้ไข ไม่ใช่จากพารามิเตอร์
 h.document.getElementById('edit-tx-id').value = BILL_ID;
+app.state.shift = app.state.shift || {};
+h.document._els['void-money-outcome'] = { value: 'refunded' };   // ข้อ 16: ต้องระบุก่อนว่าเงินเคลื่อนไหวจริงไหม
 await app.voidTransaction();
 await app._p;
 t('voidLog เก็บวันของบิลเดิม ไม่ใช่แค่เวลาที่กดยกเลิก', () => {

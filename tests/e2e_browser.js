@@ -93,6 +93,14 @@ const t=(n,c,extra)=>{ if(c){pass++;console.log('  ✅ '+n);} else {fail++;conso
   t('ตะกร้ามี 2 รายการ', await p.evaluate(()=>app.state.cart.length===2));
   const sub = await p.textContent('#summary-subtotal');
   t('ยอดก่อนส่วนลดบนจอ = 800', /800/.test(sub), sub);
+  // ข้อ 5 รอบ 3: ระบบไม่ใส่ผู้ให้บริการให้เอง — ยังไม่เลือก = เปิดหน้าชำระเงินไม่ได้
+  t('ช่องผู้ให้บริการขึ้น "— เลือกผู้ให้บริการ —" (ไม่ใส่คนแรกให้เอง)',
+    await p.evaluate(()=>app.state.cart.every(i=>!i.staffId) && /เลือกผู้ให้บริการ/.test(document.querySelector('.cart-item-staff select').selectedOptions[0].textContent)));
+  await p.click('#btn-checkout');
+  await p.waitForTimeout(300);
+  t('ยังไม่เลือกผู้ให้บริการ → หน้าชำระเงินไม่เปิด', !(await p.isVisible('#pay-cash-btn')));
+  const staffSels = await p.$$('.cart-item-staff select');
+  for (const sel of staffSels) await sel.selectOption({ index: 1 });
   await p.click('#btn-checkout');
   await p.waitForTimeout(300);
   await p.click('#pay-cash-btn');
@@ -154,6 +162,7 @@ const t=(n,c,extra)=>{ if(c){pass++;console.log('  ✅ '+n);} else {fail++;conso
   await p.evaluate(async ()=>{ app.showConfirm=(m,cb)=>cb();
     const id=app.state.transactions[0].id; app.openTransactionEdit(id); });
   await p.waitForTimeout(300);
+  await p.selectOption('#void-money-outcome', 'refunded');   // ข้อ 16: ต้องระบุก่อนว่าเงินของบิลเคลื่อนไหวจริงไหม
   await p.evaluate(async ()=>{ await app.voidTransaction(); });
   await p.waitForTimeout(600);
   const voided = await p.evaluate(()=>({ tx:app.state.transactions.length, vl:app.state.voidLog.length,

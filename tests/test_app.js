@@ -7,6 +7,9 @@ const ok=(c,m)=>{ if(!c) throw new Error(m||'expected truthy'); };
 
 // เก็บ toast ที่ขึ้น
 const toasts=[]; app.showToast=(m,ty)=>toasts.push({m,ty});
+// ตั้งแต่ ก.ย. 2569 ด่านสิทธิ์ต้องมี "ผู้ใช้ที่ล็อกอินอยู่จริง" ไม่ใช่แค่ค่าตำแหน่ง
+// (เทสต์ด่านสิทธิ์ข้างล่างยังเปลี่ยน currentRole เป็น staff/owner ตามเดิม)
+app.currentUser={id:'__owner__',name:'เจ้าของร้าน'};
 app.vibrateDevice=()=>{}; app.renderAll=()=>{}; app.migratePinIfNeeded=async()=>{};
 let saved=0; const realSave=app.saveState.bind(app);
 app.saveState=async function(){ if(this.loadFailed) return; saved++; };
@@ -35,6 +38,7 @@ t('services เป็น string = ไม่ผ่าน',()=>{const b=goodBackup
 t('ไม่มี transactions = ไม่ผ่าน',()=>{const b=goodBackup();delete b.transactions;ok(!app.isValidBackupObject(b));});
 
 console.log('\n--- applyBackupData ---');
+app.currentRole='owner'; app.currentUser={id:'__owner__',name:'เจ้าของร้าน'};  // กู้ข้อมูล = งานของเจ้าของที่ล็อกอินอยู่
 app.loadFailed=false;
 app.googleSheetsUrl='https://CURRENT-deployment/exec';
 app.googleSheetsApiToken='A'.repeat(24);
@@ -177,6 +181,9 @@ const urlInput=h.document.getElementById('shop-sheets-sync-url');
 const tokenInput=h.document.getElementById('shop-sheets-api-token');
 urlInput.value='https://new/exec'; tokenInput.value='C'.repeat(24);
 app.saveState=async()=>false;
+// ตั้งแต่ ก.ย. 2569 saveShopSettings ตรวจสิทธิ์เอง — ต้องเป็นเจ้าของที่ล็อกอินอยู่จริง
+// (ถ้าไม่ตั้ง จะถูกปฏิเสธที่ด่านสิทธิ์ แล้วเทสต์นี้ไม่ได้ตรวจการคืนค่าเลย)
+app.currentRole='owner'; app.currentUser={id:'__owner__',name:'เจ้าของร้าน'};
 await app.saveShopSettings();
 t('เซฟตั้งค่าไม่สำเร็จ -> URL และ token กลับเป็นค่าเดิม',()=>{
   eq(app.googleSheetsUrl,'https://old/exec');

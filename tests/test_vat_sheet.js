@@ -20,7 +20,8 @@ const mk=(id,rate,lines)=>({id,date:'2026-09-01T14:00:00+07:00',vatRate:rate,pay
   total:lines.reduce((s,l)=>s+l[1],0)*(1+rate/100), subtotal:lines.reduce((s,l)=>s+l[1],0), discount:0,
   nonVatBase:0, vatableBase:lines.reduce((s,l)=>s+l[1],0),
   vatAmount:Math.round(lines.reduce((s,l)=>s+l[1],0)*rate/100*100)/100, rounding:0,
-  details:lines.map(l=>({category:l[0],netPrice:l[1],vatable:true,name:'x',staffId:'s',staffName:'เอ',commissionAmount:0}))});
+  // price ต้องมีเสมอเหมือนบิลจริงจากแอป (บิลที่รายการย่อยไม่มีราคา = ข้อมูลเสีย ไม่เข้าสรุป)
+  details:lines.map(l=>({category:l[0],price:l[1],netPrice:l[1],vatable:true,name:'x',staffId:'s',staffName:'เอ',commissionAmount:0}))});
 
 // งวดที่มีสองอัตรา — เคสจากรายงาน
 const txs=[mk('TX-1757000000000-AAAAAAAA',7,[['barber',100]]), mk('TX-1757000000000-BBBBBBBB',10,[['barber',100]])];

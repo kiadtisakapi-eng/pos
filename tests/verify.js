@@ -5,17 +5,25 @@ process.env.TZ = process.env.TZ || 'Asia/Bangkok';
 // จำลอง browser แบบบางที่สุดที่ app.js ต้องใช้ตอน "โหลดไฟล์" เท่านั้น
 const fs = require('fs');
 
+// ⚠️ ตัวจำลองนี้ไม่มี transaction จริง — เรื่อง atomic/rollback พิสูจน์ใน tests/test_db_*.js (ฐานข้อมูลจริง)
+// คัดลอกค่าทุกครั้งที่เขียน/อ่านเหมือน IndexedDB (เดิมเก็บอ็อบเจกต์ตัวเดียวกับในหน่วยความจำ)
+const _clone = (v) => v === undefined ? undefined : structuredClone(v);
 class FakeTable {
   constructor() { this.rows = new Map(); }
-  async get(k) { return this.rows.has(k) ? { key: k, value: this.rows.get(k) } : undefined; }
-  async put(o) { this.rows.set(o.key, o.value); }
-  async bulkPut(list) { list.forEach(o => this.rows.set(o.key, o.value)); }
+  async get(k) { return this.rows.has(k) ? { key: k, value: _clone(this.rows.get(k)) } : undefined; }
+  async bulkGet(keys) { return keys.map(k => this.rows.has(k) ? { key: k, value: _clone(this.rows.get(k)) } : undefined); }
+  async put(o) { this.rows.set(o.key, _clone(o.value)); }
+  async bulkPut(list) { const c = list.map(o => [o.key, _clone(o.value)]); c.forEach(([k, v]) => this.rows.set(k, v)); }
   async delete(k) { this.rows.delete(k); }
   async clear() { this.rows.clear(); }
 }
 class Dexie {
   constructor() { this.state = new FakeTable(); }
   version() { return { stores: () => ({}) }; }
+  async transaction(mode, table, fn) {
+    const snap = new Map(this.state.rows);
+    try { return await fn(); } catch (e) { this.state.rows = snap; throw e; }
+  }
 }
 
 const els = new Map();
@@ -99,34 +107,43 @@ check('บิลไม่ถูกแก้แม้แต่ฟิลด์เ�
 check('ไม่มีการยัด details ลงบิล', legacy.details === undefined);
 check('ร่างถูกล้างหลังปิดหน้าต่าง', app._editTxDraft === null);
 
-console.log('\n[2] บิลเก่า: ราคารายชิ้นที่เดาให้ ต้องรวมได้เท่ายอดเดิมเป๊ะ');
+console.log('\n[2] บิลเก่าที่ไม่มีรายการย่อย: ร่างในหน้าต่างแก้ไข "บอกว่าไม่ทราบ" ไม่สร้างราคา/ค่าคอมขึ้นเอง');
+// ⚠️ ข้อ 17 (ก.ย. 2569): เทสต์ชุดนี้เดิมยืนยันพฤติกรรมที่ผิด — ร่างเกลี่ยราคาตาม "ราคาวันนี้" 400:600
+// และคิดค่าคอม 10% จาก "อัตราวันนี้" แล้วบันทึกลงบิลตอนกดบันทึก (แม้แค่แก้ชื่อลูกค้า)
+// = ค่าคอมในอดีตถูกสร้างขึ้นจากกติกาปัจจุบัน ทั้งที่บิลใบนั้นไม่เคยเก็บข้อมูลนี้ไว้
+// ตอนนี้: ร่างของบิลแบบนี้เป็นรายการไว้แสดงเท่านั้น (ไม่มีราคา/ค่าคอม) และห้ามถูกบันทึกลงบิล
 const draft = app.buildEditableDetails(legacy);
-const sumPrice = draft.reduce((s, d) => s + d.price, 0);
-const sumNet   = draft.reduce((s, d) => s + d.netPrice, 0);
-check('ผลรวมราคารายชิ้น = subtotal เดิม (800)', near(sumPrice, 800), 'ได้ ' + sumPrice);
-check('ผลรวมราคาหลังส่วนลด = 800-80 = 720', near(sumNet, 720), 'ได้ ' + sumNet);
-check('แบ่งตามสัดส่วนราคาวันนี้ 400:600 → 320/480', near(draft[0].price, 320) && near(draft[1].price, 480),
-      JSON.stringify(draft.map(d => d.price)));
-check('ทุกรายการมี netPrice ติดมาด้วย', draft.every(d => typeof d.netPrice === 'number'));
+check('มีรายการตามชื่อบริการเดิมครบ 2 รายการ', draft.length === 2 && draft[0].name === 'ตัดผม' && draft[1].name === 'นวดไทย');
+check('ไม่มีราคารายชิ้นที่เดาจากราคาวันนี้', draft.every(d => d.price === null && d.netPrice === null), JSON.stringify(draft.map(d => d.price)));
+check('ไม่มีค่าคอมที่เดาจากอัตราวันนี้ (ติดธงไม่ทราบ)', draft.every(d => d.commissionAmount === null && d.commission === null && d.commissionUnknown === true));
+check('ร่างถูกทำเครื่องหมายว่าเป็นรายการไว้แสดง (ห้ามบันทึก)', draft.every(d => d._synthetic === true));
 check('ไม่ติ๊ก VAT ย้อนหลังให้บิลเก่า', draft.every(d => d.vatable === false));
-// ตัดผมราคาเกลี่ยได้ 320, หักส่วนลดตามสัดส่วน (80 × 320/800 = 32) → net 288, คอม 10% = 28.80
-check('ค่าคอมคิดจากยอดหลังหักส่วนลด (10% ของ 288)', near(draft[0].commissionAmount, 28.8), 'ได้ ' + draft[0].commissionAmount);
 
-console.log('\n[3] บิลเก่า: กดบันทึกโดยไม่แก้อะไร ยอดต้องไม่ขยับ');
+console.log('\n[3] บิลเก่า: แก้แค่ชื่อลูกค้า → ยอด/ส่วนลด/รายการไม่ถูกแตะ');
 app.openTransactionEdit('TX-OLD-1');
-el('edit-tx-customer').value = 'คุณเก่า';
+el('edit-tx-customer').value = 'คุณเก่า (แก้ชื่อ)';
 el('edit-tx-payment').value = 'cash';
 el('edit-tx-discount').value = '80';
 doc.querySelectorAll = () => [];   // ไม่แตะ dropdown พนักงาน
 
 (async () => {
   await app.saveTransactionEdit();
+  check('ชื่อลูกค้าถูกแก้', legacy.customerName === 'คุณเก่า (แก้ชื่อ)', 'ได้ ' + legacy.customerName);
   check('subtotal คงเดิม 800', legacy.subtotal === 800, 'ได้ ' + legacy.subtotal);
   check('discount คงเดิม 80',  legacy.discount === 80,  'ได้ ' + legacy.discount);
   check('total คงเดิม 720 (ไม่ถูกปัดขึ้นเต็มบาทตามกฎใหม่)', legacy.total === 720, 'ได้ ' + legacy.total);
   check('ยังเป็นบิลรุ่นเก่า ไม่มีฟิลด์ VAT งอกมา', legacy.vatAmount === undefined && legacy.rounding === undefined);
-  check('details ถูกบันทึกพร้อม netPrice', Array.isArray(legacy.details) && near(legacy.details.reduce((s,d)=>s+d.netPrice,0), 720));
+  check('ไม่มี details ที่สร้างขึ้นเองถูกบันทึกลงบิล (ข้อ 17)', legacy.details === undefined);
   check('ถูกตั้ง pending เพื่อซิงก์ใหม่', legacy.syncStatus === 'pending');
+
+  console.log('\n[3b] บิลเก่า: แก้ส่วนลด → คิดที่ระดับบิลด้วยสูตรเดิม (ราคารวม − ส่วนลด) ไม่สร้างรายการ');
+  app.openTransactionEdit('TX-OLD-1');
+  el('edit-tx-discount').value = '100';
+  await app.saveTransactionEdit();
+  check('ส่วนลด 100 → ยอด 700 (800 − 100)', legacy.discount === 100 && legacy.total === 700, `ได้ ${legacy.discount}/${legacy.total}`);
+  check('ยังไม่มี details งอกมา', legacy.details === undefined);
+  check('เงินที่รับจริงตอนขายถูกเก็บไว้ (720 เงินสด) ไม่เปลี่ยนตามยอดใหม่ (ข้อ 16)',
+    legacy.tender && legacy.tender.amount === 720 && legacy.tender.method === 'cash', JSON.stringify(legacy.tender));
 
   // ── บิลรุ่นใหม่ที่มี VAT ต้องยังคิด VAT + ปัดเศษเหมือนเดิม ────────────
   console.log('\n[4] บิลรุ่นใหม่ที่มี VAT: แก้ไขแล้วต้องยังคิด VAT ด้วยอัตราของบิลใบนั้น');
@@ -378,12 +395,21 @@ doc.querySelectorAll = () => [];   // ไม่แตะ dropdown พนัก�
   check('สรุปเป็นข้อความให้คนอ่านได้', app.describeBackupAudit(au).includes('ยอดเงินหาย'));
 
   const fixedCount = app.sanitizeBackupData(damaged);
-  check(`ซ่อมตัวเลข ${fixedCount} จุด`, fixedCount >= 3);
-  check('ยอดที่พังกลายเป็น 0 ไม่ใช่ NaN', damaged.transactions[1].total === 0);
-  check('ตัวเลขที่เป็นข้อความ "600" ถูกแปลงเป็น 600 (ไม่เสียข้อมูล)', damaged.transactions[5].total === 600);
-  check('ค่าใช้จ่ายที่พังกลายเป็น 0', damaged.shift.history[0].expenses[1].amount === 0);
+  const quar = app._lastSanitizeQuarantine || [];
+  check(`ซ่อม/แยกตรวจ ${fixedCount} จุด`, fixedCount >= 3);
+  // ⚠️ ก.ย. 2569: เดิมข้อนี้คาดว่า "ยอดที่พังกลายเป็น 0" — นั่นคือบั๊กที่ต้องแก้ (บิลยอด 0 ถูกส่งขึ้นชีตเหมือนบิลจริง)
+  // ตอนนี้บิลที่ตัวเลขเงินเชื่อไม่ได้ต้องถูกแยกไปตรวจสอบ โดยเก็บค่าเดิมไว้ครบ
+  check('บิลยอดพังไม่ถูกแทนด้วย 0 — แยกไปตรวจสอบพร้อมค่าต้นฉบับ',
+    !damaged.transactions.some(t => t.id === 'TX-2') &&
+    quar.some(r => r.kind === 'transaction' && r.id === 'TX-2' && r.original.total === 'หาย'));
+  check('บิลวันที่พัง / ไม่มีเลขที่ / เลขซ้ำ ถูกแยกไปตรวจ ไม่ปนในยอด',
+    quar.filter(r => r.kind === 'transaction').length === 4 && damaged.transactions.length === 2);
+  check('ตัวเลขที่เป็นข้อความ "600" ถูกแปลงเป็น 600 (ไม่เสียข้อมูล)', damaged.transactions.find(t => t.id === 'TX-5').total === 600);
+  check('ค่าใช้จ่ายที่พังไม่ถูกแทนด้วย 0 — แยกไปตรวจสอบพร้อมค่าต้นฉบับ',
+    damaged.shift.history[0].expenses.length === 1 &&
+    quar.some(r => r.kind === 'expense' && r.id === 'e2' && r.original.amount === null));
   const sumAll = damaged.transactions.reduce((s, t) => s + t.total, 0);
-  check(`รวมยอดได้เป็นตัวเลขจริง ไม่ใช่ NaN (ได้ ${sumAll})`, Number.isFinite(sumAll) && sumAll === 1600);
+  check(`รวมยอดเฉพาะบิลที่เชื่อได้ (ได้ ${sumAll})`, Number.isFinite(sumAll) && sumAll === 1000);
   check('ไฟล์สะอาดต้องรายงานว่าสะอาด', app.auditBackupData({
     transactions: [{ id: 'A', date: Date.now(), total: 100, subtotal: 100, discount: 0 }], shift: {}
   }).clean === true);

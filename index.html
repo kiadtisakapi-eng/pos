@@ -270,7 +270,7 @@
                     <option value="supply">ซื้อของอื่นๆ</option>
                     <option value="other">อื่นๆ (ระบุเอง)</option>
                   </select>
-                  <input type="number" id="expense-amount" class="form-input" style="height: 38px; padding: 6px 10px;" placeholder="ยอดเงิน (บาท)" required min="1">
+                  <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" id="expense-amount" class="form-input" style="height: 38px; padding: 6px 10px;" placeholder="ยอดเงิน (บาท เต็ม)" required>
                 </div>
                 <div id="expense-note-container" style="display: none;">
                   <input type="text" id="expense-note" class="form-input" style="height: 38px; padding: 6px 10px;" placeholder="รายละเอียด (เช่น ซื้อน้ำยาล้างจาน)">
@@ -280,6 +280,11 @@
                     <!-- โหลดรายชื่อพนักงานทาง JS -->
                   </select>
                 </div>
+                <!-- จ่ายจากไหน: ลิ้นชัก = หักจากเงินที่ควรมีตอนปิดกะ · ทางอื่น = ยังเป็นค่าใช้จ่ายของร้าน แต่ไม่หักลิ้นชัก (app.addExpense) -->
+                <select id="expense-source" class="form-input" style="height: 38px; padding: 6px 10px;" aria-label="จ่ายจาก">
+                  <option value="drawer" selected>จ่ายจากลิ้นชัก (หักจากเงินสดในลิ้นชัก)</option>
+                  <option value="other">จ่ายทางอื่น: โอน/เงินเจ้าของ (ไม่หักลิ้นชัก)</option>
+                </select>
                 <button type="submit" class="btn-small primary" style="width: 100%; height: 38px; font-weight: bold;">
                   <i class="fa-solid fa-plus"></i> เพิ่มรายการค่าใช้จ่าย
                 </button>
@@ -385,7 +390,7 @@
               <div class="summary-row">
                 <span>ส่วนลด</span>
                 <div class="discount-wrapper">
-                  <input type="number" class="discount-input" id="cart-discount" value="0" min="0">
+                  <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="discount-input" id="cart-discount" value="0">
                   <span>บาท</span>
                 </div>
               </div>
@@ -515,7 +520,7 @@
             </label>
             <div class="form-group" style="margin-top: 8px;">
               <label class="form-label">อัตรา VAT (%)</label>
-              <input type="number" class="form-input" id="vat-rate" min="0" max="30" step="0.5" value="7" style="max-width: 160px;">
+              <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="vat-rate" value="7" style="max-width: 160px;">
             </div>
             <p style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.7; margin: 0 0 10px;">
               ระบบจะบวก VAT <b>เฉพาะหมวดที่ติ๊กไว้</b> แล้วปัดยอดรวมทั้งบิลขึ้นเป็นจำนวนเต็มบาท<br>
@@ -605,7 +610,7 @@
               </div>
               <div class="form-group" style="margin: 0;">
                 <label class="form-label">รหัส PIN เจ้าของร้าน (6 หลัก) *</label>
-                <input type="password" class="form-input" id="shop-owner-pin" maxlength="6" placeholder="เช่น 123456" onchange="app.saveShopSettings()" oninput="this.value = this.value.replace(/[^0-9]/g, '')" style="letter-spacing: 4px; font-weight: bold;">
+                <button type="button" class="btn-small secondary" id="btn-change-owner-pin" onclick="app.changeOwnerPin()" style="width: 100%; height: 38px;"><i class="fa-solid fa-key"></i> เปลี่ยน PIN เจ้าของ</button>
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   PIN สำหรับเข้าสู่ระบบในฐานะ "เจ้าของร้าน" (เข้าได้ทุกหน้า) — ⚠️ ถ้าลืม PIN นี้จะกู้คืนไม่ได้ กรุณาจดเก็บไว้ และควรตั้งบัญชีเจ้าของสำรองไว้อีกอย่างน้อย 1 คน
                 </p>
@@ -709,7 +714,16 @@
               ระบบไม่ลบอะไรให้เอง คุณเป็นคนเลือกทีละรายการ
             </p>
             <p style="color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 1rem;">
-              ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ — ปุ่ม "กู้ข้อมูล" ใช้ดึงไฟล์เหล่านั้นกลับมาได้เลย ไม่ต้องเข้า Drive เอง
+              ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ และระหว่างกะทุก 5 บิล (เก็บย้อนหลัง 90 วัน · ไฟล์ล่าสุดอย่างน้อย 10 ไฟล์เสมอ) —
+              ปุ่ม "กู้ข้อมูล" ใช้ดึงไฟล์เหล่านั้นกลับมาได้เลย ไม่ต้องเข้า Drive เอง (ต้องใช้รหัสเจ้าของร้าน Owner key)
+              · "ส่งออกข้อมูลสำรอง" บน iPad จะเปิดเมนูแชร์ — เลือก "บันทึกไปยังไฟล์" แล้วตรวจในแอป "ไฟล์"
+            </p>
+            <p id="backup-status-label" style="color: var(--text-secondary); font-size: 0.78rem; margin: -6px 0 1rem;">
+              สถานะสำรองข้อมูล: —
+            </p>
+            <!-- เครื่องหลัก: สรุปบนชีต + ไฟล์สำรองรับจากเครื่องเดียว (app.renderPrimaryStatus) -->
+            <p id="primary-device-box" style="color: var(--text-secondary); font-size: 0.78rem; margin: -6px 0 1rem;">
+              เครื่องนี้: —
             </p>
 
             <!-- สำเนาก่อนกู้ข้อมูล — โผล่เฉพาะเมื่อมีสำเนาเก็บอยู่จริง (app.refreshPreRestoreUI) -->
@@ -722,6 +736,24 @@
               </button>
               <p style="color: var(--text-muted); font-size: 0.74rem; margin: 8px 0 0;">
                 ใช้เมื่อกู้ข้อมูล/นำเข้าไฟล์ผิดใบ — กดแล้วสลับไป-กลับได้ ระบบจะเก็บสำเนาของตอนนี้ไว้แทนที่ให้อัตโนมัติ
+              </p>
+            </div>
+
+            <!-- บิลที่ขัดแย้งกับชีต — โผล่เฉพาะเมื่อมีจริง (app.renderSyncConflicts) -->
+            <div id="sync-conflicts-box" style="display: none; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.3); border-radius: var(--border-radius-sm); padding: 12px 14px; margin-bottom: 1rem;"></div>
+            <!-- งานคลาวด์ที่ส่งไม่สำเร็จเกิน 7 วัน — ระบบหยุดลองเอง รอเจ้าของตัดสิน (app.renderExpiredCloudJobs) -->
+            <div id="cloud-expired-jobs-box" style="display: none; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.35); border-radius: var(--border-radius-sm); padding: 12px 14px; margin-bottom: 1rem;"></div>
+
+            <!-- รายการที่แยกไว้ตรวจสอบ — โผล่เฉพาะเมื่อมีจริง (app.refreshQuarantineUI) -->
+            <div id="quarantine-box" style="display: none; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.35); border-radius: var(--border-radius-sm); padding: 12px 14px; margin-bottom: 1rem;">
+              <p id="quarantine-label" style="font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 8px;">
+                มีรายการที่แยกไว้ตรวจสอบ
+              </p>
+              <button class="btn-small secondary" onclick="app.exportQuarantine()" style="padding: 9px 14px;">
+                <i class="fa-solid fa-file-arrow-down"></i> ดาวน์โหลดรายการที่แยกไว้ (.json)
+              </button>
+              <p style="color: var(--text-muted); font-size: 0.74rem; margin: 8px 0 0;">
+                มาจากไฟล์สำรองที่ตัวเลขเงินเชื่อไม่ได้ — ไม่นับในยอดและไม่ส่งขึ้นชีต ระบบเก็บค่าต้นฉบับไว้ครบเพื่อตรวจเทียบกับหลักฐานจริง
               </p>
             </div>
 
@@ -870,6 +902,9 @@
         </div>
         
         <!-- Historical Transactions list -->
+        <!-- บิลของวันก่อนที่เจ้าของแก้ยอดแล้ว ยังค้างบันทึกคืน/เก็บเงิน — ผู้จัดการเปิดได้เฉพาะใบเหล่านี้ (app.renderPendingSettleBox) -->
+        <div id="report-pending-settle-box" class="glass-card" style="display: none; padding: 1rem 1.25rem; margin-bottom: 1.25rem; border: 1px solid rgba(245,158,11,0.35);"></div>
+
         <div class="glass-card" style="padding: 1.25rem;">
           <div class="section-title">
             <span><i class="fa-solid fa-clock-rotate-left"></i> ประวัติรายการทำธุรกรรม</span>
@@ -1101,16 +1136,30 @@
             <span id="closing-expected-start" style="font-weight: 600;">฿0.00</span>
           </div>
           <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--text-secondary);">ยอดขายเงินสดของวันนี้:</span>
+            <span style="color: var(--text-secondary);">เงินสดที่รับจากการขายในกะนี้ (ตอนชำระ):</span>
             <span id="closing-expected-sales" style="font-weight: 600; color: var(--color-success);">+฿0.00</span>
           </div>
+          <div id="closing-expected-adjust-row" style="display: none; justify-content: space-between;">
+            <span style="color: var(--text-secondary);">คืน/เก็บเงินส่วนต่างที่บันทึกในกะนี้:</span>
+            <span id="closing-expected-adjust" style="font-weight: 600;">฿0.00</span>
+          </div>
           <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--text-secondary);">ยอดค่าใช้จ่ายที่จ่ายออก:</span>
+            <span style="color: var(--text-secondary);">ค่าใช้จ่ายที่จ่ายจากลิ้นชัก:</span>
             <span id="closing-expected-expenses" style="font-weight: 600; color: var(--accent-premium);">-฿0.00</span>
+          </div>
+          <!-- ค่าใช้จ่ายที่จ่ายทางอื่น (โอน/เงินเจ้าของ) — แสดงให้เห็นแต่ไม่หักจากลิ้นชัก (app.openCashCounter) -->
+          <div id="closing-other-expenses-row" style="display: none; justify-content: space-between;">
+            <span style="color: var(--text-muted);">ค่าใช้จ่ายที่จ่ายทางอื่น (ไม่หักจากลิ้นชัก):</span>
+            <span id="closing-other-expenses" style="font-weight: 600; color: var(--text-muted);">฿0.00</span>
           </div>
           <div style="display: flex; justify-content: space-between; padding-top: 4px; border-top: 1px dashed var(--border-color); font-weight: bold;">
             <span>ยอดเงินในลิ้นชักที่ควรมี:</span>
             <span id="closing-expected-total">฿0.00</span>
+          </div>
+          <!-- ค่าใช้จ่ายจากลิ้นชักเกินเงินที่มี → นับเป็นเงินขาด (app.openCashCounter) -->
+          <div id="closing-overspend-row" style="display: none; justify-content: space-between; color: var(--accent-premium);">
+            <span>ค่าใช้จ่ายเกินเงินในลิ้นชัก (นับเป็นเงินขาด):</span>
+            <span id="closing-overspend">฿0.00</span>
           </div>
           <div style="display: flex; justify-content: space-between; padding-top: 4px; font-weight: bold; font-size: 0.85rem;">
             <span>ยอดเงินที่นับได้จริง:</span>
@@ -1120,6 +1169,7 @@
             <span>ผลต่าง (ขาด / เกิน):</span>
             <span id="closing-diff-amount">฿0.00</span>
           </div>
+          <div id="closing-money-notes" style="display: none; margin-top: 6px; padding: 8px; border-radius: 4px; background: rgba(234, 179, 8, 0.12); font-size: 0.78rem; line-height: 1.45;"></div>
         </div>
 
         <div class="modal-footer" style="padding-top: 8px; border-top: 1px solid var(--border-color);">
@@ -1251,17 +1301,17 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">ราคา (บาท) *</label>
-            <input type="number" class="form-input" id="serv-price" required min="0" placeholder="เช่น 250">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="serv-price" required placeholder="เช่น 250">
           </div>
           <div class="form-group">
             <label class="form-label">ระยะเวลา (นาที) *</label>
-            <input type="number" class="form-input" id="serv-duration" required min="0" step="1" placeholder="เช่น 45 (ใส่ 0 ถ้าเป็นสินค้า)">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="serv-duration" required placeholder="เช่น 45 (ใส่ 0 ถ้าเป็นสินค้า)">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group" style="flex: 2;">
             <label class="form-label">ค่าคอมมิชชั่นพนักงาน *</label>
-            <input type="number" class="form-input" id="serv-commission" required min="0" value="10" placeholder="เช่น 10 หรือ 50">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="serv-commission" required value="10" placeholder="เช่น 10 หรือ 50">
           </div>
           <div class="form-group" style="flex: 1;">
             <label class="form-label">ประเภท *</label>
@@ -1375,7 +1425,7 @@
       <div id="payment-cash-panel" style="display: none;">
         <div class="form-group">
           <label class="form-label">รับเงินสดมา (บาท)</label>
-          <input type="number" class="form-input" style="font-size: 1.25rem; font-weight: 700; text-align: right;" id="cash-received" placeholder="0">
+          <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" style="font-size: 1.25rem; font-weight: 700; text-align: right;" id="cash-received" placeholder="0">
           <div class="quick-cash-row">
             <button type="button" class="quick-cash-btn" onclick="app.quickCash(100)">฿100</button>
             <button type="button" class="quick-cash-btn" onclick="app.quickCash(500)">฿500</button>
@@ -1407,6 +1457,8 @@
       </div>
       <div class="modal-body">
         <input type="hidden" id="edit-tx-id">
+        <!-- ผู้จัดการเปิดบิล: ดูอย่างเดียว / บิลวันก่อนที่ค้างบันทึกเงินส่วนต่าง — บอกว่าทำอะไรได้บ้าง (app.applyEditTxAccess) -->
+        <div id="edit-tx-access-note" style="display: none; margin-bottom: 12px; padding: 8px 10px; border-radius: var(--border-radius-sm); background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); font-size: 0.78rem; line-height: 1.45;"></div>
         
         <div class="form-group" style="margin-bottom: 12px;">
           <label class="form-label">เลขที่บิล</label>
@@ -1437,22 +1489,36 @@
         <div class="form-row" style="margin-bottom: 16px;">
           <div class="form-group">
             <label class="form-label">ส่วนลดพิเศษ (฿)</label>
-            <input type="number" id="edit-tx-discount" class="form-input" min="0" value="0" oninput="app.recalculateEditTxTotal()">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" id="edit-tx-discount" class="form-input" value="0" oninput="app.recalculateEditTxTotal()">
           </div>
           <div class="form-group">
-            <label class="form-label">ยอดชำระจริง (฿)</label>
+            <label class="form-label">ยอดสุทธิของบิล (฿)</label>
             <input type="text" id="edit-tx-total" class="form-input" readonly style="background: rgba(255,255,255,0.05); font-weight: bold; color: var(--accent-massage);">
           </div>
         </div>
+        <div id="edit-tx-hint" style="display: none; font-size: 0.78rem; color: var(--accent-premium); margin: -8px 0 12px;"></div>
+
+        <!-- เงินที่รับจริงตอนขาย + ส่วนต่างหลังแก้บิล (แสดงเฉพาะบิลที่เคยถูกแก้ยอด/ช่องทางหลังรับเงิน) -->
+        <div id="edit-tx-money-box" style="display: none; margin-bottom: 14px; padding: 10px; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background: rgba(255,255,255,0.02); font-size: 0.8rem; line-height: 1.45;"></div>
 
         <!-- Void Section -->
-        <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 14px; background: rgba(244, 63, 94, 0.03); padding: 12px; border-radius: var(--border-radius-sm); border: 1px solid rgba(244, 63, 94, 0.1);">
+        <div id="edit-tx-void-section" style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 14px; background: rgba(244, 63, 94, 0.03); padding: 12px; border-radius: var(--border-radius-sm); border: 1px solid rgba(244, 63, 94, 0.1);">
           <h4 style="color: var(--color-danger); font-size: 0.9rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
             <i class="fa-solid fa-triangle-exclamation"></i> พื้นที่อันตราย (Void/ลบรายการ)
           </h4>
           <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 10px;">
-            เมื่อลบรายการแล้ว ยอดขายจะหายไปและประวัติเงินสดในลิ้นชักของกะปัจจุบันจะถูกปรับลดลงทันที
+            เมื่อลบรายการแล้ว ยอดขายจะหายไปถาวร — ต้องระบุก่อนว่า "เงินของบิลนี้เคลื่อนไหวจริงหรือไม่"
+            ระบบจะไม่ถือเองว่าคืนเงินให้ลูกค้าแล้ว
           </p>
+          <div class="form-group" style="margin-bottom: 10px;">
+            <label class="form-label" style="font-size: 0.78rem;">เงินของบิลนี้</label>
+            <select id="void-money-outcome" class="form-input" style="background: var(--bg-surface-solid); font-size: 0.85rem;">
+              <option value="">— เลือกก่อนยกเลิกบิล —</option>
+              <option value="refunded">คืนเงินให้ลูกค้าแล้ว (เงินออกจากลิ้นชัก)</option>
+              <option value="none">ไม่มีเงินเคลื่อนไหว (บิลออกผิด/ซ้ำ หรือไม่ได้คืนเงิน)</option>
+            </select>
+            <p id="void-money-hint" style="font-size: 0.72rem; color: var(--text-muted); margin: 6px 0 0;"></p>
+          </div>
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <button type="button" class="btn-small danger" onclick="app.voidTransaction()" style="height: 36px; font-size: 0.85rem; padding: 0 12px;">
               <i class="fa-solid fa-trash-can"></i> ลบรายการนี้
@@ -1462,8 +1528,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-edit-transaction')">ยกเลิก</button>
-        <button type="button" class="btn-small primary" onclick="app.saveTransactionEdit()">บันทึกการแก้ไข</button>
+        <button type="button" class="btn-small secondary" id="btn-close-tx-edit" onclick="app.closeModal('modal-edit-transaction')">ยกเลิก</button>
+        <button type="button" class="btn-small primary" id="btn-save-tx-edit" onclick="app.saveTransactionEdit()">บันทึกการแก้ไข</button>
       </div>
     </div>
   </div>

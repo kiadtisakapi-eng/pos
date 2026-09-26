@@ -66,7 +66,8 @@ function sheet(headers, rows) {
 function gas(store, opts) {
   opts = opts || {};
   const props = {
-    getProperty(k) { if (opts.readError && k === 'POS_VOIDED_BILLS') throw new Error('read failed'); return store[k] ?? null; },
+    // อ่านทะเบียนไม่ได้ (ทั้งรูปแบบเก่าและใหม่) — จำลองบริการ Properties ล่มเฉพาะส่วนทะเบียน
+    getProperty(k) { if (opts.readError && (k === 'POS_VOIDED_BILLS' || String(k).startsWith('POSVB_'))) throw new Error('read failed'); return store[k] ?? null; },
     setProperty(k, v) {
       v = String(v);
       if (opts.writeError) throw new Error('write failed');
@@ -88,6 +89,14 @@ function gas(store, opts) {
   vm.runInContext(GAS, g, { filename: 'google_apps_script.js' });
   return g;
 }
+// อ่านทะเบียนยกเลิก/กู้คืนของบิลหนึ่งใบ เป็นค่าแบบเดิม (บวก = ยกเลิกเมื่อ · ลบ = กู้คืนเมื่อ · 0 = ไม่มี)
+// ⚠️ ก.ย. 2569 ทะเบียนย้ายจาก property ค่าเดียว (POS_VOIDED_BILLS) ไปเป็นบิลละ property (POSVB_<id>)
+// เพื่อไม่ต้องตัดหลักฐานทิ้งตอนใกล้เต็ม 9 KB — เทสต์จึงอ่านผ่านตัวนี้แทนการแกะ JSON ก้อนเดิม
+const reg = (store, id) => {
+  const raw = store['POSVB_' + id];
+  if (!raw) { const legacy = store.POS_VOIDED_BILLS ? JSON.parse(store.POS_VOIDED_BILLS) : {}; return Number(legacy[id]) || 0; }
+  const o = JSON.parse(raw); return o.v > o.r ? o.v : (o.r > o.v ? -o.r : 0);
+};
 const bill = over => ({ id: 'TX-AUDIT-0001', date: Date.parse('2026-09-06T12:00:00+07:00'), monthKey: '09-2026',
   subtotal: 300, discount: 0, total: 300, paymentMethod: 'cash', services: ['Cut'], staffNames: ['A'], ...over });
 
@@ -232,11 +241,13 @@ await t('GAS: restoredAt ใหม่กว่าเวลายกเลิก 
   eq(r.status, 'success');
   eq(s.grid.length - 1, 1);
   // ไม่ลบทะเบียนทิ้ง แต่บันทึกเวลาที่กู้ไว้เป็นค่าติดลบ (ดู FG-02)
-  eq(JSON.parse(store.POS_VOIDED_BILLS || '{}')['TX-AUDIT-0001'], -2000);
+  eq(reg(store, 'TX-AUDIT-0001'), -2000);
   // และการแก้บิลใบนี้ครั้งถัดไป (ไม่มี restoredAt) ต้องไม่ถูกปฏิเสธ
   eq(JSON.parse(gas(store).handleTransaction(bill({ total: 350, subtotal: 350 }), ss)).status, 'success');
 });
-await t('นาฬิกาเครื่องตั้งย้อนหลัง: บิลที่กู้มาต้องยังคืนขึ้นชีตได้ (ไม่ตัน)', async () => {
+// ⚠️ ก.ย. 2569 (ข้อ 8): เดิมแอป "ยืนยันคืนบิลเอง" อัตโนมัติ ซึ่งแยกไม่ออกจากกรณีที่บิลถูกยกเลิกจริงหลังการกู้
+// ตอนนี้ต้องเป็นเจ้าของที่เลือก "คืนบิลนี้ขึ้นชีต" เท่านั้น — ทางออกจากทางตันยังมีอยู่ แต่ต้องมีเจตนาชัดเจน
+await t('นาฬิกาเครื่องตั้งย้อนหลัง: บิลที่กู้มาต้องยังคืนขึ้นชีตได้ (ไม่ตัน) — เมื่อเจ้าของยืนยัน', async () => {
   const store = {}, g = gas(store), s = sheet(Array.from(g.BILL_HEADERS)), ss = { getSheetByName: () => s };
   gas(store).handleVoidTransaction(bill({ voidedAt: 9000 }), ss);
   app.state.transactions = [{ id: 'TX-AUDIT-0001', date: Date.parse('2026-09-06T12:00:00+07:00'),
@@ -245,9 +256,15 @@ await t('นาฬิกาเครื่องตั้งย้อนหล�
   app.fetchWithTimeout = async (_u, o) =>
     ({ ok: true, json: async () => JSON.parse(gas(store).handleTransaction(JSON.parse(o.body), ss)) });
   await app.syncPendingTransactions(true);
-  eq(app.state.transactions[0].syncStatus, 'pending');
-  ok(app.state.transactions[0].restoredAt > 9000, 'ไม่ได้ยืนยันเจตนาใหม่');
+  eq(app.state.transactions[0].syncStatus, 'conflict', 'ต้องรอให้เจ้าของตัดสินใจ ไม่คืนบิลเอง');
+  eq(app.state.transactions[0].syncIssue.code, 'ALREADY_VOIDED');
+  eq(s.grid.length - 1, 0, 'คืนบิลขึ้นชีตเองโดยไม่มีคนยืนยัน');
+  const role = app.currentRole, user = app.currentUser;
+  app.currentRole = 'owner'; app.currentUser = { id: '__owner__', name: 'เจ้าของร้าน' };
+  await app.resolveBillConflict('TX-AUDIT-0001', 'restore-cloud');
   await app.syncPendingTransactions(true);
+  app.currentRole = role; app.currentUser = user;
+  ok(app.state.transactions[0].restoredAt === undefined, 'สิทธิ์คืนบิลต้องถูกปลดหลังขึ้นชีตแล้ว');
   eq(app.state.transactions[0].syncStatus, 'synced');
   eq(s.grid.length - 1, 1);
 });
@@ -261,7 +278,13 @@ await t('บิลที่ไม่ได้มาจากการกู้�
     ({ ok: true, json: async () => JSON.parse(gas(store).handleTransaction(JSON.parse(o.body), ss)) });
   await app.syncPendingTransactions(true);
   eq(s.grid.length - 1, 0, 'บิลที่ถูกยกเลิกกลับขึ้นชีตได้');
-  eq(app.state.transactions[0].syncStatus, 'synced', 'ต้องจบ ไม่วน retry ตลอดไป');
+  // ⚠️ ก.ย. 2569 (ข้อ 8): เดิมคาดว่า 'synced' — ผิด เพราะชีตไม่มีบิลนี้แต่ในเครื่องยังนับยอด
+  // ตอนนี้ต้องเป็น conflict (ไม่วน retry เหมือนเดิม แต่ไม่โกหกว่าตรงกัน)
+  eq(app.state.transactions[0].syncStatus, 'conflict', 'ต้องจบแบบรอตัดสิน ไม่ใช่ synced');
+  let calls = 0; const f0 = app.fetchWithTimeout; app.fetchWithTimeout = async (...a) => { calls++; return f0(...a); };
+  await app.syncPendingTransactions(true);
+  app.fetchWithTimeout = f0;
+  eq(calls, 0, 'ต้องไม่วน retry ตลอดไป');
 });
 await t('คำสั่งลบแถวต้องแนบ voidedAt จากนาฬิกาเครื่องเดียวกัน', () => {
   ok(/voidedAt: Date\.now\(\)/.test(SRC), 'enqueueVoidCloudOps ไม่ได้เก็บ voidedAt');
@@ -294,11 +317,11 @@ await t('ทะเบียนต้องอยู่ในงบขนาด �
     lastId = `TX-${1788700000000 + i}-${String(i).padStart(8, '0')}`;
     gas(store, cap).handleVoidTransaction(bill({ id: lastId, voidedAt: 1788700000000 + i }), ss);
   }
-  const map = JSON.parse(store.POS_VOIDED_BILLS || '{}');
-  ok(Buffer.byteLength(store.POS_VOIDED_BILLS || '', 'utf8') <= 9 * 1024, 'ทะเบียนเกินเพดานของ Google');
-  // ⚠️ จุดตายของโค้ดเดิม: พอชนเพดาน setProperty จะ throw แล้วถูกกลืน ใบใหม่ ๆ จึงไม่เคยถูกลงทะเบียนเลย
-  ok(map[lastId] !== undefined, 'ใบล่าสุดไม่ได้ถูกลงทะเบียน (ทะเบียนตันแล้วเงียบ)');
-  ok(Object.keys(map).length > 100, 'ทะเบียนเก็บได้น้อยเกินจนกันของจริงไม่ไหว');
+  // ⚠️ ก.ย. 2569: ทะเบียนแยก "บิลละ property" — ไม่มีค่าไหนใกล้เพดาน 9 KB และไม่ต้องตัดของที่ยังไม่หมดอายุทิ้ง
+  const keys = Object.keys(store).filter(k => k.startsWith('POSVB_'));
+  ok(keys.every(k => Buffer.byteLength(store[k], 'utf8') <= 9 * 1024), 'ทะเบียนเกินเพดานของ Google');
+  ok(reg(store, lastId) > 0, 'ใบล่าสุดไม่ได้ถูกลงทะเบียน (ทะเบียนตันแล้วเงียบ)');
+  eq(keys.length, 400, 'ต้องเก็บครบทุกใบที่ยังไม่หมดอายุ — ไม่ตัดหลักฐานทิ้งเพื่อบีบขนาด');
 });
 await t('เขียนทะเบียนไม่สำเร็จ = ห้ามลบแถวและห้ามตอบว่าสำเร็จ', () => {
   const store = {}, g = gas(store), headers = Array.from(g.BILL_HEADERS);
@@ -349,12 +372,12 @@ await t('GAS: คำขอสรุปที่เก่ากว่ารุ่
     vatCategories: [], services: [], expenses: [], staffCommissions: []
   }, over);
   eq(JSON.parse(g.handleDailySummary(payload({ generatedAt: 2000 }), ss)).status, 'success');
-  const stale = JSON.parse(g.handleDailySummary(payload({ generatedAt: 1000, totalRevenue: 300 }), ss));
+  const stale = JSON.parse(g.handleDailySummary(payload({ generatedAt: 1000, totalRevenue: 300, cashRevenue: 300, nonVatBase: 300, avgBill: 300 }), ss));
   eq(stale.code, 'STALE_SUMMARY');
   const kpi = ss.getSheetByName('สรุป-2026-09-06').getRange(5, 1, 1, 1).getValues()[0][0];
   eq(kpi, '฿400.00', 'ยอดเก่าทับยอดใหม่บนชีต');
   // รุ่นใหม่กว่าต้องเขียนได้ตามปกติ
-  eq(JSON.parse(g.handleDailySummary(payload({ generatedAt: 3000, totalRevenue: 500 }), ss)).status, 'success');
+  eq(JSON.parse(g.handleDailySummary(payload({ generatedAt: 3000, totalRevenue: 500, cashRevenue: 500, nonVatBase: 500, avgBill: 500 }), ss)).status, 'success');
 });
 await t('แอปยกพื้นรหัสรุ่นเมื่อปลายทางบอกว่าชีตใหม่กว่า (กันสรุปส่งไม่ขึ้นถาวรตอนนาฬิกาเพี้ยน)', () => {
   const far = Date.now() + 5 * 24 * 3600e3;
@@ -455,8 +478,9 @@ await t('งานคลาวด์ที่ค้างเกิน 3 คร�
   app.updateSyncBadgeStatus = real;
 });
 await t('กฎ: การกู้ข้อมูลต้องไม่สั่งลบบิลบนชีตเองโดยอัตโนมัติ', () => {
-  const m = SRC.match(/\n  async applyBackupData\(parsed, opts\) \{[\s\S]*?\n  \}\n/);
-  ok(m, 'ไม่พบ applyBackupData');
+  // ตัวแทนข้อมูลจริงอยู่ที่ _applyBackupDataLocked (applyBackupData เป็นแค่ทางเข้าที่เข้าคิวงานบันทึก)
+  const m = SRC.match(/\n  async _applyBackupDataLocked\(parsed, opts, extra\) \{[\s\S]*?\n  \}\n/);
+  ok(m, 'ไม่พบ _applyBackupDataLocked');
   ok(!/needVoidDelete:\s*true/.test(m[0]), 'applyBackupData สั่งลบแถวเอง');
 });
 await t('ลบแถวบนชีตต้องผ่านการยืนยันของเจ้าของเท่านั้น', async () => {
@@ -561,7 +585,7 @@ await t('FG-02: ยกเลิก "ใหม่" หลังกู้คืน
   gas(store).handleTransaction(bill({ allowVoidedRestore: true, restoredAt: 2000 }), ss);
   eq(JSON.parse(gas(store).handleVoidTransaction(bill({ voidedAt: 3000 }), ss)).status, 'success');
   eq(s.grid.length - 1, 0);
-  ok(Number(JSON.parse(store.POS_VOIDED_BILLS)['TX-AUDIT-0001']) > 0, 'ทะเบียนต้องกลับเป็นสถานะยกเลิก');
+  ok(reg(store, 'TX-AUDIT-0001') > 0, 'ทะเบียนต้องกลับเป็นสถานะยกเลิก');
 });
 await t('FG-02: แอปต้องเลิกวนคำสั่งลบที่ถูกข้าม (ไม่ค้างในคิวตลอดไป)', async () => {
   app.fetchWithTimeout = async () => ({ ok: true, json: async () => ({ status: 'error', code: 'VOID_SUPERSEDED_BY_RESTORE', message: 'x' }) });
@@ -630,7 +654,7 @@ await t('เคสของ Codex: ยกเลิกถึงชีตแล้
   app.fetchWithTimeout = async (_u, o) => ({ ok: true, json: async () => post(JSON.parse(o.body)) });
   await app.syncPendingTransactions(true);
   eq(s.grid.length - 1, 1, 'กู้บิลกลับขึ้นชีตไม่สำเร็จ');
-  ok(Number(JSON.parse(store.POS_VOIDED_BILLS)['TX-AUDIT-0001']) < 0, 'ทะเบียนไม่ได้บันทึกการกู้คืน');
+  ok(reg(store, 'TX-AUDIT-0001') < 0, 'ทะเบียนไม่ได้บันทึกการกู้คืน');
 
   app.syncDailySummary = app.syncMonthlySummary = async () => true;
   // ⚠️ เรียกเมธอดจริงจาก prototype — เทสต์ก่อนหน้าในไฟล์นี้ stub flushCloudOutbox ไว้ที่ instance
@@ -656,7 +680,7 @@ await t('บันทึกสถานะกู้คืนไม่ได้ =
   eq(r.status, 'error');
   eq(r.code, 'RESTORE_REGISTRY_FAILED');
   eq(s.grid.length - 1, 0, 'เขียนแถวทั้งที่ยืนยันทะเบียนไม่ได้');
-  eq(Number(JSON.parse(store.POS_VOIDED_BILLS)['TX-AUDIT-0001']) > 0, true, 'ทะเบียนต้องยังเป็นสถานะยกเลิก');
+  eq(reg(store, 'TX-AUDIT-0001') > 0, true, 'ทะเบียนต้องยังเป็นสถานะยกเลิก');
 });
 await t('แอปต้องถือ RESTORE_REGISTRY_FAILED เป็นของชั่วคราว (บิลค้าง pending เพื่อ retry)', async () => {
   app.state.transactions = [{ ...bill(), details: [], syncStatus: 'pending', restoredAt: 2000 }];

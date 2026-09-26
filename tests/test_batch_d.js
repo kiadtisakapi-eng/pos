@@ -107,7 +107,7 @@ await t('หน้าต่างรองส่งงานคลาวด์�
 console.log('\n--- กฎที่ 4: ข้อมูลนำเข้าต้องไม่ทำให้ร้านเปิดไม่ได้ ---');
 // ══════════════════════════════════════════════════════════════════
 t('sanitize ซ่อมรายการย่อยที่ไม่ใช่อาเรย์', () => {
-  const f = { queue:[{id:'q-1',services:null}], transactions:[{id:'t1',total:1,services:null,staffNames:null}],
+  const f = { queue:[{id:'q-1',services:null}], transactions:[{id:'t1',date:Date.now(),total:1,services:null,staffNames:null}],
               shift:{expenses:null,history:null} };
   app.sanitizeBackupData(f);
   eq(Array.isArray(f.queue[0].services), true);
@@ -136,7 +136,7 @@ console.log('\n--- กฎที่ 5: ชนิด ID ต้องเป็น�
 t('sanitize แปลง id ตัวเลขเป็นสตริง รวม foreign key', () => {
   const f = { services:[{id:123,category:7,price:300}], categories:[{id:7}], staff:[{id:9}],
               customers:[{id:5}], queue:[{id:3,customerId:5}],
-              transactions:[{id:11,total:1,customerId:5,details:[{staffId:9}]}] };
+              transactions:[{id:11,date:Date.now(),total:1,customerId:5,details:[{staffId:9,price:1}]}] };
   app.sanitizeBackupData(f);
   eq(typeof f.services[0].id, 'string'); eq(f.services[0].category, '7');
   eq(typeof f.categories[0].id, 'string'); eq(typeof f.staff[0].id, 'string');
@@ -188,6 +188,7 @@ console.log('\n--- กฎที่ 8: กู้ข้อมูลแล้วต
 // ══════════════════════════════════════════════════════════════════
 await t('หลังกู้ บิลทุกใบถูกตั้งเป็นรอส่ง ไม่เชื่อ syncStatus จากไฟล์', async () => {
   app.isReadOnlyWindow = false; app.loadFailed = false;
+  app.currentRole='owner'; app.currentUser={id:'__owner__',name:'เจ้าของร้าน'};  // กู้ข้อมูล = งานของเจ้าของที่ล็อกอินอยู่
   app.saveState = async () => true; app.renderEveryScreen = () => {};
   const f = { backupSchemaVersion:3, services:[{id:'s1',name:'ตัดผม',price:300}], staff:[{id:'st-1',name:'เอ'}],
     categories:[{id:'barber',name:'ตัดผมชาย'}], customers:[], queue:[], voidLog:[], expenseLog:[],

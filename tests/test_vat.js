@@ -98,7 +98,8 @@ t('ไม่มีเคสไหนได้เศษสตางค์หร�
     const n=1+Math.floor(Math.random()*4);
     const items=[];
     for(let j=0;j<n;j++) items.push(L(Math.round(Math.random()*99900)/100, Math.random()<0.5?'drinks':'barber'));
-    const disc=Math.random()<0.3?Math.round(Math.random()*5000)/100:0;
+    // ส่วนลดเป็นจำนวนเต็มบาทเท่านั้น (กติกาตัวเลข 26 ก.ย. 2569) — ราคายังสุ่มถึงสตางค์เพื่อทดสอบตัวคิด VAT
+    const disc=Math.random()<0.3?Math.floor(Math.random()*50):0;
     setCart(items,disc);
     const x=app.getCartBillTotals();
     if(!Number.isInteger(x.total)) throw new Error('ยอดไม่ใช่จำนวนเต็ม: '+x.total);

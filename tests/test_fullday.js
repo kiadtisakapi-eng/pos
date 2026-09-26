@@ -26,6 +26,8 @@ app.state.staff=[{id:'st1',name:'เอ',role:'ช่าง',accessLevel:'staff'
 app.state.customers=[]; app.state.queue=[]; app.state.transactions=[]; app.state.voidLog=[];
 app.state.cloudOutbox=[]; app.state.cart=[];
 app.vatEnabled=true; app.vatRate=7; app.currentRole='owner'; app.currentUser={name:'เจ้าของ'};
+// บิลที่ 3 จ่ายด้วย QR — ตั้งแต่ ก.ย. 2569 ด่านบันทึกบิลไม่ยอมรับ QR ถ้าร้านยังไม่ตั้งเลขพร้อมเพย์
+app.shopPromptPayId='0812345678';
 const START_CASH=1000;
 app.state.shift={active:true,startTime:Date.now()-8*3600000,startCash:START_CASH,startDetails:{},expenses:[],history:[]};
 Object.assign(els,{'cart-discount':{value:'0'},'cart-customer-select':{value:''},
@@ -44,9 +46,11 @@ console.log('\n--- ขาย 5 บิล ---');
 for (const b of bills) {
   app.state.cart=[]; els['cart-discount'].value=String(b.disc);
   b.items.forEach(id=>app.addToCart(id));
+  app.state.cart.forEach(i=>{ if(!i.staffId) app.changeItemStaff(i.uniqueCartId, app.state.staff[0].id); });   // ผู้ใช้เลือกผู้ให้บริการเอง (ข้อ 5 — ระบบไม่ใส่ให้)
   const due=app.getCartBillTotals().total;
   els['cash-received'].value=String(due+100);
   app.state.selectedPaymentMethod=b.pay;
+  app.beginCheckoutAttempt();   // = เปิดหน้าต่างชำระเงิน
   await app.processCheckout();
   b.actual=due;
 }
@@ -96,11 +100,16 @@ t('หมวดที่คิด VAT ถูกส่งไปให้ชีต
 
 console.log('\n--- ปิดกะ ---');
 const counted=expected-40;   // นับเงินขาด 40
-const log={startTime:app.state.shift.startTime,endTime:Date.now(),startCash:START_CASH,
+// ⚠️ เวลาปิดกะต้องอยู่ "วันทำการเดียวกัน" กับเวลาเปิดกะเสมอ ไม่งั้นเทสต์นี้จะผ่าน/ไม่ผ่านตามนาฬิกาเครื่อง:
+// เปิดกะ = ตอนนี้ − 8 ชม. · ถ้ารันช่วง 06:00–14:00 เวลาเปิดกะจะตกก่อนเวลาตัดวันทำการ 06:00 (คนละวันกับเวลาปิด)
+// แล้ว buildShiftCashSummary ของ "วันของเวลาปิด" จะไม่เห็นกะนี้ (พบตอนรันชุดนี้บนเครื่องผู้ใช้ 09:42 น.)
+const log={startTime:app.state.shift.startTime,endTime:app.state.shift.startTime+3600000,startCash:START_CASH,
   cashSales,expensesTotal:expenses,expectedCash:expected,countedCash:counted,
   difference:counted-expected,closedBy:'เจ้าของ'};
 app.state.shift.history=[log]; app.state.shift.active=false;
-const cash=app.buildShiftCashSummary('day',app.getBusinessISODate(log.endTime));
+// วันของกะ = วันที่ระบบจัดกะเข้า (shiftAnchorTime) — กะที่เปิด 03:00–06:00 เป็นของวันใหม่ (ข้อ 3 รอบ 26 ก.ย. 2569)
+// รันเทสต์ช่วง 11:00–14:00 เวลาเปิดกะ (ตอนนี้ − 8 ชม.) จะตกช่วงนั้นพอดี จึงต้องถามวันจากตัวจัดกะ ไม่ใช่เดาจากเวลาปิด
+const cash=app.buildShiftCashSummary('day',app.getBusinessISODate(app.shiftAnchorTime ? app.shiftAnchorTime(log) : log.endTime));
 t('สรุปกะเห็น 1 กะ เงินขาด 40',()=>{eq(cash.shiftCount,1); eq(cash.cashVariance,-40);});
 t('ข้อความรายงานปิดกะสร้างได้ ไม่พัง',()=>{
   const msg=app.buildShiftReportMessage(log); ok(typeof msg==='string'&&msg.length>50);});

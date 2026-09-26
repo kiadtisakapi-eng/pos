@@ -32,6 +32,14 @@ function gas(store){
 const tx = over => ({ id:'TX-AUDIT-0001', date:Date.parse('2026-09-06T12:00:00+07:00'), monthKey:'09-2026',
   subtotal:300, discount:0, total:300, paymentMethod:'cash', services:['Cut'], staffNames:['A'], ...over });
 
+// อ่านทะเบียนยกเลิก/กู้คืนของบิลหนึ่งใบ เป็นค่าแบบเดิม (บวก = ยกเลิกเมื่อ · ลบ = กู้คืนเมื่อ · 0 = ไม่มี)
+// ⚠️ ก.ย. 2569 ทะเบียนย้ายจาก property ค่าเดียว (POS_VOIDED_BILLS) ไปเป็นบิลละ property (POSVB_<id>)
+// เพื่อไม่ต้องตัดหลักฐานทิ้งตอนใกล้เต็ม 9 KB — เทสต์จึงอ่านผ่านตัวนี้แทนการแกะ JSON ก้อนเดิม
+const reg = (store, id) => {
+  const raw = store['POSVB_' + id];
+  if (!raw) { const legacy = store.POS_VOIDED_BILLS ? JSON.parse(store.POS_VOIDED_BILLS) : {}; return Number(legacy[id]) || 0; }
+  const o = JSON.parse(raw); return o.v > o.r ? o.v : (o.r > o.v ? -o.r : 0);
+};
 const store={};           // Script Properties จำลอง — อยู่ข้ามการรัน เหมือนของจริง
 let pass=0, fail=0;
 const t=(n,f)=>{try{f();pass++;console.log('  PASS',n)}catch(e){fail++;console.log('  FAIL',n,'->',e.message)}};
@@ -46,7 +54,7 @@ const late = tx();                                   // คำขอที่ค
 const g2 = gas(store);
 const v = JSON.parse(g2.handleVoidTransaction({ id: late.id, monthKey:'09-2026', date: late.date }, ss));
 t('void ตอบ NOT_FOUND เพราะยังไม่มีแถว (แอปถือว่าลบแล้ว)', () => assert.equal(v.code,'NOT_FOUND'));
-t('แต่ต้องลงทะเบียนไว้แล้วว่าบิลนี้ถูกยกเลิก', () => assert.ok(store.POS_VOIDED_BILLS && store.POS_VOIDED_BILLS.includes(late.id)));
+t('แต่ต้องลงทะเบียนไว้แล้วว่าบิลนี้ถูกยกเลิก', () => assert.ok(reg(store, late.id) > 0));
 
 // 2) คำขอบันทึกเดิมมาถึงทีหลัง — คนละ execution
 const g3 = gas(store);
@@ -57,7 +65,7 @@ t('*** ชีตต้องไม่มีบิลผี ***', () => assert.eq
 // 3) คืนบิลโดยตั้งใจ (กู้ข้อมูล) ต้องยังทำได้ — แต่ต้องพิสูจน์ได้ว่าเจตนาเกิด "หลัง" การยกเลิก
 // ⚠️ ธง allowVoidedRestore เปล่า ๆ ไม่พออีกต่อไป (E-F01): ธงนั้นติดกับบิลถาวรฝั่งแอป
 // คำขอเก่าที่ค้างในเน็ตตั้งแต่ก่อน void ก็พกธงมาด้วย ปลายทางจึงต้องเทียบเวลาเอง
-const voidedAtStored = Number(JSON.parse(store.POS_VOIDED_BILLS)[late.id]);
+const voidedAtStored = reg(store, late.id);
 const gStale = gas(store);
 const rStale = JSON.parse(gStale.handleTransaction({ ...late, allowVoidedRestore: true, restoredAt: voidedAtStored - 1000 }, ss));
 t('ธงคืนบิลที่เก่ากว่าเวลายกเลิก ต้องถูกปฏิเสธ', () => { assert.equal(rStale.code,'ALREADY_VOIDED'); assert.equal(s.grid.length-1, 0); });
@@ -68,7 +76,7 @@ t('กู้ข้อมูลคืนบิลโดยตั้งใจ (res
 // ชุด FG: ไม่ "ลบทะเบียนทิ้ง" อีกต่อไป แต่บันทึกว่ากู้คืนเมื่อไหร่ (ค่าติดลบ)
 // เพราะการลบทิ้งทำให้คำสั่งยกเลิกเก่าที่มาถึงทีหลังลบบิลที่เพิ่งกู้ได้
 t('คืนบิลสำเร็จแล้วทะเบียนต้องบันทึกว่า "กู้คืน" ไม่ใช่ค้างสถานะยกเลิก', () =>
-  assert.ok(Number(JSON.parse(store.POS_VOIDED_BILLS || '{}')[late.id]) < 0));
+  assert.ok(reg(store, late.id) < 0));
 t('สิ่งที่ต้องเป็นจริง: แก้บิลใบนี้ครั้งถัดไป (ไม่มี restoredAt) ต้องไม่ค้าง', () => {
   const r4 = JSON.parse(gas(store).handleTransaction({ ...late, total: 350, subtotal: 350 }, ss));
   assert.equal(r4.status, 'success');

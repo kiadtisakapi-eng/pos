@@ -47,6 +47,8 @@ const mkTx=()=>({id:'TX1',date:Date.now(),customerName:'ก',
 app.state.staff=[{id:'s1',name:'เอ'}];
 app.state.transactions=[mkTx()];
 app.currentRole='owner';
+// ตั้งแต่ ก.ย. 2569 ฟังก์ชันบันทึกตรวจสิทธิ์เอง: ต้องมีผู้ใช้ที่ล็อกอินอยู่จริง ไม่ใช่แค่ตั้ง role
+app.currentUser={id:'__owner__',name:'เจ้าของร้าน'};
 app.saveState=async()=>{}; app.filterReports=()=>{}; app.syncPendingTransactions=()=>{};
 app.flushCloudOutbox=()=>{}; app.enqueueSummaryRefresh=()=>{}; app.closeModal=()=>{};
 Object.assign(h.document._els,{
@@ -154,6 +156,7 @@ const resetVoidCase=()=>{
   app.state.voidLog=[]; app.state.cloudOutbox=[];
   flushCount=0; pendingConfirm=null;
   h.document.getElementById('edit-tx-id').value='TXV';
+  h.document.getElementById('void-money-outcome').value='refunded';   // ข้อ 16: ต้องระบุก่อนว่าเงินเคลื่อนไหวจริงไหม
 };
 
 // ── เขียนลงเครื่องไม่สำเร็จ → ต้องคืนทุกอย่างกลับ และห้ามแตะชีต ──

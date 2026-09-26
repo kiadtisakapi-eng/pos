@@ -57,10 +57,41 @@ if (Test-Path $lock) {
     }
 }
 
+# --- รายการไฟล์ใหม่ (untracked) ที่อนุญาตให้ขึ้น repo ------------------------
+$safeNewPaths = @(
+    '.nojekyll', '.gitattributes', '.gitignore',
+    'index.html', 'app.js', 'style_v2.css', 'sw.js', 'manifest.json',
+    'promptpay-qr.js', 'dexie.min.js', 'google_apps_script.js', 'README.md',
+    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests',
+    # Font Awesome ที่ย้ายมาเก็บเอง — ถ้าลืมบรรทัดนี้ ไฟล์จะไม่ถูก push
+    # แล้วไอคอนทั้งแอปบนเว็บจริงจะหายหมดทันทีโดยสคริปต์ไม่เตือนอะไรเลย
+    'vendor',
+    # เครื่องมือวัดผล/สคริปต์ช่วยงานของโปรเจกต์ — ไม่มีความลับอยู่ในนั้น
+    # ถ้าไม่ใส่ชื่อไว้ที่นี่ โฟลเดอร์จะค้างเป็น untracked ตลอด แล้ว git status ไม่มีวันว่าง
+    # ทำให้สคริปต์นี้คิดว่า 'มีของจะ deploy' ทุกครั้ง แล้ว push เวอร์ชันเปล่าขึ้นเว็บ
+    'tools'
+)
+
+# path จาก git status อยู่ในรายการอนุญาตไหม (ชื่อไฟล์ตรง หรืออยู่ใต้โฟลเดอร์ที่อนุญาต)
+function Test-SafeNewPath($p) {
+    $p = $p.Trim().Trim('"').TrimEnd('/')
+    foreach ($s in $safeNewPaths) { if ($p -eq $s -or $p.StartsWith($s + '/')) { return $true } }
+    return $false
+}
+
 # --- 1) มีอะไรให้ deploy ไหม --------------------------------------------
-$dirty = git status --porcelain
+# นับเฉพาะของที่ขั้นที่ 4 จะ stage จริง: ไฟล์ที่ติดตามอยู่ + ไฟล์ใหม่ในรายการอนุญาต
+# เดิมนับทุกบรรทัดของ git status → มีไฟล์ส่วนตัวที่ไม่ถูกกันวางไว้ในโฟลเดอร์ (ไม่ได้ถูก stage อยู่แล้ว)
+# สคริปต์ก็คิดว่ามีของเปลี่ยน แล้วบวกเลขแคช + push รุ่นเปล่า (iPad ขึ้นว่ามีอัปเดตทั้งที่โค้ดเหมือนเดิม)
+$dirtyAll = @(git status --porcelain)
 if ($LASTEXITCODE -ne 0) { Fail "git status failed - is this folder a git repo?" }
-if ([string]::IsNullOrWhiteSpace($dirty)) {
+$dirty = @($dirtyAll | Where-Object { $_ -and ((-not $_.StartsWith('?? ')) -or (Test-SafeNewPath $_.Substring(3))) })
+$skipped = @($dirtyAll | Where-Object { $_ -and $_.StartsWith('?? ') -and -not (Test-SafeNewPath $_.Substring(3)) })
+if ($skipped.Count -gt 0) {
+    Write-Host "note: these new files are NOT in the allowlist and will not be deployed:" -ForegroundColor DarkYellow
+    $skipped | ForEach-Object { Write-Host "   $_" -ForegroundColor DarkYellow }
+}
+if ($dirty.Count -eq 0) {
     $ahead = git rev-list --count '@{u}..HEAD' 2>$null
     if ($LASTEXITCODE -eq 0 -and [int]$ahead -gt 0) {
         Write-Host "[1/6] no file changes, but $ahead commit(s) not pushed yet" -ForegroundColor Yellow
@@ -123,19 +154,7 @@ git add -u -- .
 if ($LASTEXITCODE -ne 0) { Fail "git add tracked changes failed" }
 # ⚠️ ไฟล์ใหม่ที่ไม่อยู่ในลิสต์นี้จะไม่ถูก commit "แบบเงียบ ๆ" — สคริปต์ไม่เตือน
 #    เพิ่มไฟล์ config ใหม่ในโปรเจกต์เมื่อไหร่ ต้องมาเติมชื่อที่นี่ด้วยทุกครั้ง
-$safeNewPaths = @(
-    '.nojekyll', '.gitattributes', '.gitignore',
-    'index.html', 'app.js', 'style_v2.css', 'sw.js', 'manifest.json',
-    'promptpay-qr.js', 'dexie.min.js', 'google_apps_script.js', 'README.md',
-    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests',
-    # Font Awesome ที่ย้ายมาเก็บเอง — ถ้าลืมบรรทัดนี้ ไฟล์จะไม่ถูก push
-    # แล้วไอคอนทั้งแอปบนเว็บจริงจะหายหมดทันทีโดยสคริปต์ไม่เตือนอะไรเลย
-    'vendor',
-    # เครื่องมือวัดผล/สคริปต์ช่วยงานของโปรเจกต์ — ไม่มีความลับอยู่ในนั้น
-    # ถ้าไม่ใส่ชื่อไว้ที่นี่ โฟลเดอร์จะค้างเป็น untracked ตลอด แล้ว git status ไม่มีวันว่าง
-    # ทำให้สคริปต์นี้คิดว่า 'มีของจะ deploy' ทุกครั้ง แล้ว push เวอร์ชันเปล่าขึ้นเว็บ
-    'tools'
-)
+# (รายการนี้ย้ายไปประกาศไว้ด้านบน ก่อนขั้นที่ 1 — ใช้ทั้งตอนตัดสินว่ามีของจะ deploy และตอน stage)
 git add -- $safeNewPaths
 if ($LASTEXITCODE -ne 0) { Fail "git add project files failed" }
 

@@ -177,15 +177,17 @@
     var fmt = bchFormat(EC_BITS[ecLvl], mask);
     for (var i = 0; i < 15; i++) {
       var bit = (fmt >> i) & 1;
-      // copy 1
-      if (i < 6) mat[8][i] = bit;
-      else if (i === 6) mat[8][7] = bit;
+      // ตำแหน่งตามมาตรฐาน ISO/IEC 18004 — mat[แถว][คอลัมน์]
+      // ⚠️ เดิมวางสลับแถว/คอลัมน์ → เครื่องอ่าน QR มาตรฐาน (ZXing/OpenCV/jsQR) อ่านไม่ออก
+      // copy 1: บิต 0–7 ลงคอลัมน์ 8 (ข้ามแถว 6 ที่เป็นเส้น timing), บิต 8–14 ลงแถว 8 จากขวาไปซ้าย
+      if (i < 6) mat[i][8] = bit;
+      else if (i === 6) mat[7][8] = bit;
       else if (i === 7) mat[8][8] = bit;
-      else if (i === 8) mat[7][8] = bit;
-      else mat[14 - i][8] = bit;
-      // copy 2
-      if (i < 7) mat[size - 1 - i][8] = bit;
-      else mat[8][size - 15 + i] = bit;
+      else if (i === 8) mat[8][7] = bit;
+      else mat[8][14 - i] = bit;
+      // copy 2: บิต 0–7 ลงแถว 8 จากขวาสุด, บิต 8–14 ลงคอลัมน์ 8 ด้านล่าง
+      if (i < 8) mat[8][size - 1 - i] = bit;
+      else mat[size - 15 + i][8] = bit;
     }
     mat[size - 8][8] = 1;
   }

@@ -18,7 +18,13 @@ app.showConfirm=(msg,cb)=>{app._p=cb();return app._p;};
 app.saveState=async()=>{}; app.autoBackupToGoogleDrive=async()=>true;
 app.postVoidDelete=async()=>true; app.postTelegram=async()=>true;
 app.buildShiftReportMessage=()=>'msg'; app.enqueueShiftCloseCloudOps=()=>{};
-h.document.querySelectorAll=()=>[];
+// ช่องนับธนบัตรจำลอง — ตั้งแต่ ก.ย. 2569 confirmCashCount ไม่ยอมทำงานถ้าหาช่องนับไม่เจอ
+// (เดิมนับได้ 0 เงียบ ๆ แล้วปิดกะขึ้น "ขาด" เท่าเงินทั้งลิ้นชัก)
+// ถ้าไม่ตั้งช่องพวกนี้ เทสต์ rollback ปิดกะข้างล่างจะ "ผ่านทั้งที่ไม่ได้ตรวจอะไรเลย"
+const cashInputs=(counts)=>Object.entries(counts).map(([d,q])=>({
+  value:String(q), getAttribute:(k)=> k==='data-denom' ? String(d) : null }));
+let drawerInputs=cashInputs({1000:0,500:0,100:0,50:0,20:0,10:0,5:0,2:0,1:0});
+h.document.querySelectorAll=(sel)=> (sel&&String(sel).includes('cash-qty-input')) ? drawerInputs : [];
 
 const set=(o)=>Object.entries(o).forEach(([k,v])=>{els[k]=Object.assign(els[k]||h.document.getElementById(k),v)});
 
@@ -27,6 +33,8 @@ app.state.services=[]; app.state.staff=[]; app.state.customers=[]; app.state.que
 app.state.transactions=[]; app.state.voidLog=[]; app.state.cloudOutbox=[]; app.state.cart=[];
 app.state.shift={active:false,startTime:null,startCash:0,startDetails:{},expenses:[],history:[]};
 app.currentRole='owner'; app.vatEnabled=true; app.vatRate=7;
+// ตั้งแต่ ก.ย. 2569 ฟังก์ชันบันทึกตรวจสิทธิ์เอง (ไม่พึ่งหน้าจอ) — ต้องมีคนล็อกอินจริง ไม่ใช่แค่ตั้ง role
+app.currentUser={id:'__owner__',name:'เจ้าของ'};
 
 (async()=>{
 console.log('\n--- เพิ่มพนักงาน / บริการ / ลูกค้า / หมวดหมู่ ---');
@@ -71,7 +79,9 @@ set({'cart-discount':{value:'0'},'cart-customer-select':{value:''},'cash-receive
      'btn-complete-checkout':{disabled:false},'cash-change':{innerText:'',style:{}}});
 app.addToCart(app.state.services[0].id);
 app.addToCart(app.state.services[1].id);
+app.state.cart.forEach(i=>{ if(!i.staffId) app.changeItemStaff(i.uniqueCartId, app.state.staff[0].id); });   // ผู้ใช้เลือกผู้ให้บริการเอง (ข้อ 5 — ระบบไม่ใส่ให้)
 app.state.selectedPaymentMethod='cash';
+app.beginCheckoutAttempt();   // = เปิดหน้าต่างชำระเงิน (processCheckout ต้องมีรอบชำระเงินที่ยังไม่ถูกใช้)
 await app.processCheckout();
 const tx=app.state.transactions[0];
 t('ออกบิลได้ ยอด 300+30+VAT2.10 = 332.10 -> ปัดเป็น 333',()=>{
@@ -96,7 +106,8 @@ app.googleSheetsUrl='https://gas/exec';
 set({'edit-tx-id':{value:tx.id}});
 app.currentUser={name:'เจ้าของ'};
 if(typeof app.voidTransaction==='function'){
-  app.voidTransaction(); await app._p;
+  h.document._els['void-money-outcome']={value:'refunded'};   // ข้อ 16: ระบุว่าคืนเงินแล้ว (พฤติกรรมเดิม)
+  await app.voidTransaction(); await app._p;   // voidTransaction รอถาม PIN ซ้ำ (ข้อ 8) ก่อนเปิดกล่องยืนยัน
   t('บิลถูกยกเลิกออกจากรายการ',()=>eq(app.state.transactions.length,0));
   t('มีบันทึกประวัติการยกเลิก (audit trail)',()=>ok((app.state.voidLog||[]).length>=1));
   t('มีคำสั่งลบแถวในชีตค้างไว้ใน outbox',()=>ok(app.state.cloudOutbox.some(i=>i.needVoidDelete)));
@@ -137,12 +148,14 @@ console.log('\n--- ออกบิลตอนยังไม่เปิดก�
   app.state.categories=[{id:'barber',name:'ตัดผม',vat:false}];
   app.state.transactions=[]; app.state.queue=[]; app.state.cloudOutbox=[];
   app.state.shift={active:true,startTime:Date.now()-60000,startCash:100,startDetails:{},expenses:[],history:[]};
-  app.state.cart=[{name:'ตัดผม',price:100,duration:30,category:'barber',staffId:'s1',staffName:'ช่าง',commission:0,commissionType:'percent',uniqueCartId:'rollback-cart'}];
+  // ต้องเป็นพนักงานที่มีอยู่จริง — ไม่งั้นด่านตรวจตะกร้าจะปฏิเสธก่อนถึงจุดบันทึก แล้วเทสต์นี้จะไม่ได้ตรวจการ rollback เลย
+  app.state.cart=[{name:'ตัดผม',price:100,duration:30,category:'barber',staffId:app.state.staff[0].id,staffName:app.state.staff[0].name,commission:0,commissionType:'percent',uniqueCartId:'rollback-cart'}];
   app.state.selectedPaymentMethod='cash';
   set({'cart-discount':{value:'0'},'cart-customer-select':{value:'rollback-customer'},'cash-received':{value:'100'},'btn-complete-checkout':{disabled:false}});
   let receiptCount=0, syncCount=0;
   app.showThermalReceipt=()=>{receiptCount++;}; app.syncPendingTransactions=()=>{syncCount++;};
   app.saveState=async()=>false;
+  app.beginCheckoutAttempt();
   await app.processCheckout();
   t('เซฟบิลไม่สำเร็จ -> ไม่มีบิลหรือคิวเพิ่ม',()=>{eq(app.state.transactions.length,0);eq(app.state.queue.length,0);});
   t('เซฟบิลไม่สำเร็จ -> จำนวนครั้งลูกค้าและตะกร้ากลับเหมือนเดิม',()=>{eq(customer.visitCount,4);eq(customer.tier,'ทั่วไป');eq(app.state.cart.length,1);});
@@ -152,10 +165,12 @@ console.log('\n--- ออกบิลตอนยังไม่เปิดก�
   const originalQueue=[{id:'rollback-q'}];
   app.state.queue=app.cloneForRollback(originalQueue);
   app.cashCounterMode='close';
-  let backupCount=0;
+  drawerInputs=cashInputs({1000:3,500:1,100:2}); // นับเงินจริง 3,700 ไม่ใช่ลิ้นชักว่าง
+  let backupCount=0, enqueued=0;
   app.autoBackupToGoogleDrive=async()=>{backupCount++;return true;};
-  app.enqueueShiftCloseCloudOps=()=>app.state.cloudOutbox.push({id:'rollback-outbox',needSummary:true});
+  app.enqueueShiftCloseCloudOps=()=>{enqueued++;app.state.cloudOutbox.push({id:'rollback-outbox',needSummary:true});};
   await app.confirmCashCount();
+  t('เซฟปิดกะไม่สำเร็จ -> เดินถึงขั้นตอนปิดกะจริง (กันเทสต์ผ่านแบบไม่ได้ตรวจ)',()=>eq(enqueued,1));
   t('เซฟปิดกะไม่สำเร็จ -> กะยังเปิดและไม่เพิ่มประวัติกะ',()=>{eq(app.state.shift.active,true);eq(app.state.shift.history.length,0);});
   t('เซฟปิดกะไม่สำเร็จ -> ตะกร้า/คิว/outbox คืนสภาพเดิม',()=>{eq(app.state.cart,originalCart);eq(app.state.queue,originalQueue);eq(app.state.cloudOutbox,[]);});
   t('เซฟปิดกะไม่สำเร็จ -> ยังไม่สำรองคลาวด์',()=>eq(backupCount,0));

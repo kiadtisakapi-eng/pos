@@ -63,8 +63,10 @@ function daySummary(over){
     billCount:12, avgBill:416.67, totalExpenses:500, netIncome:4500,
     cashVariance:0, shiftCount:1, shiftCash:[{}],
     nonVatBase:5000, vatableBase:0, vatAmount:0, rounding:0, vatRate:0,
-    vatCategories:[], services:[{name:'ตัดผม',count:5,revenue:2500}],
-    expenses:[{note:'ค่าน้ำ',amount:200}], staffCommissions:[{name:'A',count:5,commission:300}]
+    // ⚠️ ก.ย. 2569 (ข้อ 10/18): ตัวเลขในสรุปต้องสอดคล้องกันเอง — รายการบริการรวม = ยอดก่อน VAT
+    //    และรายการค่าใช้จ่ายรวม = ค่าใช้จ่ายรวม (เดิมฟิกซ์เจอร์นี้ไม่สอดคล้อง ซึ่งคือสิ่งที่ข้อ 10 ให้ปฏิเสธ)
+    vatCategories:[], services:[{name:'ตัดผม',count:5,revenue:2500},{name:'นวด',count:7,revenue:2500}],
+    expenses:[{note:'ค่าน้ำ',amount:200},{note:'ค่าไฟ',amount:300}], staffCommissions:[{name:'A',count:5,commission:300}]
   }, over||{});
 }
 
@@ -78,25 +80,32 @@ t('บิลปกติผ่าน', ()=>{
 });
 t('บิล id สั้นสุด (Math.random ให้สตริงว่าง) ยังผ่าน', ()=>{
   const ss=FakeSS();
-  const r=g.handleTransaction({id:'TX-1754400000000-',monthKey:'08-2026',date:Date.now(),
+  const r=g.handleTransaction({id:'TX-1754400000000-',monthKey:'08-2026',date:Date.parse('2026-08-05T12:00:00+07:00'),
     subtotal:300,discount:0,total:300,services:[],staffNames:[]}, ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));
 });
 t('บิลส่วนลดเต็มยอด (total=0) ยังผ่าน', ()=>{
   const ss=FakeSS();
-  const r=g.handleTransaction({id:'TX-1754400000001-XY',monthKey:'08-2026',date:Date.now(),
+  const r=g.handleTransaction({id:'TX-1754400000001-XY',monthKey:'08-2026',date:Date.parse('2026-08-05T12:00:00+07:00'),
     subtotal:300,discount:300,total:0,services:[],staffNames:[]}, ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));
 });
 t('บิล VAT: total > subtotal (ปัดขึ้น) ยังผ่าน', ()=>{
   const ss=FakeSS();
-  const r=g.handleTransaction({id:'TX-1754400000002-Z',monthKey:'08-2026',date:Date.now(),
-    subtotal:300,discount:0,total:321,services:[],staffNames:[]}, ss);
+  // ⚠️ ก.ย. 2569: บิล VAT จริงจากแอปส่ง 4 ช่อง VAT มาด้วยเสมอ (เดิมเทสต์นี้ไม่ส่ง ซึ่งจริง ๆ คือ "บิลรุ่นเก่ายอดไม่ลงตัว")
+  const r=g.handleTransaction({id:'TX-1754400000002-Z',monthKey:'08-2026',date:Date.parse('2026-08-05T12:00:00+07:00'),
+    subtotal:300,discount:0,nonVatBase:0,vatableBase:300,vatAmount:21,rounding:0,vatRate:7,total:321,services:[],staffNames:[]}, ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));
+});
+t('บิลที่ไม่มีช่อง VAT (รุ่นเก่า) แต่ยอดสุทธิ ≠ ราคารวม − ส่วนลด → ปฏิเสธ (ข้อ 10: 100 → 999)', ()=>{
+  const ss=FakeSS();
+  const r=JSON.parse(g.handleTransaction({id:'TX-1754400000009-Z',monthKey:'08-2026',date:Date.parse('2026-08-05T12:00:00+07:00'),
+    subtotal:100,discount:0,total:999,services:[],staffNames:[]}, ss));
+  if(r.code!=='INVALID_AMOUNT') throw new Error(JSON.stringify(r));
 });
 t('บิลไม่มี discount (undefined) ยังผ่าน', ()=>{
   const ss=FakeSS();
-  const r=g.handleTransaction({id:'TX-1754400000003-Q',monthKey:'08-2026',date:Date.now(),
+  const r=g.handleTransaction({id:'TX-1754400000003-Q',monthKey:'08-2026',date:Date.parse('2026-08-05T12:00:00+07:00'),
     subtotal:300,total:300,services:[],staffNames:[]}, ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));
 });
@@ -112,7 +121,7 @@ t('สรุปวันปกติ -> เขียนแท็บใหม่'
 t('ส่งซ้ำวันเดิม -> ทับได้ ไม่เหลือแท็บขยะ', ()=>{
   const ss=FakeSS();
   g.handleDailySummary(daySummary(), ss);
-  g.handleDailySummary(daySummary({totalRevenue:6000}), ss);
+  g.handleDailySummary(daySummary({totalRevenue:6000,cashRevenue:4000,nonVatBase:6000,services:[{name:'ตัดผม',count:12,revenue:6000}]}), ss);
   const junk=ss.getSheets().map(s=>s.getName()).filter(n=>/^__POS_/.test(n));
   if(junk.length) throw new Error('เหลือแท็บขยะ: '+junk.join(','));
   const names=ss.getSheets().map(s=>s.getName());
@@ -130,12 +139,13 @@ t('เงินสดขาด (cashVariance ติดลบ) ต้องผ่
 });
 t('กำไรติดลบ (ค่าใช้จ่าย > รายได้) ต้องผ่าน', ()=>{
   const ss=FakeSS();
-  const r=g.handleDailySummary(daySummary({totalExpenses:9000,netIncome:-4000}), ss);
+  const r=g.handleDailySummary(daySummary({totalExpenses:9000,netIncome:-4000,expenses:[{note:'ค่าเช่า',amount:9000}]}), ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));
 });
 t('เปิด VAT 7% ครบทุกช่อง', ()=>{
   const ss=FakeSS();
-  const r=g.handleDailySummary(daySummary({vatRate:7,nonVatBase:1000,vatableBase:3738,vatAmount:261.66,rounding:0.34,totalRevenue:5000}), ss);
+  const r=g.handleDailySummary(daySummary({vatRate:7,nonVatBase:1000,vatableBase:3738,vatAmount:261.66,rounding:0.34,totalRevenue:5000,
+    services:[{name:'ตัดผม',count:5,revenue:1000},{name:'เครื่องดื่ม',count:7,revenue:3738}]}), ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));
 });
 t('สรุปเดือน', ()=>{
@@ -224,3 +234,5 @@ t('สรุปรายวันเรียก prune แล้วไม่พ�
 });
 
 console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
+// ⚠️ เดิมไม่มีบรรทัดนี้ — เทสต์ล้มแต่ run-all.js (และ deploy.ps1) นับว่าผ่าน
+process.exit(fail ? 1 : 0);

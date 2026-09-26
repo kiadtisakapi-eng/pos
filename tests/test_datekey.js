@@ -33,7 +33,8 @@ t('บิลปกติ -> คิวได้ตามเดิม',()=>eq(app.
 
 app.state.cloudOutbox=[]; app.telegramToken=''; app.telegramChatId='';
 app.enqueueShiftCloseCloudOps({startTime:null,endTime:null,difference:0});
-t('ปิดกะที่ไม่มีเวลาเลย -> ไม่คิวสรุป',()=>eq(app.state.cloudOutbox.length,0));
+// ก.ย. 2569 (ข้อ 14): ปิดกะทุกครั้งคิว "สำรองข้อมูลขึ้น Drive" ไว้ด้วย (ลองใหม่ได้) — สิ่งที่ต้องไม่เกิดคือ "งานสรุป" ของวันขยะ
+t('ปิดกะที่ไม่มีเวลาเลย -> ไม่คิวสรุป',()=>eq(app.state.cloudOutbox.filter(it=>it.needSummary).length,0));
 
 app.state.cloudOutbox=[]; app.currentUser={name:'เอ'};
 app.enqueueVoidCloudOps({id:'TX',date:null,total:100},{by:'เอ'});

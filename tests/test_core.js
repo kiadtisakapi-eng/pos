@@ -243,7 +243,8 @@ t('ผิดครบ 5 ครั้ง -> ล็อกไว้ แม้ใส
 t('บอกผู้ใช้ว่าต้องรอกี่วินาที', () => ok(toasts.some(x => /รออีก/.test(x.m)), JSON.stringify(toasts)));
 t('สถานะล็อกถูกเก็บลงเครื่อง (รีเฟรชหน้าแล้วยังล็อกอยู่)',
   () => ok(/lockUntil/.test(h.ctx.localStorage.getItem('epos_login_guard') || '')));
-app._loginLockUntil = 0; app._loginFails = 0;
+// จำลอง "พ้นเวลาล็อกแล้ว" — ตัวนับยังอยู่ (ไม่รีเซ็ตเอง) แต่หมดเวลารอ
+app._loginGuard['__owner__'].lockUntil = Date.now() - 1;
 const rAfter = await login('__owner__', '111111');
 t('พ้นเวลาล็อกแล้วเข้าได้ตามปกติ', () => eq(rAfter, 'owner'));
 t('เข้าสำเร็จแล้วสถานะล็อกถูกล้างทิ้ง',
@@ -487,7 +488,11 @@ app.state.transactions = [mkTx('TX-BEFORE-1'), mkTx('TX-BEFORE-2')];
 await app.savePreRestoreSnapshot();
 app.state.transactions = [mkTx('TX-AFTER-1')];          // จำลองว่ากู้ผิดไฟล์ไปแล้ว
 app.showConfirm = (m, cb) => { app._p = cb(); };
-app.applyBackupData = async (d) => { app.state.transactions = d.transactions; };
+// ตั้งแต่ ก.ย. 2569: ย้อนกลับ = "ถ่ายสำเนาของตอนนี้ + แทนข้อมูล" ลงเครื่องใน transaction เดียว
+// จึงต้องใช้ตัวจริงทั้ง saveState และตัวแทนข้อมูล — ถ้า stub ไว้ สำเนาที่สลับจะไม่ลงเครื่อง
+// แล้วเทสต์ "สลับไป-กลับ" จะไม่ได้ตรวจอะไรเลย
+delete app.saveState; delete app.applyBackupData;
+app.currentUser = { id: '__owner__', name: 'เจ้าของร้าน' };
 await app.undoLastRestore(); await app._p;
 t('ย้อนกลับแล้วได้บิลชุดก่อนกู้คืนมา', () =>
   eq(app.state.transactions.map(x => x.id), ['TX-BEFORE-1','TX-BEFORE-2']));

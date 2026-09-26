@@ -225,6 +225,9 @@ console.log('\n--- 3) เพิ่มค่าใช้จ่ายแล้ว�
 const setupExpense = (amount) => {
   app.state.shift = { active: true, startTime: Date.now(), startCash: 0, expenses: [], history: [] };
   app.currentUser = { name: 'เอ' };
+  // ตั้งแต่ ก.ย. 2569 addExpense ตรวจสิทธิ์เอง — ต้องมีตำแหน่งที่ล็อกอินอยู่จริง
+  // (ถ้าไม่ตั้ง เทสต์ข้างล่างจะ "ผ่าน" เพราะถูกปฏิเสธที่ด่านสิทธิ์ ไม่ได้ตรวจการบันทึกเลย)
+  app.currentRole = 'staff';
   app.renderDashboard = () => {};
   h.document.getElementById('expense-type').value = 'other';
   h.document.getElementById('expense-amount').value = String(amount);

@@ -232,10 +232,14 @@ const t=(n,c,extra)=>{ if(c){pass++;console.log('  ✅ '+n);} else {fail++;conso
   console.log('\n[7] สำรองข้อมูล → นำเข้ากลับ ต้องได้ของเดิมเป๊ะ');
   await p.evaluate(async () => {
     app.state.cart = [];
-    app.state.transactions = [{ id:'TX-BACKUP-1', timestamp:new Date().toISOString(),
-      items:[{id:'s1',name:'ตัดผมชาย',price:350,qty:1,staffId:null}], total:350,
-      subtotal:350, discount:0, paymentMethod:'cash', received:350, change:0,
-      staffId:null, vatAmount:0, vatableBase:0, nonVatBase:350, rounding:0 }];
+    // บิลต้องมีโครงเหมือนบิลที่แอปออกจริง (มีวันที่/รายการ/4 ช่อง VAT ครบ)
+    // ตั้งแต่ ก.ย. 2569 (ข้อ 6) การนำเข้าแยกบิลที่ไม่มีวันที่ไปตรวจสอบพร้อมค่าต้นฉบับ แทนการรับเข้ายอดเงียบ ๆ
+    // บิลตัวอย่างเดิม (ไม่มี date ใช้ timestamp/items) จึงถูกแยกออกอย่างถูกต้อง — ไม่ใช่การนำเข้าพัง
+    app.state.transactions = [{ id:'TX-1757000000000-BACKUPE2', date:Date.now(), customerName:'ลูกค้าทั่วไป (Walk-in)',
+      services:['ตัดผมชาย'], details:[{ name:'ตัดผมชาย', price:350, netPrice:350, staffId:'st-x', staffName:'ก',
+        commission:10, commissionType:'percent', commissionAmount:35, category:'barber', vatable:false }],
+      subtotal:350, discount:0, vatRate:7, nonVatBase:350, vatableBase:0, vatAmount:0, rounding:0, total:350,
+      cashReceived:350, cashChange:0, paymentMethod:'cash', staffNames:['ก'], syncStatus:'pending' }];
     await app.saveState();
   });
   const snap = await p.evaluate(()=>JSON.stringify({tx:app.state.transactions.length, svc:app.state.services.length}));
