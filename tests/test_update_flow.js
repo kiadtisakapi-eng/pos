@@ -22,7 +22,7 @@ function loadSW(opts){
       toString(){return this.url}},
     Response:class{constructor(b,i){this.body=b;Object.assign(this,i||{})}},
     fetch:async(req)=>{ const url=String(req&&req.url||req); fetched.push({url,cache:req&&req.cache});
-      if((opts.fail||[]).includes(url)) throw new Error('404 '+url);
+      if((opts.fail||[]).includes(url.split('?')[0])) throw new Error('404 '+url);
       return { status:200, type:'basic', ok:true, clone(){return this} }; },
   };
   const listeners={};
@@ -52,6 +52,17 @@ console.log('\n--- ติดตั้ง SW ใหม่ (install) ---');
     const box=sw.caches._store[Object.keys(sw.caches._store)[0]];
     ['./index.html','./app.js','./style_v2.css','./dexie.min.js','./promptpay-qr.js','./manifest.json']
       .forEach(k=>ok(k in box,'ขาด '+k));
+  });
+  // เหตุการณ์จริง 27 ก.ย. 2569: CDN ยังส่ง app.js/index.html ตัวเก่า ตอนที่ sw.js ใหม่ออกแล้ว
+  // → iPad เก็บของเก่าไว้ใต้ชื่อแคชใหม่ ค้าง 1.6.0 ถาวร · cache:'reload' ข้าม CDN ไม่ได้ ต้องใช้ URL ที่ไม่เคยมีใครแคช
+  t('ทุกไฟล์ดึงด้วย URL ที่ติดชื่อแคชรุ่นนี้ (?v=...) — CDN ส่งของเก่าที่ค้างอยู่มาไม่ได้',()=>{
+    const tag='v='+encodeURIComponent(CACHE_NAME);
+    sw.fetched.forEach(f=>ok(f.url.split('?')[1]===tag,'ไม่ติดเลขรุ่น: '+f.url));
+  });
+  t('แต่เก็บลงแคชด้วยชื่อไฟล์เดิม (หน้าแอปเรียก ./app.js ไม่มี ?v=)',()=>{
+    const box=sw.caches._store[CACHE_NAME];
+    Object.keys(box).forEach(k=>ok(k.indexOf('?')===-1,'key ติด query: '+k));
+    ok('./' in box,'ขาด ./');
   });
 }
 

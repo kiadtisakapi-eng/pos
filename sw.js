@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v60-uifix';
+const CACHE_NAME = 'jahn-pos-v61-uifix';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
@@ -42,8 +42,16 @@ self.addEventListener('install', (e) => {
   // ⚠️ ต้องใช้ cache:'reload' บังคับโหลดจากเซิร์ฟเวอร์จริง ห้ามหยิบจาก HTTP cache ของเบราว์เซอร์
   // GitHub Pages ส่ง Cache-Control: max-age=600 มาด้วย ถ้าไม่บังคับ SW ตัวใหม่อาจแคชไฟล์ "เก่า"
   // ไว้ใต้ชื่อแคชใหม่ → ผู้ใช้เห็นว่าอัปเดตแล้ว แต่โค้ดยังเป็นตัวเดิม และจะไม่ลองใหม่จนกว่า sw.js จะเปลี่ยนอีกรอบ
+  //
+  // ⚠️ cache:'reload' ข้ามได้แค่แคชใน "เครื่อง" — ข้าม CDN ของ GitHub Pages ไม่ได้
+  // หลัง deploy ไฟล์บน CDN ทยอยเปลี่ยนเป็นของใหม่ (GitHub บอกเองว่าใช้ถึง ~10 นาที) ไม่ได้เปลี่ยนพร้อมกันทุกไฟล์
+  // ถ้าเครื่องมาเจอ sw.js ใหม่ในช่วงนั้น จะได้ index.html/app.js ตัวเก่าไปเก็บไว้ใต้ชื่อแคชใหม่ แล้วค้างรุ่นเก่าถาวร
+  // (เกิดจริง 27 ก.ย. 2569 · iPad ร้านขึ้น "1.6.0 · แคช jahn-pos-v61-uifix" ปิดเปิดแอปกี่รอบก็ไม่หาย)
+  // แก้: ต่อ ?v=<ชื่อแคช> ท้าย URL ตอนดึง — URL นี้ใหม่ทุก deploy ทั้ง CDN และเครื่องไม่เคยเห็น จึงต้องไปเอาจากต้นทาง
+  // แต่เก็บลงแคชด้วย URL เดิม (ไม่มี ?v=) เพราะหน้าแอปเรียกไฟล์ด้วยชื่อเดิม
+  const bust = (url) => url + (url.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(CACHE_NAME);
   const fresh = (cache, url) =>
-    fetch(new Request(url, { cache: 'reload' })).then((res) => {
+    fetch(new Request(bust(url), { cache: 'reload' })).then((res) => {
       if (!res || (res.status !== 200 && res.type !== 'opaque')) throw new Error('bad response ' + url);
       return cache.put(url, res);
     });
