@@ -74,7 +74,10 @@ await section('[7.2]', async () => {
   env.dispose();
 });
 
-console.log('\n[7.3] กู้ข้อมูล = เจตนาให้ข้อมูลในเครื่องชนะ · คำขอเก่าจากก่อนกู้ต้องแพ้');
+// รอบตรวจ 5 ข้อ 1 (เจ้าของเลือก 2 ต.ค. 2569): เดิมการกู้ "ชนะเสมอ" แม้บิลถูกแก้บนชีตหลังไฟล์สำรองถูกสร้าง
+// (การแก้หลังไฟล์หายเงียบ ๆ) — ตอนนี้ชีตไม่เขียนทับ แต่ส่งบิลเข้า "บิลรอตรวจ" ให้เจ้าของเลือก
+// เจ้าของเลือก "ใช้ข้อมูลในเครื่องทับชีต" แล้ว = ข้อมูลที่กู้ชนะ และคำขอเก่าจากก่อนกู้ยังต้องแพ้เหมือนเดิม
+console.log('\n[7.3] กู้ไฟล์ที่เก่ากว่าการแก้บนชีต → ไม่ทับเงียบ ๆ ให้เจ้าของเลือก · เลือกใช้ข้อมูลที่กู้แล้ว คำขอเก่าจากก่อนกู้ต้องแพ้');
 await section('[7.3]', async () => {
   const { env, app, gas } = await makeShop();
   await settle();
@@ -89,9 +92,55 @@ await section('[7.3]', async () => {
   await t('(เงื่อนไข) ชีตเป็นรุ่น 3 = 250', () => eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 250));
   await app.applyBackupData(JSON.parse(JSON.stringify(backup)));   // กู้กลับไปตอนยอด 300
   await flushSync(app);
-  await t('หลังกู้: ชีตเป็นยอดของข้อมูลที่กู้ (300) แม้เลขรุ่นในไฟล์ต่ำกว่า', () => eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 300));
+  const b1 = app.state.transactions.find(x => x.id === tx.id);
+  await t('หลังกู้: ชีตถูกแก้หลังไฟล์สำรอง → ไม่เขียนทับเงียบ ๆ (ชีตยัง 250) และบิลเข้า "บิลรอตรวจ"', () => {
+    eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 250);
+    eq(b1.syncStatus, 'conflict'); eq(b1.syncIssue.code, 'STALE_REVISION'); eq(b1.syncIssue.fromRestore, true);
+  });
+  await t('ทางเลือกของเจ้าของ = แก้บิลให้ตรงชีต / ใช้ข้อมูลในเครื่องทับชีต', () => eq(app.conflictActionsFor(b1), ['edit', 'push-local']));
+  loginAs(app, 'owner');
+  await app.resolveBillConflict(tx.id, 'push-local'); await flushSync(app);
+  await t('เจ้าของเลือกใช้ข้อมูลที่กู้ → ชีตเป็นยอดของข้อมูลที่กู้ (300) แม้เลขรุ่นในไฟล์ต่ำกว่า', () => eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 300));
   lost.deliver();                                           // คำขอรุ่น 2 (200) จากก่อนกู้ เพิ่งมาถึง
   await t('คำขอเก่าจากก่อนกู้ไม่ทับข้อมูลที่กู้', () => eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 300));
+  await t('บิลในเครื่อง synced และไม่เหลือร่องรอยการเทียบกับไฟล์สำรอง', async () => {
+    const r = (await env.raw('transactions')).find(x => x.id === tx.id);
+    eq(r.syncStatus, 'synced'); eq(r.restoreBase, undefined);
+  });
+  env.dispose();
+});
+
+console.log('\n[7.3b] กู้ไฟล์เดิม → เจ้าของเลือก "แก้บิล" ให้ตรงกับชีต → ระบบส่งขึ้นเองโดยไม่ถามซ้ำ');
+await section('[7.3b]', async () => {
+  const { env, app, gas } = await makeShop();
+  await settle();
+  readyCheckout(env); await app.processCheckout(); await flushSync(app);
+  const tx = app.state.transactions[0];
+  const backup = JSON.parse(JSON.stringify(app.buildBackupPayload()));   // ยอด 300
+  await editDiscount(env, tx.id, 50); await flushSync(app);              // ชีต 250 (แก้หลังไฟล์)
+  await app.applyBackupData(JSON.parse(JSON.stringify(backup)));
+  await flushSync(app);
+  await t('(เงื่อนไข) บิลรอตรวจ · ชีตยัง 250', () => {
+    eq(app.state.transactions.find(x => x.id === tx.id).syncStatus, 'conflict'); eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 250); });
+  loginAs(app, 'owner');
+  await editDiscount(env, tx.id, 50); await flushSync(app);              // แก้ในเครื่องให้ตรงกับชีต
+  const r = (await env.raw('transactions')).find(x => x.id === tx.id);
+  await t('แก้ให้ตรงกับชีตแล้ว → ขึ้นชีตได้เอง (synced) ยอด 250', () => { eq(r.syncStatus, 'synced'); eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 250); });
+  env.dispose();
+});
+
+console.log('\n[7.3c] กู้ไฟล์ที่ "ตรงกับชีตอยู่แล้ว" → ไม่ถามเจ้าของ (กู้ไฟล์เดียวกันซ้ำ / ชีตไม่ได้ถูกแก้หลังไฟล์)');
+await section('[7.3c]', async () => {
+  const { env, app, gas } = await makeShop();
+  await settle();
+  readyCheckout(env); await app.processCheckout(); await flushSync(app);
+  const tx = app.state.transactions[0];
+  const backup = JSON.parse(JSON.stringify(app.buildBackupPayload()));
+  await app.applyBackupData(JSON.parse(JSON.stringify(backup))); await flushSync(app);
+  await t('กู้ครั้งแรก: synced ไม่มีบิลรอตรวจ', () => eq(app.state.transactions.find(x => x.id === tx.id).syncStatus, 'synced'));
+  await app.applyBackupData(JSON.parse(JSON.stringify(backup))); await flushSync(app);
+  await t('กู้ไฟล์เดิมซ้ำ (ชีตถูกเขียนโดยการกู้ครั้งก่อน แต่ค่าเหมือนกัน): synced ไม่ถาม', () => {
+    eq(app.state.transactions.find(x => x.id === tx.id).syncStatus, 'synced'); eq(sheetRow(gas, monthOf(app, tx), tx.id).total, 300); });
   env.dispose();
 });
 

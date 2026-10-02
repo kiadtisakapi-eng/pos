@@ -114,22 +114,49 @@ Run-ProjectTests
 # --- 3) bump เลขเวอร์ชัน ------------------------------------------------
 # ทำหลังจากรู้แล้วว่ามีของจะ deploy จริง — เดิมบวกก่อนเสมอ พอ git ล้ม
 # เลขเลยวิ่งขึ้นเรื่อย ๆ ทั้งที่ไม่มีอะไรถูกส่งขึ้นเว็บ
-$content = [System.IO.File]::ReadAllText($swPath)
-$m = [regex]::Match($content, "jahn-pos-v(\d+)")
-if (-not $m.Success) { Fail "pattern jahn-pos-vN not found in sw.js - users would NOT receive the update" }
-$old = [int]$m.Groups[1].Value
-$new = $old + 1
-$content = [regex]::Replace($content, "jahn-pos-v\d+", "jahn-pos-v$new")
-[System.IO.File]::WriteAllText($swPath, $content, (New-Object System.Text.UTF8Encoding($false)))
-Write-Host "[3/6] Service Worker cache: v$old -> v$new" -ForegroundColor Green
+#
+# รอบตรวจ 5 ข้อ 9 (2 ต.ค. 2569): บวกเลขเฉพาะเมื่อ "ไฟล์ที่แอปใช้จริง" เปลี่ยน
+#   เดิมแก้แค่เอกสาร/เทสต์/เครื่องมือ ก็บวกเลข → iPad ขึ้น "มีเวอร์ชันใหม่" ให้พนักงานกดอัปเดตทั้งที่แอปเหมือนเดิม
+#   เอกสาร (README / คู่มือ) ไม่ได้อยู่ในแคชของแอป เปิดจากเว็บได้ของใหม่เองอยู่แล้ว ไม่ต้องบวกเลขแคช
+#   ไฟล์ใหม่ที่แอปโหลดผ่านแคชเมื่อไหร่ ต้องเติมชื่อใน $appPaths ด้วย (เหมือนกติกาของ $safeNewPaths)
+#   และบวกเฉพาะ "ชื่อแคชบรรทัดแรก" — เดิมแทนทุกที่ในไฟล์ รวมคอมเมนต์ประวัติที่อ้างชื่อแคชรุ่นเก่า (ประวัติเพี้ยนทุกรอบ)
+$appPaths = @(
+    'index.html', 'app.js', 'style_v2.css', 'sw.js', 'manifest.json',
+    'promptpay-qr.js', 'dexie.min.js', 'apple-touch-icon.png', 'vendor'
+)
+function Test-AppPath($p) {
+    $p = $p.Trim().Trim('"')
+    # rename ใน git status = "old -> new" ใช้ชื่อใหม่
+    $arrow = $p.IndexOf(' -> ')
+    if ($arrow -ge 0) { $p = $p.Substring($arrow + 4).Trim().Trim('"') }
+    $p = $p.TrimEnd('/')
+    foreach ($s in $appPaths) { if ($p -eq $s -or $p.StartsWith($s + '/')) { return $true } }
+    return $false
+}
+$appChanged = @($dirty | Where-Object { Test-AppPath $_.Substring(3) })
+$new = $null
+if ($appChanged.Count -gt 0) {
+    $content = [System.IO.File]::ReadAllText($swPath)
+    $m = [regex]::Match($content, "jahn-pos-v(\d+)")
+    if (-not $m.Success) { Fail "pattern jahn-pos-vN not found in sw.js - users would NOT receive the update" }
+    $old = [int]$m.Groups[1].Value
+    $new = $old + 1
+    $firstOnly = New-Object System.Text.RegularExpressions.Regex("jahn-pos-v\d+")
+    $content = $firstOnly.Replace($content, "jahn-pos-v$new", 1)
+    [System.IO.File]::WriteAllText($swPath, $content, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "[3/6] Service Worker cache: v$old -> v$new" -ForegroundColor Green
+} else {
+    Write-Host "[3/6] only docs/tests/tools changed - cache version kept (iPad will NOT show an update)" -ForegroundColor Yellow
+}
 
 # --- 3.1) ประทับวันที่ลงเลขเวอร์ชันแอป ----------------------------------
 # ป้ายเวอร์ชันในหน้าตั้งค่าเคยค้างที่ 1.5.6 (2026-08-27) ทั้งที่แก้ไปแล้วสองพันบรรทัด
 # เวลามีปัญหาแล้วถามว่า "ตอนนี้เครื่องใช้รุ่นไหน" จะได้คำตอบผิด
 # เลข x.y.z ยังตั้งเองตามความหมายของการเปลี่ยนแปลง แต่ "วันที่" ให้สคริปต์ประทับให้ทุกครั้งที่ปล่อยของจริง
 # หา pattern ไม่เจอ = เตือนอย่างเดียว ไม่ล้ม deploy (ป้ายผิดไม่ใช่เหตุผลที่ควรบล็อกการปล่อยของ)
+# ประทับเฉพาะรอบที่แอปเปลี่ยนจริง (รอบที่แก้แค่เอกสาร app.js ต้องไม่เปลี่ยน)
 $appPath = Join-Path $PSScriptRoot 'app.js'
-if (Test-Path $appPath) {
+if ($new -and (Test-Path $appPath)) {
     $appTxt = [System.IO.File]::ReadAllText($appPath)
     $today  = Get-Date -Format 'yyyy-MM-dd'
     $verRe  = "const APP_VERSION = '([0-9]+\.[0-9]+\.[0-9]+) \(\d{4}-\d{2}-\d{2}\)';"
@@ -162,7 +189,8 @@ $staged = git diff --cached --name-only
 if ([string]::IsNullOrWhiteSpace($staged)) { Fail "nothing was staged - check .gitignore" }
 
 # --- 5) commit ---------------------------------------------------------
-if ($args.Count -gt 0) { $msg = ($args -join ' ') } else { $msg = "deploy v$new $(Get-Date -Format 'yyyy-MM-dd HH:mm')" }
+$verLabel = if ($new) { "v$new" } else { "docs" }
+if ($args.Count -gt 0) { $msg = ($args -join ' ') } else { $msg = "deploy $verLabel $(Get-Date -Format 'yyyy-MM-dd HH:mm')" }
 Write-Host "[5/6] git commit ..." -ForegroundColor Cyan
 git commit -m $msg
 if ($LASTEXITCODE -ne 0) { Fail "git commit failed" }
@@ -174,8 +202,12 @@ if ($LASTEXITCODE -ne 0) { Fail "git push failed - check login/remote, or run fi
 
 Write-Host ""
 Write-Host "DEPLOYED -> https://kiadtisakapi-eng.github.io/pos/" -ForegroundColor Green
-Write-Host "cache version now: jahn-pos-v$new" -ForegroundColor Green
-Write-Host ""
-Write-Host "Next: on iPad open the app while online -> tap the update button." -ForegroundColor Cyan
-Write-Host "      Settings screen should then show: cache jahn-pos-v$new" -ForegroundColor Cyan
+if ($new) {
+    Write-Host "cache version now: jahn-pos-v$new" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Next: on iPad open the app while online -> tap the update button." -ForegroundColor Cyan
+    Write-Host "      Settings screen should then show: cache jahn-pos-v$new" -ForegroundColor Cyan
+} else {
+    Write-Host "cache version unchanged - app files did not change, iPad needs no update" -ForegroundColor Green
+}
 Write-Host "Note: Apps Script is NOT updated by this script - paste it manually." -ForegroundColor Yellow

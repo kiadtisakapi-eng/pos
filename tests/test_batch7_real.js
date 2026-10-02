@@ -292,12 +292,20 @@ await section('[S2]', async () => {
   await t('เน็ตล่ม: หยุดรอบหลังล้มติดกัน 3 ใบ (เดิมไล่ยิงทั้ง 60 ใบ ใบละ 20 วินาทีถ้าเน็ตค้าง)', () => ok(calls <= 3, String(calls)));
   await t('บิลที่ยังไม่ได้ส่งยังค้างรอส่งครบทุกใบ (ไม่มีอะไรหาย)', () => eq(shop.app.state.transactions.filter(x => x.syncStatus === 'pending').length, 60));
   gas.networkDown = false; calls = 0;
-  let busy = 0;
+  // error เฉพาะใบ = ข้อผิดพลาดระหว่างทำงานของชีต (อาจเป็นเรื่องของแท็บเดือนเดียว) — ทั้งแบบมีรหัส และแบบ Apps Script รุ่นก่อน (ไม่มีรหัส)
+  // (รอบตรวจ 5 ข้อ 2: เดิมหัวข้อนี้ใช้ "ระบบหนาแน่น" เป็นตัวอย่าง — ตอนนี้ระบบหนาแน่นนับเหมือนเน็ตสะดุด ดูหัวข้อถัดไป)
+  let bad = 0;
+  const failOnce = (body) => Promise.resolve({ ok: true, status: 200, headers: { get: () => 'application/json' },
+    json: async () => body, text: async () => '' });
   gas.fetch = (url, init) => {
     if (JSON.parse(init.body).action === 'transaction') {
       calls++;
-      if (busy < 5) { busy++; return Promise.resolve({ ok: true, status: 200, headers: { get: () => 'application/json' },
-        json: async () => ({ status: 'error', message: 'ระบบหนาแน่น กรุณาลองใหม่' }), text: async () => '' }); }
+      if (bad < 5) {
+        bad++;
+        return failOnce(bad % 2
+          ? { status: 'error', code: 'SERVER_ERROR', message: 'ข้อผิดพลาด: Exception: ช่วงข้อมูลถูกล็อก' }
+          : { status: 'error', message: 'ข้อผิดพลาด: Exception: ช่วงข้อมูลถูกล็อก' });
+      }
     }
     return real(url, init);
   };
@@ -305,6 +313,28 @@ await section('[S2]', async () => {
   await shop2.app.syncPendingTransactions(true); await settle(30);
   await t('ชีตตอบ error เฉพาะใบ (ไม่ใช่เน็ตล่ม) → ไม่หยุดรอบ ส่งใบที่เหลือต่อจนครบ', () => { eq(calls, 20); eq(shop2.app.state.transactions.filter(x => x.syncStatus === 'synced').length, 15); });
   shop.env.dispose(); shop2.env.dispose();
+
+  // ระบบหนาแน่น = Apps Script รอคิวเกิน 30 วินาทีแล้วยอมแพ้ — ใบถัดไปก็รอ 30 วินาทีแบบเดียวกัน
+  // เดิมไล่ยิงทุกใบ (20 ใบ = 10 นาที คิวคลาวด์ทั้งหมดถูกขวาง) → ตอนนี้นับเหมือนเน็ตสะดุด: ติดกัน 3 ใบหยุดรอบ
+  const gas3 = createGasEnv();
+  const real3 = gas3.fetch;
+  let calls3 = 0, busy = 0;
+  gas3.fetch = (url, init) => {
+    if (JSON.parse(init.body).action === 'transaction') {
+      calls3++;
+      if (busy < 3) { busy++; return failOnce(busy === 2
+        ? { status: 'error', code: 'BUSY', message: 'ระบบหนาแน่น กรุณาลองใหม่' }
+        : { status: 'error', message: 'ระบบหนาแน่น กรุณาลองใหม่' }); }   // Apps Script รุ่นก่อน (ไม่มีรหัส)
+    }
+    return real3(url, init);
+  };
+  const shop3 = await makeShop({ gas: gas3, noInit: true, rows: { transactions: manyBills(20) } });
+  await shop3.app.syncPendingTransactions(true); await settle(30);
+  await t('ระบบหนาแน่นติดกัน 3 ใบ → หยุดรอบ (ไม่ไล่ยิงอีก 17 ใบ) · บิลยังค้างรอส่งครบ 20 ใบ', () => {
+    eq(calls3, 3); eq(shop3.app.state.transactions.filter(x => x.syncStatus === 'pending').length, 20); });
+  await shop3.app.syncPendingTransactions(true); await settle(30);
+  await t('รอบถัดไป (ชีตว่างแล้ว) ส่งครบ 20 ใบ ไม่มีอะไรหาย', () => eq(shop3.app.state.transactions.filter(x => x.syncStatus === 'synced').length, 20));
+  shop3.env.dispose();
 }, 120000);
 
 // ═══════════════════════════════════════════════════════════════════════════

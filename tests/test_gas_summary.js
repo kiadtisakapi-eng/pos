@@ -53,6 +53,9 @@ ctx.Logger={log:()=>{}};
 const sp={}; ctx.PropertiesService={getScriptProperties:()=>({getProperty:k=>sp[k]||null,setProperty:(k,v)=>{sp[k]=String(v)},deleteProperty:k=>{delete sp[k]}})};
 ctx.DriveApp={getFoldersByName:()=>({hasNext:()=>false}),createFolder:()=>({getId:()=>'x'}),getFolderById:()=>{throw new Error('nf')}};
 vm.createContext(ctx); vm.runInContext(fs.readFileSync(SRC,'utf8'),ctx,{filename:'gas.js'});
+// ⚠️ ปิดการลบแท็บสรุปรายวันที่เก่ากว่า 62 วัน — เทสต์นี้เขียนสรุปของวันที่ตายตัว (2026-08-05)
+// ถ้าไม่ปิด ตั้งแต่ 7 ต.ค. 2569 แท็บที่เพิ่งเขียนถูกลบทันที เทสต์ล้มเอง และ deploy.bat หยุด (รอบตรวจ 5)
+vm.runInContext('DAILY_SHEET_RETENTION_DAYS = 0', ctx);
 const g=ctx;
 
 // payload สรุปรายวันแบบที่ app.js ส่งจริง

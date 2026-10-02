@@ -18,10 +18,17 @@ app.vibrateDevice = () => {};
 app.renderEveryScreen = () => {};
 
 const BILL_ID = 'TX-1757000000000-AAAAAAAA';
+// ⚠️ วันที่ของงานค้างในข้อ 5.1–5.3 นับจาก "วันนี้" (เดิมตายตัว 2026-09-01)
+//    รอบตรวจ 6 ข้อ 2: การกู้ข้อมูลส่งสรุปรายวันเฉพาะ 64 วันล่าสุด — วันที่ตายตัวหลุดหน้าต่างเองตามปฏิทิน (ตั้งแต่ ต.ค.–พ.ย. 2569)
+//    แล้วเทสต์ล้ม = deploy.bat หยุดทั้งที่โค้ดไม่ได้เปลี่ยน (ดู tests/README กับดักตามปฏิทิน)
+const JOB_TS = (() => { const d = new Date(Date.now() - 3 * 86400000); d.setHours(14, 0, 0, 0); return d.getTime(); })();
+const JOB_DK = app.getBusinessISODate(JOB_TS);    // YYYY-MM-DD
+const JOB_MK = app.getBusinessMonthKey(JOB_TS);   // MM-YYYY
+const JOB_ISO = new Date(JOB_TS).toISOString();
 const voidJob = (id) => ({
-  id: 'cob-1', createdAt: Date.now(), dateKeys: ['2026-09-01'], monthKeys: ['09-2026'],
+  id: 'cob-1', createdAt: Date.now(), dateKeys: [JOB_DK], monthKeys: [JOB_MK],
   needVoidDelete: true,
-  voidDelete: { id: id || BILL_ID, date: '2026-09-01T14:00:00+07:00', monthKey: '09-2026', voidedBy: 'เอ' },
+  voidDelete: { id: id || BILL_ID, date: JOB_ISO, monthKey: JOB_MK, voidedBy: 'เอ' },
   needSummary: true, needTelegram: true, telegramMessage: 'ยกเลิกบิลเมื่อวาน', tries: 0
 });
 const baseState = () => {
@@ -51,11 +58,11 @@ t('ไฟล์สำรองมีส่วน pendingCloudWork', () => ok(pay
 t('เก็บคำสั่งลบบิลไว้ครบ พร้อมเดือนเดิมของบิล', () => {
   eq(payload.pendingCloudWork.voidDeletes.length, 1);
   eq(payload.pendingCloudWork.voidDeletes[0].id, BILL_ID);
-  eq(payload.pendingCloudWork.voidDeletes[0].monthKey, '09-2026');
+  eq(payload.pendingCloudWork.voidDeletes[0].monthKey, JOB_MK);
 });
 t('เก็บงวดที่ต้องรีเฟรชสรุป', () => {
-  eq(payload.pendingCloudWork.summaryDateKeys, ['2026-09-01']);
-  eq(payload.pendingCloudWork.summaryMonthKeys, ['09-2026']);
+  eq(payload.pendingCloudWork.summaryDateKeys, [JOB_DK]);
+  eq(payload.pendingCloudWork.summaryMonthKeys, [JOB_MK]);
 });
 t('⚠️ ต้องไม่เก็บข้อความ Telegram (กันแจ้งเตือนเก่าย้อนหลังทั้งกอง)', () =>
   ok(!JSON.stringify(payload.pendingCloudWork).includes('ยกเลิกบิลเมื่อวาน'), JSON.stringify(payload.pendingCloudWork)));
@@ -74,11 +81,11 @@ await app.applyBackupData(JSON.parse(JSON.stringify(payload)));
 
 t('outbox หลังกู้มีคำสั่งลบบิลกลับมา', () => {
   const jobs = app.state.cloudOutbox.filter(x => x.needVoidDelete);
-  eq(jobs.length, 1); eq(jobs[0].voidDelete.id, BILL_ID); eq(jobs[0].voidDelete.monthKey, '09-2026');
+  eq(jobs.length, 1); eq(jobs[0].voidDelete.id, BILL_ID); eq(jobs[0].voidDelete.monthKey, JOB_MK);
 });
 t('งานรีเฟรชสรุปกลับมาด้วย', () => {
   const s = app.state.cloudOutbox.filter(x => x.needSummary);
-  eq(s.length, 1); eq(s[0].dateKeys, ['2026-09-01']); eq(s[0].monthKeys, ['09-2026']);
+  eq(s.length, 1); eq(s[0].dateKeys, [JOB_DK]); eq(s[0].monthKeys, [JOB_MK]);
 });
 t('⚠️ ห้ามมีงาน Telegram หลงมาแม้แต่งานเดียว', () =>
   eq(app.state.cloudOutbox.filter(x => x.needTelegram).length, 0));
@@ -90,7 +97,7 @@ console.log('\n--- ข้อ 5.3 กันลบบิลที่ยังม�
 // ══════════════════════════════════════════════════════════════════
 baseState(); toasts.length = 0;
 const dangerous = JSON.parse(JSON.stringify(payload));
-dangerous.transactions = [{ id: BILL_ID, date: '2026-09-01T14:00:00+07:00', total: 300 }];  // บิลใบนี้ "ยังอยู่"
+dangerous.transactions = [{ id: BILL_ID, date: JOB_ISO, total: 300 }];  // บิลใบนี้ "ยังอยู่"
 await app.applyBackupData(dangerous);
 t('บิลที่ยังอยู่ในข้อมูลที่กู้มา -> ต้องไม่สร้างคำสั่งลบ', () =>
   eq(app.state.cloudOutbox.filter(x => x.needVoidDelete).length, 0));

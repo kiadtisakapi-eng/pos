@@ -117,9 +117,12 @@ console.log('\n--- ล้างยอดขาย: ต้องเก็บค�
 app.state.cloudOutbox=[
   {needVoidDelete:true,voidDelete:{id:'x'},needSummary:true,needTelegram:true,telegramMessage:'m'},
   {needVoidDelete:false,needSummary:true,needTelegram:false}];
-app.state.transactions=[{id:'z',date:Date.now(),total:100}];
+app.state.transactions=[{id:'z',date:Date.now(),total:100,syncStatus:'synced'}];
 app.openCashCounter=()=>{};
-app.clearSalesData(); await app._p;
+// รอบตรวจ 6 ข้อ 1: ต้องพิมพ์คำยืนยันก่อน (สำรองขึ้น Drive ถูกจำลองว่าสำเร็จไว้ด้านบนแล้ว)
+h.ctx.prompt=()=>'ล้างยอดขาย';
+await app.clearSalesData();
+h.ctx.prompt=()=>null;
 t('ยอดขายถูกล้าง',()=>eq(app.state.transactions.length,0));
 t('คำสั่งลบแถวในชีตยังอยู่ (ไม่งั้นบิลผีค้างถาวร)',()=>{
   eq(app.state.cloudOutbox.length,1);

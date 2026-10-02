@@ -714,8 +714,9 @@
               ระบบไม่ลบอะไรให้เอง คุณเป็นคนเลือกทีละรายการ
             </p>
             <p style="color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 1rem;">
-              ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ และระหว่างกะทุก 5 บิล (เก็บย้อนหลัง 90 วัน · ไฟล์ล่าสุดอย่างน้อย 10 ไฟล์เสมอ) —
-              ปุ่ม "กู้ข้อมูล" ใช้ดึงไฟล์เหล่านั้นกลับมาได้เลย ไม่ต้องเข้า Drive เอง (ต้องใช้รหัสเจ้าของร้าน Owner key)
+              ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ · ระหว่างกะทุก 5 บิล · และราว 2 นาทีหลังยกเลิก/แก้บิล (Drive เก็บย้อนหลัง 90 วัน · ไฟล์ล่าสุดอย่างน้อย 10 ไฟล์เสมอ) —
+              ปุ่ม "กู้ข้อมูล" แสดงไฟล์ล่าสุด 50 ไฟล์ (ราว 2 สัปดาห์ · ปกติใช้ไฟล์บนสุด) ต้องใช้รหัสเจ้าของร้าน (Owner key) ·
+              ไฟล์ที่เก่ากว่านั้นดาวน์โหลดจากโฟลเดอร์ Erotica_POS_Backups ใน Drive แล้วใช้ปุ่ม "นำเข้าข้อมูลสำรอง"
               · "ส่งออกข้อมูลสำรอง" บน iPad จะเปิดเมนูแชร์ — เลือก "บันทึกไปยังไฟล์" แล้วตรวจในแอป "ไฟล์"
             </p>
             <p id="backup-status-label" style="color: var(--text-secondary); font-size: 0.78rem; margin: -6px 0 1rem;">
@@ -761,9 +762,7 @@
             <button class="btn-danger-outline" id="btn-reset-data">
               <i class="fa-solid fa-trash-arrow-up"></i> ล้างข้อมูลในระบบและคืนค่าเริ่มต้นทั้งหมด
             </button>
-            <button class="btn-danger-outline" id="btn-clear-sales" onclick="app.clearSalesData()" style="margin-top: 10px; border-color: var(--accent-premium); color: var(--accent-premium);">
-              <i class="fa-solid fa-eraser"></i> ล้างประวัติยอดขายและคิวงานทั้งหมด (เก็บรายการบริการและพนักงานไว้)
-            </button>
+            <!-- ปุ่ม "ล้างประวัติยอดขายและคิวงานทั้งหมด" ถอดออกแล้ว (เจ้าของเลือก 2 ต.ค. 2569 — ร้านใช้งานจริงแล้ว) · ดู app.clearSalesData -->
             <p id="app-version-label" style="margin-top: 14px; text-align: center; color: var(--text-muted); font-size: 0.75rem;">เวอร์ชัน —</p>
           </div>
         </div>
@@ -1581,7 +1580,8 @@
       </div>
       <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 12px;">
         เลือกไฟล์สำรองที่ต้องการกู้คืน (ไฟล์ใหม่สุดอยู่บนสุด)<br>
-        <b>ข้อมูลในเครื่องนี้จะถูกเขียนทับทั้งหมด</b> — ระบบจะดาวน์โหลดสำเนาข้อมูลปัจจุบันเก็บไว้ให้ก่อนเสมอ
+        <b>ข้อมูลในเครื่องนี้จะถูกเขียนทับทั้งหมด</b> — ระบบเก็บสำเนาข้อมูลปัจจุบันไว้ในเครื่องให้ก่อนเสมอ
+        (กู้ผิดไฟล์ กดปุ่ม "ย้อนกลับไปก่อนกู้ข้อมูล" ในหน้าตั้งค่าได้ทันที)
       </p>
       <div id="restore-list" style="max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;"></div>
       <div class="modal-footer">

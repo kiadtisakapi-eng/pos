@@ -58,7 +58,7 @@ function isValidThaiId13(id) {
 const BACKUP_SCHEMA_VERSION = 3;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.8.1 (2026-09-29)';
+const APP_VERSION = '1.8.2 (2026-10-03)';
 
 // ═══ กติกาตัวเลข (เจ้าของสั่ง 26 ก.ย. 2569 — ห้ามแก้กลับ) ═══════════════════════════
 // ตัวเลขทุกตัวที่ "คนกรอก" ต้องเป็นจำนวนเต็มเท่านั้น ห้ามทศนิยมเด็ดขาด:
@@ -106,6 +106,27 @@ const SHOP_CLOSE_HOUR = 3;
 // สำรองขึ้น Drive ระหว่างกะ ทุก ๆ N บิลนับจากสำรองสำเร็จครั้งล่าสุด (ข้อ 4 รอบตรวจ 26 ก.ย. 2569)
 // เดิมสำรองเฉพาะตอนปิดกะ → iPad พังกลางวัน บิลช่วงนั้นไม่อยู่ในไฟล์สำรอง
 const MIDSHIFT_BACKUP_EVERY_BILLS = 5;
+// ยกเลิกบิล / แก้บิล / บันทึกเงินส่วนต่าง → สำรองขึ้น Drive ตามหลัง (รอบตรวจ 5 ข้อ 1 · 2 ต.ค. 2569)
+// เดิมเหตุการณ์พวกนี้ไม่ทำให้เกิดไฟล์สำรอง — เครื่องพังก่อนรอบสำรองถัดไป แล้วกู้ไฟล์ล่าสุด
+// = บิลที่ยกเลิก/คืนเงินไปแล้วกลับมาเป็นยอดขาย · รอรวมรอบ 2 นาที (แก้หลายใบติดกันได้ไฟล์เดียว ไม่เปลือง Drive)
+const CHANGE_BACKUP_DELAY_MS = 2 * 60 * 1000;
+// สรุปรายวันที่ "ส่งใหม่หลังกู้ข้อมูล" ย้อนหลังได้กี่วัน (รอบตรวจ 6 ข้อ 2 · 2 ต.ค. 2569)
+// = DAILY_SHEET_RETENTION_DAYS ของ Apps Script (62 — แท็บสรุปรายวันที่เก่ากว่านี้ถูกลบทิ้งทันทีหลังเขียน) + เผื่อขอบ 2 วัน
+// วันที่เก่ากว่านี้ส่งแค่สรุปเดือน (ยอดรวมยังครบในแท็บสรุปเดือน/สรุปรายเดือน) · ถ้าแก้ค่าใน Apps Script ให้แก้ตามกัน
+const RESTORE_DAILY_SUMMARY_DAYS = 64;
+// จำนวนไฟล์สูงสุดที่ Apps Script ส่งรายชื่อมาให้หน้ากู้ข้อมูล (handleListBackups ตัดที่ 50 ไฟล์ล่าสุด)
+// ร้านออกไฟล์ราววันละ 3 ไฟล์ = ย้อนได้ราว 2 สัปดาห์ · ไฟล์ที่เก่ากว่านั้นยังอยู่บน Drive 90 วัน (รอบตรวจ 6 ข้อ 5)
+const DRIVE_BACKUP_LIST_MAX = 50;
+// บิลที่ส่งขึ้นชีตไม่ผ่าน "ทั้งรอบ" — เว้นระยะลองใหม่เพิ่มขึ้นเรื่อย ๆ (รอบตรวจ 5 ข้อ 2)
+// เดิมลองทุก 1 นาทีตายตัว รหัสเชื่อมต่อผิดค้างข้ามวัน = ยิงซ้ำทุกบิลทั้งวัน
+const BILL_RETRY_STEPS_MS = [60e3, 120e3, 300e3, 600e3, 1800e3];
+// error จากชีตที่ "ไม่ใช่ความผิดของบิลใบนั้น" (รหัสจาก doPost ของ Apps Script)
+//   ตั้งค่าผิด = หยุดรอบทันที แล้วบอกเจ้าของ · ชั่วคราว = นับเหมือนเน็ตสะดุด (ติดกัน 3 ใบแล้วหยุดรอบ)
+const CLOUD_CONFIG_ERROR_CODES = ['UNAUTHORIZED', 'TOKEN_NOT_SET'];
+// ⚠️ SERVER_ERROR (ข้อผิดพลาดระหว่างทำงานฝั่งชีต) ไม่อยู่ในรายการนี้ — อาจเป็นเรื่องของแท็บเดือนเดียว
+//    (เช่นแท็บนั้นถูกล็อก/ถูกแก้โครง) ถ้านับเป็นชั่วคราว บิลเดือนนั้นที่เรียงติดกันจะหยุดรอบทุกรอบ
+//    แล้วบิลเดือนอื่นที่อยู่ถัดไปไม่มีวันได้ส่ง — ให้นับเป็นเรื่องเฉพาะใบเหมือนเดิม (รอบยังเว้นระยะเมื่อไม่ผ่านเลยสักใบ)
+const CLOUD_TRANSIENT_ERROR_CODES = ['BUSY', 'REGISTRY_UNAVAILABLE'];
 // งานคลาวด์ที่ล้มเหลวติดต่อกันนานเกินนี้ = หยุดยิงเอง รอเจ้าของกด "ลองใหม่" หรือ "ทิ้งงานนี้" (ข้อ 16)
 const CLOUD_JOB_MAX_FAIL_DAYS = 7;
 // ไฟล์สำรองใหญ่เกินนี้ = เตือนในหน้าตั้งค่าและข้อความปิดกะ (ข้อ 17)
@@ -1981,6 +2002,42 @@ class PosApp {
     };
   }
 
+  // ── งานรีเฟรชสรุปหลังกู้ข้อมูล: แยกเป็นรายเดือน (รอบตรวจ 6 ข้อ 2 · 2 ต.ค. 2569) ─────────────────
+  // ⚠️ เดิมเป็นงานเดียวที่มี "ทุกวันตั้งแต่เปิดร้าน" (ข้อมูลจริง 95 วัน + 4 เดือน = 99 คำขอ และเพิ่มวันละ 1)
+  //    · วันเดียวส่งไม่ผ่าน = ส่งใหม่ทั้ง 99 คำขอทุกรอบลองใหม่ (ทุก 30 นาที ได้นานถึง 7 วัน)
+  //    · ระหว่างส่ง บิลใหม่/ไฟล์สำรองต้องรอคิวจนครบทุกวัน (งานคลาวด์ทั้งหมดต่อคิวเส้นเดียว)
+  //    · สรุปรายวันที่เก่ากว่าที่ Apps Script เก็บ (62 วัน) ถูกสร้างแล้วลบทิ้งทันที = งานเปล่า
+  // ตอนนี้: งานละ 1 เดือน (วันของเดือนนั้น + สรุปเดือน) เรียงเดือนล่าสุดก่อน
+  //        วันที่เก่ากว่า RESTORE_DAILY_SUMMARY_DAYS ส่งแค่สรุปเดือน (เดือนของวันนั้นยังถูกส่งเสมอ)
+  //        ตัวส่งงานคลาวด์ส่งงาน reason:'restore' ทีละเดือนต่อรอบ แล้วปล่อยคิวให้บิลใหม่ส่งก่อน (ดู _doFlushCloudOutbox)
+  buildRestoreSummaryJobs(dateKeys, monthKeys, now) {
+    const t = Number(now) || Date.now();
+    // 'YYYY-MM-DD' เทียบแบบข้อความได้ตรง ๆ · คำนวณไม่ได้ (คืน '') = ไม่ตัดวันไหนทิ้ง (กติกาเดิม)
+    const cutKey = this.getBusinessISODate(t - RESTORE_DAILY_SUMMARY_DAYS * 86400000);
+    const monthOf = dk => dk.slice(5, 7) + '-' + dk.slice(0, 4);   // วันทำการ → เดือนของวันทำการนั้น (MM-yyyy)
+    const byMonth = new Map();   // monthKey → Set(dateKey)
+    (Array.isArray(monthKeys) ? monthKeys : []).forEach(mk => {
+      if (this.isValidMonthKey(mk) && !byMonth.has(mk)) byMonth.set(mk, new Set());
+    });
+    (Array.isArray(dateKeys) ? dateKeys : []).forEach(dk => {
+      if (!this.isValidDateKey(dk)) return;
+      const mk = monthOf(dk);
+      if (!this.isValidMonthKey(mk)) return;
+      if (!byMonth.has(mk)) byMonth.set(mk, new Set());
+      if (!cutKey || dk >= cutKey) byMonth.get(mk).add(dk);
+    });
+    const ord = mk => mk.slice(3) + mk.slice(0, 2);
+    return [...byMonth.keys()].sort((a, b) => ord(b).localeCompare(ord(a))).map((mk, i) => ({
+      id: `cob-${t}-${i}-${Math.random().toString(36).substr(2, 5)}`,
+      createdAt: t,
+      dateKeys: [...byMonth.get(mk)].sort(), monthKeys: [mk],
+      needVoidDelete: false, voidDelete: null,
+      needSummary: true, needTelegram: false, telegramMessage: '', tries: 0, rev: 0,
+      reason: 'restore',
+      quiet: true   // ส่งทีละเดือน — ไม่ขึ้นข้อความ "ส่งสำเร็จ" ทุกเดือน (เดือนไหนส่งไม่ผ่านซ้ำ 3 ครั้ง ป้าย "งานคลาวด์ค้าง" ขึ้นเอง)
+    }));
+  }
+
   // ── สร้างงานคลาวด์คืนจากไฟล์สำรอง ────────────────────────────────────
   // คืนอาเรย์เปล่าเมื่อไฟล์รุ่นเก่าไม่มีข้อมูลส่วนนี้ (ไม่ใช่ error — แค่สร้างคืนไม่ได้)
   rebuildCloudOutboxFromBackup(parsed) {
@@ -2049,6 +2106,7 @@ class PosApp {
     // ใช้ด่านตัวเดียวกับตอนกู้จริง ถ้าไม่ผ่านตอนนี้ วันที่ต้องกู้ก็ไม่ผ่านเหมือนกัน
     if (!this.isValidBackupObject(backupData)) {
       const why = this._lastBackupRejectReason || 'โครงข้อมูลในเครื่องไม่ผ่านด่านตรวจไฟล์สำรอง';
+      this._cloudFailReason = 'ไม่ได้ส่งไฟล์สำรอง เพราะไฟล์ที่ได้จะกู้กลับไม่ได้: ' + why;   // รอบตรวจ 5 ข้อ 3
       await this.recordBackupStatus({ ok: false, message: 'ไม่ได้ส่งไฟล์สำรอง เพราะไฟล์ที่ได้จะกู้กลับไม่ได้: ' + why });
       if (!silent) this.showToast('สำรองข้อมูลไม่ได้: ข้อมูลในเครื่องสร้างไฟล์สำรองที่กู้กลับได้ไม่ได้ — ' + why, 'error', 10000);
       return false;
@@ -2101,7 +2159,10 @@ class PosApp {
       }
     } catch (err) {
       console.error('Auto backup failed:', err);
+      this._cloudFailReason = this.explainCloudError(err);   // รอบตรวจ 5 ข้อ 3 — ตั้งก่อน await (กันถูกล้างระหว่างรอ)
+      const failMsg = this._cloudFailReason;
       await this.recordBackupStatus({ ok: false, message: this.explainCloudError(err), sizeBytes });
+      this._cloudFailReason = failMsg;
       if (!silent) this.showToast('สำรองข้อมูลขึ้น Google Drive ล้มเหลว: ' + this.explainCloudError(err), 'error', 8000);
       return false;
     }
@@ -2404,10 +2465,63 @@ class PosApp {
     this.showToast('คืนค่าเริ่มต้นข้อมูลเรียบร้อยแล้ว!', 'info');
   }
 
-  clearSalesData() {
-    if (!this.requireOwnerForDataAction('ล้างยอดขาย')) return;
-    this.showConfirm('คุณแน่ใจหรือไม่ว่าต้องการล้างยอดขายและคิวงานทั้งหมด? (รายการพนักงาน บริการ และค่าคอมมิชชั่นที่เพิ่งตั้งค่าจะถูกเก็บไว้)', () => this.withMutation('การล้างยอดขาย', async () => {
-      if (!this.requireOwnerForDataAction('ล้างยอดขาย')) return;
+  // ล้างยอดขายทั้งร้าน (เก็บบริการ/พนักงาน/ลูกค้า/การตั้งค่าไว้)
+  // ⚠️ รอบตรวจ 6 ข้อ 1 (2 ต.ค. 2569 · เจ้าของเลือก "ถอดปุ่มออก"):
+  //    เดิมมีปุ่มอยู่ใต้ "ล้างข้อมูลทั้งหมด" และกดยืนยันในกล่องธรรมดาครั้งเดียวก็ลบยอดขายทั้งร้าน
+  //    — ไม่สำรองก่อน ไม่มีทางย้อน และบิลที่ยังไม่ขึ้นชีตตอนกดหายถาวร (มีอยู่ในเครื่องที่เดียว)
+  //    ร้านใช้งานจริงแล้วจึงถอดปุ่มออกจากหน้าจอ · คำสั่งยังอยู่แต่ต้องผ่านด่านเดียวกับ resetData:
+  //    เจ้าของ → ไม่มีบิลที่ยังไม่ขึ้นชีต → พิมพ์คำยืนยัน → สำรองขึ้น Drive สำเร็จ (ไม่ได้ต่อชีต = ถามยืนยันอีกชั้น)
+  // คืน true เมื่อล้างจริง · false = ไม่ได้ล้าง (ด่านใดด่านหนึ่งไม่ผ่าน/ผู้ใช้ยกเลิก)
+  async clearSalesData() {
+    if (!this.requireOwnerForDataAction('ล้างยอดขาย')) return false;
+    if (!this.canWriteData('ล้างยอดขาย')) return false;
+    const notOnSheet = () => (Array.isArray(this.state.transactions) ? this.state.transactions : [])
+      .filter(tx => tx && tx.syncStatus !== 'synced').length;
+    const pendingWarn = (n) => this.showToast(
+      `ยังมีบิล ${n} ใบที่ยังไม่ขึ้นชีต (ค้างส่ง/รอตรวจ) — ล้างแล้วบิลพวกนี้จะหายถาวร จึงยังไม่ล้าง · ซิงก์ให้ครบก่อน`, 'error', 8000);
+    if (this.googleSheetsUrl) {
+      const n = notOnSheet();
+      if (n > 0) { pendingWarn(n); return false; }
+    }
+
+    const KEYWORD = 'ล้างยอดขาย';
+    const txCount = Array.isArray(this.state.transactions) ? this.state.transactions.length : 0;
+    const shiftCount = (this.state.shift && Array.isArray(this.state.shift.history)) ? this.state.shift.history.length : 0;
+    const typed = window.prompt(
+      'คำเตือน: จะล้างยอดขายทั้งร้านออกจากเครื่องนี้\n' +
+      `(บิล ${txCount} รายการ · ประวัติกะ ${shiftCount} กะ · ประวัติยกเลิก/แก้บิล/ลบค่าใช้จ่าย · กะที่เปิดอยู่)\n` +
+      'รายการบริการ พนักงาน ลูกค้า และการตั้งค่ายังอยู่ · แถวบิลบน Google Sheets ไม่ถูกลบ\n\n' +
+      `ถ้าแน่ใจจริง ให้พิมพ์คำว่า  ${KEYWORD}  แล้วกดตกลง`
+    );
+    if (typed === null || typed === undefined) return false;   // กดยกเลิก
+    if (String(typed).trim() !== KEYWORD) {
+      this.showToast('ข้อความยืนยันไม่ตรง — ยกเลิกการล้างยอดขายแล้ว', 'info');
+      return false;
+    }
+
+    // ด่านสุดท้าย: ต้องมีสำเนาบน Drive ก่อน (กู้กลับได้ด้วยปุ่มกู้ข้อมูล) — แบบเดียวกับ resetData
+    if (this.googleSheetsUrl) {
+      this.showToast('กำลังสำรองข้อมูลก่อนล้างยอดขาย...', 'info');
+      const backedUp = await this.autoBackupToGoogleDrive();
+      if (!backedUp) {
+        this.showToast('สำรองข้อมูลไม่สำเร็จ — ยกเลิกการล้างยอดขายเพื่อความปลอดภัย ลองใหม่เมื่อเน็ตพร้อม', 'error', 6000);
+        return false;
+      }
+    } else {
+      const sure = window.confirm(
+        'ยังไม่ได้ตั้งค่า Google Sheets — ระบบสำรองข้อมูลก่อนล้างไม่ได้\n' +
+        'ถ้าล้างตอนนี้ ยอดขายจะหายถาวรโดยไม่มีสำเนาที่ไหนเลย\n\nยืนยันจะล้างทั้งที่ไม่มีสำเนา?'
+      );
+      if (!sure) return false;
+    }
+
+    return this.withMutation('การล้างยอดขาย', async () => {
+      if (!this.requireOwnerForDataAction('ล้างยอดขาย')) return false;
+      // ระหว่างรอสำรองขึ้น Drive อาจมีบิลใหม่ที่ยังไม่ขึ้นชีต — ตรวจซ้ำ ณ จุดล้างจริง
+      if (this.googleSheetsUrl) {
+        const n = notOnSheet();
+        if (n > 0) { pendingWarn(n); return false; }
+      }
       // ล้างยอดขาย = ลบเงินทั้งชุดออกจากระบบ ถ้าเขียนเครื่องไม่สำเร็จแล้วปล่อยผ่าน
       // หน้าจอจะว่างเปล่าเหมือนล้างสำเร็จ แต่เปิดแอปใหม่ยอดกลับมาทั้งหมด — สองสถานะที่ไม่ตรงกัน
       const prevAll = this.cloneForRollback({
@@ -2442,14 +2556,16 @@ class PosApp {
       if (!await this.persistOrRollback('การล้างยอดขาย', () => {
         Object.assign(this.state, prevAll);
         this.clearDateKeyCache();
-      })) { this.renderEveryScreen(); return; }
+      })) { this.renderEveryScreen(); return false; }
       // ข้อมูลชุดใหม่ — งานคลาวด์ที่กำลังส่งของชุดเก่าอยู่ห้ามนำผลกลับมาเขียนทับ
       this._dataGeneration++;
       this.renderEveryScreen();
       this.vibrateDevice(100);
-      this.showToast('ล้างประวัติยอดขายและคิวงานทั้งหมดเรียบร้อยแล้ว พร้อมใช้งานจริง!', 'info');
+      this.showToast('ล้างประวัติยอดขายและคิวงานทั้งหมดเรียบร้อยแล้ว' +
+        (this.googleSheetsUrl ? ' (มีสำเนาก่อนล้างบน Google Drive — กู้กลับได้ด้วยปุ่มกู้ข้อมูล)' : ''), 'info', 6000);
       this.openCashCounter('open');
-    }));
+      return true;
+    });
   }
 
   // จัดการตัวรับอีเวนต์ต่างๆ
@@ -4180,31 +4296,43 @@ class PosApp {
     }
     // รอบชำระเงินนี้ใช้ไปแล้ว — กดยืนยันซ้ำต้องไม่ได้บิลที่สอง
     this._checkoutAttempt = null;
-    
+
     // เรียกซิงก์ข้อมูลอัตโนมัติขึ้น Google Sheets (แบบเบื้องหลังไม่กวนใจผู้ใช้)
     this.syncPendingTransactions(true);
     if (midBackupJob) this.flushCloudOutbox();   // สำรองระหว่างกะ — เบื้องหลัง ไม่ขึ้นข้อความรบกวน
-    
-    // ปิดหน้าชำระเงิน
-    this.closeModal('modal-payment');
-    
-    // ล้างตะกร้าสินค้า
-    this.clearCart();
 
-    // รีเซ็ตลูกค้ากลับเป็น Walk-in — กันบิลถัดไปผูกลูกค้าคนเดิมโดยไม่ตั้งใจ
-    // (visitCount เฟ้อ → เลื่อนขั้น Gold/Platinum เร็วผิด + ชื่อผิดขึ้นชีต)
-    // ต้องรีเซ็ตก่อน renderPos ด้านล่าง เพราะ renderPos จะจำค่าที่เลือกอยู่ไว้
-    const custSel = document.getElementById('cart-customer-select');
-    if (custSel) custSel.value = '';
+    // ── ถึงตรงนี้ "บิลลงเครื่องแล้ว" — ส่วนที่เหลือเป็นงานหน้าจอล้วน (รอบตรวจ 5 ข้อ 6) ──────────────
+    // ⚠️ เดิมอยู่ใน try เดียวกับการบันทึก: วาดหน้าจอพังตรงไหนก็ตาม พนักงานเห็น "❌ การชำระเงินล้มเหลว"
+    //    ทั้งที่บิลบันทึกแล้ว → เก็บเงินลูกค้าซ้ำ = บิลซ้ำ · ตอนนี้แยกออกมา พังแล้วบอกตามจริงว่าบิลบันทึกแล้ว
+    try {
+      // ปิดหน้าชำระเงิน
+      this.closeModal('modal-payment');
 
-    // แสดงบิลใบเสร็จรับเงิน
-    this.showThermalReceipt(transaction);
+      // ล้างตะกร้าสินค้า
+      this.clearCart();
 
-    // Lazy render — เฉพาะหน้าที่เปลี่ยนหลัง checkout (เร็วกว่า renderAll ประมาณ 4x)
-    this.renderDashboard();  // KPI + recent sales อัปเดต
-    this.renderPos();        // ล้างตะกร้า + customer select
-    this.renderQueueScreen(); // แสดงคิวใหม่
-    // reports และ settings ไม่ต้องเรนเดอร์ตอนนี้ — จะ render เมื่อผู้ใช้เปิดหน้านั้น
+      // รีเซ็ตลูกค้ากลับเป็น Walk-in — กันบิลถัดไปผูกลูกค้าคนเดิมโดยไม่ตั้งใจ
+      // (visitCount เฟ้อ → เลื่อนขั้น Gold/Platinum เร็วผิด + ชื่อผิดขึ้นชีต)
+      // ต้องรีเซ็ตก่อน renderPos ด้านล่าง เพราะ renderPos จะจำค่าที่เลือกอยู่ไว้
+      const custSel = document.getElementById('cart-customer-select');
+      if (custSel) custSel.value = '';
+
+      // แสดงบิลใบเสร็จรับเงิน
+      this.showThermalReceipt(transaction);
+
+      // Lazy render — เฉพาะหน้าที่เปลี่ยนหลัง checkout (เร็วกว่า renderAll ประมาณ 4x)
+      this.renderDashboard();  // KPI + recent sales อัปเดต
+      this.renderPos();        // ล้างตะกร้า + customer select
+      this.renderQueueScreen(); // แสดงคิวใหม่
+      // reports และ settings ไม่ต้องเรนเดอร์ตอนนี้ — จะ render เมื่อผู้ใช้เปิดหน้านั้น
+    } catch (uiErr) {
+      console.error('[Checkout] บันทึกบิลแล้ว แต่หน้าจอแสดงผลไม่ครบ', uiErr);
+      // ตะกร้าต้องว่างเสมอหลังบิลลงเครื่อง — ไม่งั้นเปิดหน้าชำระเงินใหม่ได้รอบชำระเงินใหม่ = บิลที่สองของของชุดเดิม
+      if (Array.isArray(this.state.cart) && this.state.cart.length) this.state.cart = [];
+      try { this.closeModal('modal-payment'); } catch (e) { /* หน้าจอพังอยู่แล้ว */ }
+      this.showToast(`บันทึกบิล ${txId} แล้ว (ยอด ฿${Number(total).toLocaleString('th-TH')}) แต่หน้าจอแสดงผลไม่ครบ — ` +
+        'ห้ามเก็บเงินลูกค้าซ้ำ · ดูบิล/พิมพ์ใบเสร็จได้ที่หน้ารายงาน', 'warning', 15000);
+    }
     return true;
   }
   // ==================== ใบแจ้งยอดก่อนชำระเงิน ====================
@@ -5330,6 +5458,7 @@ class PosApp {
       return true; // คืน true เพื่อให้ outbox เลิกพยายาม ไม่วนลูป retry ตลอดไป
     }
     if (!this.hasCloudSyncConfig()) {
+      this._cloudFailReason = this.getCloudSetupMessage();
       if (!isSilent) this.showToast(this.getCloudSetupMessage(), 'warning');
       return false;
     }
@@ -5350,6 +5479,7 @@ class PosApp {
       } else if (result.code === 'NOT_PRIMARY_DEVICE') {
         // ข้อ 19: ชีตรับสรุปจากเครื่องหลักเท่านั้น — พักงานสรุปของเครื่องนี้ (ไม่ยิงซ้ำ) และบอกให้เห็น
         await this.notePrimaryStatus(false, result.details && result.details.primary);
+        this._cloudFailReason = String(result.message || 'เครื่องนี้ไม่ใช่เครื่องหลัก');
         if (!isSilent) this.showToast(String(result.message || 'เครื่องนี้ไม่ใช่เครื่องหลัก'), 'warning', 10000);
         return false;
       } else if (result.code === 'STALE_SUMMARY') {
@@ -5357,6 +5487,7 @@ class PosApp {
         // งานใน outbox วนเองอยู่แล้ว ส่วนการกดปุ่มเองต้องบอกให้กดซ้ำ ไม่งั้นกดแล้วเงียบ
         this.noteSummaryStampFloor(result.details);
         console.warn('[Summary] ปลายทางมีข้อมูลรุ่นใหม่กว่า จะส่งใหม่ด้วยรุ่นที่สูงขึ้น');
+        this._cloudFailReason = 'บนชีตมีสรุปรุ่นใหม่กว่า — ระบบจะส่งใหม่ด้วยรุ่นที่สูงขึ้นเอง';
         if (!isSilent) this.showToast('บนชีตมีข้อมูลรุ่นใหม่กว่าอยู่ จึงยังไม่เขียนทับ — กดส่งอีกครั้งได้เลย', 'warning', 7000);
         return false;
       } else {
@@ -5364,6 +5495,7 @@ class PosApp {
       }
     } catch (err) {
       console.error('Daily summary sync error:', err);
+      this._cloudFailReason = 'สรุปวัน ' + dateStr + ': ' + this.explainCloudError(err);   // รอบตรวจ 5 ข้อ 3
       if (!isSilent) this.showToast('ส่งสรุปรายวันล้มเหลว: ' + this.explainCloudError(err), 'error', 8000);
       return false;
     }
@@ -5378,6 +5510,7 @@ class PosApp {
       return true;
     }
     if (!this.hasCloudSyncConfig()) {
+      this._cloudFailReason = this.getCloudSetupMessage();
       if (!isSilent) this.showToast(this.getCloudSetupMessage(), 'warning');
       return false;
     }
@@ -5406,11 +5539,13 @@ class PosApp {
         return true;
       } else if (result.code === 'NOT_PRIMARY_DEVICE') {
         await this.notePrimaryStatus(false, result.details && result.details.primary);
+        this._cloudFailReason = String(result.message || 'เครื่องนี้ไม่ใช่เครื่องหลัก');
         if (!isSilent) this.showToast(String(result.message || 'เครื่องนี้ไม่ใช่เครื่องหลัก'), 'warning', 10000);
         return false;
       } else if (result.code === 'STALE_SUMMARY') {
         this.noteSummaryStampFloor(result.details);
         console.warn('[Summary] ปลายทางมีข้อมูลรุ่นใหม่กว่า จะส่งใหม่ด้วยรุ่นที่สูงขึ้น');
+        this._cloudFailReason = 'บนชีตมีสรุปรุ่นใหม่กว่า — ระบบจะส่งใหม่ด้วยรุ่นที่สูงขึ้นเอง';
         if (!isSilent) this.showToast('บนชีตมีข้อมูลรุ่นใหม่กว่าอยู่ จึงยังไม่เขียนทับ — กดส่งอีกครั้งได้เลย', 'warning', 7000);
         return false;
       } else {
@@ -5418,6 +5553,7 @@ class PosApp {
       }
     } catch (err) {
       console.error('Monthly summary sync error:', err);
+      this._cloudFailReason = 'สรุปเดือน ' + monthStr + ': ' + this.explainCloudError(err);   // รอบตรวจ 5 ข้อ 3
       if (!isSilent) this.showToast('ส่งสรุปรายเดือนล้มเหลว: ' + this.explainCloudError(err), 'error', 8000);
       return false;
     }
@@ -5450,7 +5586,9 @@ class PosApp {
     if (!issue || tx.syncStatus !== 'conflict') return [];
     if (issue.kind === 'invalid' || issue.kind === 'rejected') return ['edit', 'retry'];
     if (issue.code === 'ALREADY_VOIDED') return ['restore-cloud', 'void-local'];
-    if (issue.code === 'STALE_REVISION') return ['push-local'];
+    // ชีตถูกแก้หลังไฟล์สำรองที่กู้มา (รอบตรวจ 5 ข้อ 1): เจ้าของเลือกได้ว่าจะ "แก้บิลในเครื่องให้ตรงกับชีต"
+    // (แก้แล้วยอด/ช่องทาง/พนักงานตรงกัน ระบบส่งขึ้นชีตได้เอง) หรือ "ใช้ข้อมูลในเครื่องทับชีต"
+    if (issue.code === 'STALE_REVISION') return issue.fromRestore ? ['edit', 'push-local'] : ['push-local'];
     return ['retry'];
   }
 
@@ -5477,15 +5615,17 @@ class PosApp {
       if (action === 'void-local') {
         return this._voidBillLocked(tx, { reason: 'ยกเลิกตามสถานะบนชีต (บิลถูกยกเลิกบนชีตไปแล้ว)' });
       }
-      const keys = ['syncStatus', 'syncIssue', 'revEpoch', 'restoredAt'];
+      const keys = ['syncStatus', 'syncIssue', 'revEpoch', 'restoredAt', 'restoreBase'];
       const prev = {};
       keys.forEach(k => { prev[k] = Object.prototype.hasOwnProperty.call(tx, k) ? tx[k] : undefined; });
       if (action === 'restore-cloud') {
         // ต้องใหม่กว่าเวลายกเลิกบนชีตเสมอ (นาฬิกาเครื่องอาจช้ากว่า) — เจ้าของยืนยันเจตนาแล้ว
         tx.restoredAt = Math.max(Date.now(), (Number(issue.voidedAt) || 0) + 1);
+        delete tx.restoreBase;   // เจ้าของเลือกข้อมูลในเครื่องแล้ว — ไม่ต้องให้ชีตถามซ้ำ (รอบตรวจ 5 ข้อ 1)
       } else if (action === 'push-local') {
         const storedEpoch = issue.stored ? Number(issue.stored.epoch) || 0 : 0;
         tx.revEpoch = Math.max(Date.now(), storedEpoch + 1);
+        delete tx.restoreBase;   // "ใช้ข้อมูลในเครื่องทับชีต" = ไม่ต้องเทียบกับไฟล์สำรองอีก
       }
       tx.syncStatus = 'pending';
       delete tx.syncIssue;
@@ -5568,6 +5708,29 @@ class PosApp {
     }
   }
 
+  // ── คำตอบ error จากชีตเป็น "ระดับทั้งระบบ" หรือไม่ (รอบตรวจ 5 ข้อ 2) ───────────────────────
+  // คืน 'config' (ตั้งค่าผิด — หยุดรอบทันที) · 'transient' (ชั่วคราว — นับเหมือนเน็ตสะดุด) · '' (เรื่องของบิลใบนั้น)
+  // ตัดสินจาก code เป็นหลัก · Apps Script รุ่นก่อน (ยังไม่ได้วางโค้ดใหม่) ไม่มี code → ดูจากต้นข้อความที่รู้จักเท่านั้น
+  cloudErrorLevel(result) {
+    const code = result && result.code;
+    const msg = String((result && result.message) || '');
+    if (CLOUD_CONFIG_ERROR_CODES.includes(code)) return 'config';
+    if (CLOUD_TRANSIENT_ERROR_CODES.includes(code)) return 'transient';
+    if (code) return '';
+    if (/unauthorized|ไม่ได้รับอนุญาต|ยังไม่ได้ตั้งรหัสเชื่อมต่อ/i.test(msg)) return 'config';
+    if (/^ระบบหนาแน่น/.test(msg)) return 'transient';
+    return '';
+  }
+
+  // รุ่นของบิล "ตามที่ไฟล์สำรองที่กู้มารู้จัก" (รอบตรวจ 5 ข้อ 1) — null = ไม่ใช่บิลจากการกู้ / ค่าเสีย
+  billRestoreBase(tx) {
+    const b = tx && tx.restoreBase;
+    if (!b || typeof b !== 'object') return null;
+    const epoch = Number(b.epoch), rev = Number(b.rev);
+    if (!(Number.isInteger(epoch) && epoch >= 0) || !(Number.isInteger(rev) && rev >= 0)) return null;
+    return { epoch, rev };
+  }
+
   // ส่งข้อมูลของรายการธุรกรรมเดียวไปยัง Google Sheets
   async syncSingleTransaction(tx) {
     if (!this.hasCloudSyncConfig()) {
@@ -5590,6 +5753,9 @@ class PosApp {
       // rev บวกทุกครั้งที่แก้บิล · revEpoch = เวลาที่กู้ข้อมูลชุดที่บิลนี้มาจาก (การกู้ = เจตนาให้เครื่องชนะ)
       rev: Number(tx.rev) >= 0 ? Number(tx.rev) : 0,
       revEpoch: Number(tx.revEpoch) >= 0 ? Number(tx.revEpoch) : 0,
+      // รุ่นของบิลตามที่ "ไฟล์สำรองที่กู้มา" รู้จัก (รอบตรวจ 5 ข้อ 1) — ชีตใช้ตรวจว่ามีคนแก้บิลใบนี้หลังไฟล์นั้นไหม
+      // ถ้ามีและยอด/ช่องทาง/พนักงานต่างกัน ชีตจะไม่เขียนทับ แต่ให้เจ้าของเลือก · ไม่ใช่บิลที่กู้มา = ไม่ส่ง
+      restoreBase: this.billRestoreBase(tx) || undefined,
       id: tx.id,
       date: tx.date,
       monthKey: this.getBusinessMonthKey(tx.date),
@@ -5651,12 +5817,26 @@ class PosApp {
     const d = (result && result.details && typeof result.details === 'object') ? result.details : {};
     const msg = String((result && result.message) || '');
     if (code === 'ALREADY_VOIDED') {
-      return { status: 'conflict', issue: { kind: 'conflict', code, message: msg || 'บิลนี้ถูกยกเลิกไปแล้วบนชีต',
-        voidedAt: Number(d.voidedAt) || 0 } };
+      const voidedAt = Number(d.voidedAt) || 0;
+      // บิลที่มาจากการกู้ข้อมูล (รอบตรวจ 5 ข้อ 1): ชีตยกเลิกบิลนี้ "หลังไฟล์สำรองถูกสร้าง"
+      // ข้อความเดิม ("คำขอนี้น่าจะค้างมาจากก่อนการยกเลิก") พาให้เข้าใจผิด — บอกให้ตรงกับเหตุการณ์จริง
+      const fromRestore = Number(tx.restoredAt) > 0;
+      const when = voidedAt > 0 ? new Date(voidedAt).toLocaleString('th-TH') : 'ไม่ทราบเวลา';
+      return { status: 'conflict', issue: { kind: 'conflict', code, voidedAt, fromRestore,
+        message: fromRestore
+          ? `บิลนี้ถูกยกเลิกบนชีตหลังไฟล์สำรองที่กู้มา (ยกเลิกเมื่อ ${when}) — ถ้าคืนเงินลูกค้าไปแล้ว/ยกเลิกจริง ให้กด "ยกเลิกในเครื่องตามชีต" · ถ้ายกเลิกผิด ให้กด "คืนบิลนี้ขึ้นชีต"`
+          : (msg || 'บิลนี้ถูกยกเลิกไปแล้วบนชีต') } };
     }
     if (code === 'STALE_REVISION') {
-      return { status: 'conflict', issue: { kind: 'conflict', code, message: msg || 'บนชีตมีบิลรุ่นใหม่กว่า',
-        stored: d.stored || null, got: d.got || null } };
+      // d.base มีค่า = ชีตปฏิเสธเพราะ "บิลถูกแก้บนชีตหลังไฟล์สำรองที่กู้มา" (รอบตรวจ 5 ข้อ 1)
+      const fromRestore = !!(d.base && typeof d.base === 'object');
+      return { status: 'conflict', issue: { kind: 'conflict', code,
+        message: fromRestore
+          ? (msg || 'บิลนี้บนชีตถูกแก้หลังไฟล์สำรองที่กู้มา') +
+            ' · ต้องการค่าบนชีต: กด "แก้บิล" แล้วแก้ให้ตรงกับชีต (ระบบส่งขึ้นเอง) · ต้องการค่าในไฟล์ที่กู้: กด "ใช้ข้อมูลในเครื่องทับชีต"'
+          : (msg || 'บนชีตมีบิลรุ่นใหม่กว่า'),
+        stored: d.stored || null, got: d.got || null, fromRestore,
+        changes: Array.isArray(d.changes) ? d.changes.slice(0, 10) : undefined } };
     }
     if (code === 'DUPLICATE_BILL_ID') {
       return { status: 'conflict', issue: { kind: 'conflict', code, message: msg || 'บนชีตมีเลขที่บิลนี้ซ้ำหลายแถว',
@@ -5666,7 +5846,17 @@ class PosApp {
       // ชีตตรวจแล้วว่าข้อมูลบิลใช้ไม่ได้ — ส่งซ้ำก็ได้คำตอบเดิม ต้องแก้บิลก่อน
       return { status: 'conflict', issue: { kind: 'rejected', code, message: msg || 'ชีตปฏิเสธข้อมูลบิลนี้' } };
     }
-    // ที่เหลือ (ทะเบียนอ่านไม่ได้ชั่วคราว / ระบบหนาแน่น / หัวตารางเพี้ยนรอแก้ / สิทธิ์) → ลองใหม่รอบหน้า
+    // ── error ระดับทั้งระบบ (รอบตรวจ 5 ข้อ 2) — ไม่ใช่ความผิดของบิลใบนี้ ส่งใบถัดไปก็ได้คำตอบเดิม ──
+    // ตั้งค่าผิด (รหัสเชื่อมต่อไม่ตรง/ยังไม่ตั้ง) = หยุดทั้งรอบทันที · ชั่วคราว = นับเหมือนเน็ตสะดุด
+    // ⚠️ เดิมทุกอย่างตกไปเป็น "บิลใบนั้นล้ม" → รอบส่งไล่ยิงครบทุกใบ แล้วตั้งปลุกซ้ำทุกนาที
+    const level = this.cloudErrorLevel(result);
+    if (level === 'config') {
+      throw Object.assign(new Error(this.explainCloudError(msg) || 'ชีตไม่รับคำขอจากเครื่องนี้'), { serverLevel: true, code: code || '' });
+    }
+    if (level === 'transient') {
+      throw Object.assign(new Error(this.explainCloudError(msg) || 'ชีตขัดข้องชั่วคราว'), { connectionLevel: true, code: code || '' });
+    }
+    // ที่เหลือ (หัวตารางเพี้ยนรอแก้ / ข้อผิดพลาดเฉพาะบิล) → ลองใหม่รอบหน้า
     throw new Error(this.explainCloudError(msg) || 'GAS รายงานข้อผิดพลาด');
   }
 
@@ -5824,6 +6014,8 @@ class PosApp {
           // ธงยืนยันคืนบิลก็เป็นของ "การกู้ครั้งนั้น" เหมือนกัน ขึ้นชีตแล้วต้องล้าง
           // ไม่งั้นมันจะติดไปกับไฟล์สำรองที่สร้างหลังจากนี้ แล้วไปปิดทางออกฉุกเฉินของการกู้รอบหน้า
           if (tx._restoreConfirmed) delete tx._restoreConfirmed;
+          // รุ่นตามไฟล์สำรอง (รอบตรวจ 5 ข้อ 1) ใช้ตรวจครั้งเดียวตอนกู้ — ขึ้นชีตแล้วไม่เกี่ยวกับการแก้บิลครั้งต่อไป
+          if (tx.restoreBase) delete tx.restoreBase;
           successCount++;
           unsaved++;
         } catch (err) {
@@ -5831,12 +6023,30 @@ class PosApp {
           tx.syncStatus = 'pending';
           failCount++;
           lastErr = err;
+          // ตั้งค่าผิด (รหัสเชื่อมต่อไม่ตรง/ยังไม่ตั้ง) — ใบถัดไปก็ได้คำตอบเดิม หยุดรอบทันที (รอบตรวจ 5 ข้อ 2)
+          if (err && err.serverLevel) { stoppedEarly = true; break; }
           if (err && err.connectionLevel) {
             if (++connFails >= SYNC_CONN_FAIL_STOP) { stoppedEarly = true; break; }
           } else connFails = 0;
         }
       }
-      if (stoppedEarly) console.warn(`[Sync] เชื่อมต่อชีตไม่ได้ติดกัน ${SYNC_CONN_FAIL_STOP} ใบ — หยุดรอบนี้ไว้ก่อน บิลที่เหลือยังค้างรอส่ง (ลองใหม่อัตโนมัติ)`);
+      if (stoppedEarly) {
+        console.warn(lastErr && lastErr.serverLevel
+          ? '[Sync] ชีตไม่รับคำขอจากเครื่องนี้ (ตั้งค่าไม่ตรง) — หยุดรอบนี้ทันที บิลที่เหลือยังค้างรอส่ง'
+          : `[Sync] เชื่อมต่อชีตไม่ได้ติดกัน ${SYNC_CONN_FAIL_STOP} ใบ — หยุดรอบนี้ไว้ก่อน บิลที่เหลือยังค้างรอส่ง (ลองใหม่อัตโนมัติ)`);
+      }
+
+      // ── จำสาเหตุล่าสุด + จังหวะลองใหม่ (รอบตรวจ 5 ข้อ 2) ────────────────────────────────
+      // เดิมสาเหตุลงแค่ console — กดซิงก์เองก็เห็นแค่ "ล้มเหลว N รายการ" ไม่รู้ว่าต้องไปแก้อะไร
+      if (failCount > 0 && lastErr) {
+        this._lastSyncError = { message: this.explainCloudError(lastErr), at: Date.now(), config: !!lastErr.serverLevel };
+      } else if (successCount > 0) {
+        this._lastSyncError = null;
+      }
+      // ส่งไม่ผ่านทั้งรอบ = เว้นระยะรอบถัดไปให้ห่างขึ้น · มีใบที่ผ่าน = เริ่มนับใหม่ (ดู billRetryDelayMs)
+      if (failCount > 0 && successCount === 0) this._billRetryStreak = (Number(this._billRetryStreak) || 0) + 1;
+      else if (successCount > 0) this._billRetryStreak = 0;
+      if (successCount > 0) this._configWarnShown = false;
 
       // ── ปัญหาบางอย่างรอไปกี่รอบก็ไม่หายเอง ต้องบอกเจ้าของแม้เป็นการซิงก์เบื้องหลัง ──
       // หัวคอลัมน์บนชีตเพี้ยน = ยิงอีกกี่ครั้งก็ได้ SCHEMA_MISMATCH เหมือนเดิม
@@ -5863,10 +6073,17 @@ class PosApp {
       }
 
       this.checkSyncStatus();
-      
+
       if (failCount > 0) {
+        const why = this._lastSyncError && this._lastSyncError.message ? ` — สาเหตุ: ${this._lastSyncError.message}` : '';
         if (!isSilent) {
-          this.showToast(`ซิงก์สำเร็จ ${successCount} รายการ, ล้มเหลว ${failCount} รายการ`, 'warning');
+          const left = this.state.transactions.filter(t => this.isBillAwaitingSync(t)).length;
+          this.showToast(`ซิงก์สำเร็จ ${successCount} รายการ, ล้มเหลว ${failCount} รายการ` +
+            (stoppedEarly ? ` (หยุดรอบนี้ไว้ก่อน · ยังค้าง ${left} ใบ)` : '') + why, 'warning', why ? 15000 : 4000);
+        } else if (lastErr && lastErr.serverLevel && !this._configWarnShown) {
+          // ซิงก์เบื้องหลังก็ต้องบอกเมื่อเป็นเรื่องตั้งค่า — รอเฉย ๆ ไม่มีวันหาย (เตือนครั้งเดียวจนกว่าจะส่งผ่าน)
+          this._configWarnShown = true;
+          this.showToast('ส่งบิลขึ้นชีตไม่ได้' + why, 'error', 15000);
         }
       } else {
         if (!isSilent) {
@@ -5962,12 +6179,18 @@ class PosApp {
           (count > 0 ? ` · งานที่พักไว้ ${count} รายการ (จะส่งต่อทันทีเมื่อตั้งเป็นเครื่องหลัก)` : '');
         settingsDetailsEl.style.color = 'var(--accent-premium)';
       } else if (status === 'stuck') {
+        // รอบตรวจ 5 ข้อ 3: บอกสาเหตุล่าสุดด้วย (เดิมบอกแค่จำนวน — Telegram/ชีตปฏิเสธเพราะอะไรไม่มีใครรู้)
+        const je = this.latestCloudJobError();
         settingsDetailsEl.innerText =
-          `มีงานคลาวด์ค้าง ${count} รายการ (เช่นคำสั่งลบแถวบิลที่ยกเลิก หรือรีเฟรชสรุป) — ` +
-          `บิลในเครื่องขึ้นชีตครบแล้ว แต่ชีตอาจยังไม่ตรง ใช้ปุ่ม "ตรวจความตรงกันกับชีต" ดูได้`;
+          `มีงานคลาวด์ค้าง ${count} รายการ (เช่นคำสั่งลบแถวบิลที่ยกเลิก รีเฟรชสรุป หรือข้อความ Telegram) — ` +
+          `บิลในเครื่องขึ้นชีตครบแล้ว แต่ชีตอาจยังไม่ตรง ใช้ปุ่ม "ตรวจความตรงกันกับชีต" ดูได้` +
+          (je ? `\nสาเหตุล่าสุด (${je.label}): ${je.message}` : '');
         settingsDetailsEl.style.color = 'var(--accent-premium)';
       } else if (count > 0) {
-        settingsDetailsEl.innerText = `มี ${count} รายการบิลค้างส่งขึ้นคลาวด์`;
+        // รอบตรวจ 5 ข้อ 2: บอกสาเหตุที่ส่งไม่ผ่านล่าสุด — ไม่ต้องรอกดซิงก์เองถึงจะรู้
+        const se = this._lastSyncError;
+        settingsDetailsEl.innerText = `มี ${count} รายการบิลค้างส่งขึ้นคลาวด์` +
+          (se && se.message ? `\nสาเหตุล่าสุด: ${se.message}` : '');
         settingsDetailsEl.style.color = 'var(--accent-premium)';
       } else {
         settingsDetailsEl.innerText = 'ข้อมูลทั้งหมดตรงกับคลาวด์แล้ว (ไม่มีบิลค้าง)';
@@ -6462,8 +6685,39 @@ class PosApp {
     }
   }
 
+  // ── กันกดบันทึกซ้ำ (รอบตรวจ 5 ข้อ 4 · 2 ต.ค. 2569) ─────────────────────────────────────
+  // เดิมไม่มีด่าน — แตะปุ่มสองทีเร็ว ๆ ตอนเครื่องบันทึกช้า (ข้อมูลร้านใหญ่ขึ้นทุกเดือน) ได้ค่าใช้จ่ายสองรายการ
+  // = ยอดที่ควรมีในลิ้นชักลดสองเท่า → ปิดกะขึ้น "เงินเกิน" หาที่มาไม่ได้ · กำไรในสรุปต่ำกว่าจริง
+  // กันเฉพาะ "รายการหน้าตาเดียวกันที่ยังบันทึกไม่จบ" — ฟอร์มไม่ถูกล้างจนกว่าจะบันทึกเสร็จ แตะซ้ำจึงได้ค่าเดิมทุกช่อง
+  // ⚠️ ห้ามกันทุกคำสั่งที่ซ้อน: ระหว่างรายการแรกรอคิวบันทึก ผู้ใช้พิมพ์รายการถัดไป (คนละยอด/คนละรายละเอียด)
+  //    แล้วกดบันทึกได้ตามเดิม (ดูคอมเมนต์ "อ่านค่าจากหน้าจอตอนกด" ข้างล่าง) — กันเหมารวม = รายการที่สองหายเงียบ ๆ
   async addExpense(event) {
     if (event) event.preventDefault();
+    const sig = this.expenseFormSignature();
+    if (!this._expenseInFlight) this._expenseInFlight = new Set();
+    if (sig && this._expenseInFlight.has(sig)) {
+      this.showToast('รายการนี้กำลังบันทึกอยู่ — ไม่ต้องกดซ้ำ', 'info');
+      return;
+    }
+    if (sig) this._expenseInFlight.add(sig);
+    try {
+      return await this._addExpenseUnguarded();
+    } finally {
+      if (sig) this._expenseInFlight.delete(sig);
+    }
+  }
+
+  // ค่าทุกช่องในฟอร์มค่าใช้จ่าย "ตอนกด" — ค่าเดียวกันทุกช่อง = กดซ้ำรายการเดิม
+  expenseFormSignature() {
+    if (typeof document === 'undefined' || !document.getElementById) return '';
+    const v = id => {
+      const el = document.getElementById(id);
+      return el && el.value !== undefined && el.value !== null ? String(el.value).trim() : '';
+    };
+    return [v('expense-type'), v('expense-amount'), v('expense-source') || 'drawer', v('expense-staff-id'), v('expense-note')].join('\u0001');
+  }
+
+  async _addExpenseUnguarded() {
     if (!this.authorize('expense.add', 'บันทึกค่าใช้จ่าย')) return;
     if (!this.state.shift.active) {
       this.showToast('กรุณาเปิดกะลิ้นชักเงินสดก่อนบันทึกค่าใช้จ่าย!', 'info');
@@ -6474,6 +6728,9 @@ class PosApp {
     // (ระหว่างรอ ผู้ใช้อาจพิมพ์รายการถัดไปแล้ว จะได้ยอดของอีกรายการมาบันทึกแทน)
     const type = document.getElementById('expense-type').value;
     const amountInput = document.getElementById('expense-amount');
+    // ค่าดิบในช่องตอนกด — ตอนบันทึกเสร็จใช้ตัดสินว่าฟอร์มยังเป็นรายการนี้อยู่ไหม (ดูการล้างฟอร์มท้ายฟังก์ชัน)
+    const noteElAtClick = document.getElementById('expense-note');
+    const rawAtClick = { amount: String(amountInput.value), note: noteElAtClick ? String(noteElAtClick.value) : '' };
     // กติกาตัวเลข: ค่าใช้จ่ายเป็นจำนวนเต็มบาทเท่านั้น
     const amount = parseWholeNumberInput(amountInput.value, 0);
     if (amount === null) {
@@ -6545,6 +6802,17 @@ class PosApp {
       if (!this.state.shift.expenses) {
         this.state.shift.expenses = [];
       }
+      // ── ตรวจเพดานซ้ำ ณ จุดบันทึกจริง (รอบตรวจ 6 ข้อ 4 · 2 ต.ค. 2569) ──────────────────────
+      // ⚠️ ด่านข้างบนตรวจ "ก่อนเข้าคิว" — ถ้าคิวงานบันทึกติดงานอื่นอยู่ (เช่นผลซิงก์หลังขายบนเครื่องที่ข้อมูลเยอะ)
+      //    แล้วกดบันทึกสองรายการ (คนละยอด) ติดกัน รายการที่สองตรวจกับยอดที่ยังไม่มีรายการแรก (ยังรอคิวอยู่)
+      //    ทั้งสองรายการจึงผ่านโดยไม่มีใครอนุมัติ (250 → +40 +45 = 335)
+      // ในคิวถามอนุมัติไม่ได้ (การรอคนใส่ PIN ห้ามขวางงานอื่น) → ไม่บันทึก · ค่าในฟอร์มยังอยู่
+      // กดบันทึกอีกครั้ง ด่านข้างบนจะเห็นยอดล่าสุดแล้วถามอนุมัติเองตามปกติ
+      if (paidFrom === 'drawer' && !approval && this.expenseApprovalNeeded(amount)) {
+        this.showToast('ยอดค่าใช้จ่ายจากลิ้นชักของคุณในกะนี้เกินเพดานแล้ว (รวมรายการที่เพิ่งบันทึก) — ' +
+          'รายการนี้ยังไม่ถูกบันทึก กดบันทึกอีกครั้งเพื่อขออนุมัติ', 'warning', 7000);
+        return false;
+      }
       this.state.shift.expenses.push(expenseItem);
 
       // ⚠️ ค่าใช้จ่ายคือเงินที่หายออกจากลิ้นชักจริง — ต้องใช้มาตรฐานเดียวกับ checkout/ยกเลิกบิล/ลบค่าใช้จ่าย
@@ -6569,10 +6837,15 @@ class PosApp {
     if (!saved) return;
 
     // ล้างฟอร์มเฉพาะเมื่อบันทึกลงเครื่องสำเร็จแล้วเท่านั้น
-    // (และเฉพาะถ้ายังเป็นค่าที่บันทึกไป — ผู้ใช้อาจเริ่มพิมพ์รายการถัดไปแล้วระหว่างรอ)
-    if (amountInput && (parseFloat(amountInput.value) || 0) === amount) amountInput.value = '';
+    // และเฉพาะถ้ายอด "และ" รายละเอียดยังเป็นค่าที่บันทึกไป — ผู้ใช้อาจเริ่มพิมพ์/กดรายการถัดไปแล้วระหว่างรอ
+    // (รอบตรวจ 6 ข้อ 4: เดิมเทียบแค่ยอดแล้วล้างช่องรายละเอียดทิ้งเสมอ — รายการถัดไปที่ถูกปฏิเสธเพราะเกินเพดาน
+    //  เหลือแต่ยอด พอกดบันทึกอีกครั้งตามที่ข้อความบอก รายละเอียดที่พิมพ์ไว้หาย กลายเป็น "ค่าใช้จ่ายอื่นๆ")
     const noteInput = document.getElementById('expense-note');
-    if (noteInput) noteInput.value = '';
+    const noteNow = noteInput ? String(noteInput.value) : '';
+    if (amountInput && String(amountInput.value) === rawAtClick.amount && noteNow === rawAtClick.note) {
+      amountInput.value = '';
+      if (noteInput) noteInput.value = '';
+    }
     // กลับไปค่าเริ่มต้นทุกครั้ง — กัน "จ่ายทางอื่น" ค้างไปติดรายการถัดไปที่จ่ายจากลิ้นชักจริง
     if (sourceEl) sourceEl.value = 'drawer';
     if (approval) this.showToast(`บันทึกค่าใช้จ่าย ฿${amount.toLocaleString('th-TH')} แล้ว — อนุมัติโดย ${approval.name}`, 'success', 5000);
@@ -8133,6 +8406,8 @@ class PosApp {
       // รีเฟรชชีตสรุปวัน/เดือนของวันที่บิลนั้น (ผ่าน outbox — retry เองถ้าออฟไลน์) ให้ KPI บนชีตตรงกับบิลที่แก้
       // (ชื่อลูกค้าไม่อยู่ในสรุป — แก้แค่ชื่อไม่ต้องส่งสรุปใหม่)
       if (paymentChanged || staffChanged || calc) this.enqueueSummaryRefresh(tx.date);
+      // รอบตรวจ 5 ข้อ 1: ไฟล์สำรองต้องมีบิลที่แก้แล้ว (เดิมกู้ไฟล์ก่อนแก้ = ชีตกลับเป็นยอดเดิมเงียบ ๆ)
+      this.planChangeBackup('edit');
 
       await this.saveStateOrThrow('การแก้ไขบิล');
     } catch (saveErr) {
@@ -8311,7 +8586,10 @@ class PosApp {
     const hadAdj = !!shift && Object.prototype.hasOwnProperty.call(shift, 'cashAdjustments');
     const prevAdj = hadAdj ? this.cloneForRollback(shift.cashAdjustments) : undefined;
     const prevEditLog = Array.isArray(this.state.editLog) ? this.state.editLog.slice() : this.state.editLog;
+    const prevOutbox = this.cloneForRollback(this.state.cloudOutbox || []);
     try {
+      // รอบตรวจ 5 ข้อ 1: บันทึกคืน/เก็บเงินส่วนต่างอยู่ในเครื่องที่เดียว — ไฟล์สำรองต้องตามให้ทัน
+      this.planChangeBackup('settlement');
       tx.settlements = (Array.isArray(tx.settlements) ? tx.settlements : []).concat(entries);
       if (drawer.length) {
         shift.cashAdjustments = (Array.isArray(shift.cashAdjustments) ? shift.cashAdjustments : [])
@@ -8327,6 +8605,7 @@ class PosApp {
       if (hadSettlements) tx.settlements = prevSettlements; else delete tx.settlements;
       if (shift) { if (hadAdj) shift.cashAdjustments = prevAdj; else delete shift.cashAdjustments; }
       this.state.editLog = prevEditLog;
+      this.state.cloudOutbox = prevOutbox;
       console.error('recordBillSettlement failed:', err);
       this.showToast('บันทึกไม่สำเร็จ — ยังไม่ได้เปลี่ยนอะไร: ' + (err.message || err), 'error', 8000);
       return false;
@@ -8583,6 +8862,23 @@ class PosApp {
     return true;
   }
 
+  // ผู้ให้บริการที่ไม่อยู่ในรายชื่อพนักงานแล้ว แต่ยังมีงานในบิล — { id, name } ชื่อจากบิลใบล่าสุดของคนนั้น
+  deletedStaffInBills() {
+    const current = new Set((Array.isArray(this.state.staff) ? this.state.staff : []).map(st => st && st.id));
+    const found = new Map();   // id → { name, at }
+    (Array.isArray(this.state.transactions) ? this.state.transactions : []).forEach(tx => {
+      if (!tx || !Array.isArray(tx.details)) return;
+      const at = new Date(tx.date).getTime() || 0;
+      tx.details.forEach(d => {
+        if (!d || d.staffId === undefined || d.staffId === null || d.staffId === '' || current.has(d.staffId)) return;
+        const prev = found.get(d.staffId);
+        if (!prev || at >= prev.at) found.set(d.staffId, { name: String(d.staffName || 'ไม่ระบุชื่อ'), at });
+      });
+    });
+    return [...found.entries()].map(([id, v]) => ({ id: String(id), name: v.name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  }
+
   renderReports() {
     // โหลดรายชื่อผู้ให้บริการลงใน dropdown ตัวกรองหน้ารายงาน
     const staffFilter = document.getElementById('report-staff-filter');
@@ -8592,8 +8888,14 @@ class PosApp {
       this.state.staff.forEach(st => {
         optionsHtml += `<option value="${escapeHtml(st.id)}">${escapeHtml(st.name)} (${escapeHtml(st.role)})</option>`;
       });
+      // พนักงานที่ถูกลบไปแล้วแต่ยังมีงานอยู่ในบิล (รอบตรวจ 5 ข้อ 8) — เดิมไม่อยู่ในตัวเลือก
+      // ลาออกกลางเดือนแล้วลบชื่อ = ดูยอด/ค่าคอม "รายคน" ของเดือนนั้นในแอปไม่ได้ (ตารางรวมกับชีตยังมีอยู่)
+      this.deletedStaffInBills().forEach(st => {
+        optionsHtml += `<option value="${escapeHtml(st.id)}">${escapeHtml(st.name)} (ลบแล้ว)</option>`;
+      });
       staffFilter.innerHTML = optionsHtml;
       staffFilter.value = currentSelected;
+      if (staffFilter.value !== currentSelected) staffFilter.value = 'all';   // ตัวเลือกเดิมหายไปแล้ว
     }
     
     this.filterReports();
@@ -9525,7 +9827,8 @@ class PosApp {
             if (!cur) throw new Error('ไม่พบสำเนาก่อนกู้ข้อมูลแล้ว');
             const nowSnap = this.buildPreRestoreSnapshot();
             // สำเนาของแอปเอง — ข้ามกฎรูปแบบ ID เพื่อไม่ให้เส้นทางย้อนกลับตัน
-            await this._applyBackupDataLocked(cur.data, { checkIds: false, exactSettings: true }, { preRestoreSnapshot: nowSnap });
+            // forceWin: ย้อนกลับ = "เอาแบบเดิมทั้งชุด" (ไม่ถามรายบิลแม้ชีตจะถูกเขียนโดยการกู้รอบที่เพิ่งย้อน — รอบตรวจ 5 ข้อ 1)
+            await this._applyBackupDataLocked(cur.data, { checkIds: false, exactSettings: true, forceWin: true }, { preRestoreSnapshot: nowSnap });
           });
           await this.refreshPreRestoreUI();
           this.showToast('ย้อนกลับไปเป็นข้อมูลก่อนกู้เรียบร้อยแล้ว', 'success', 6000);
@@ -9613,26 +9916,38 @@ class PosApp {
     const reject = (why) => { this._lastBackupRejectReason = why; console.warn('[Import] ปฏิเสธไฟล์:', why); return false; };
     const isObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
     const objectArray = (arr, max) => Array.isArray(arr) && arr.length <= max && arr.every(isObject);
-    if (!isObject(parsed)) return false;
+    // ⚠️ ทุกทางที่ปฏิเสธต้องมีเหตุผล (รอบตรวจ 5 ข้อ 7) — เดิมหลายทางคืน false เปล่า ๆ
+    //    หน้ากู้จาก Drive จึงเติมเองว่า "ไม่พบรายการบริการ/พนักงาน/บิล — ลองเลือกไฟล์วันอื่น"
+    //    แม้สาเหตุจริงคือ "ไฟล์มาจากแอปรุ่นใหม่กว่า" (ลองกี่ไฟล์ก็ไม่ผ่าน ต้องอัปเดตแอปก่อน)
+    this._lastBackupRejectNewer = false;
+    if (!isObject(parsed)) return reject('ไฟล์นี้ไม่ใช่ไฟล์สำรองของแอปนี้ (โครงข้อมูลไม่ถูกต้อง)');
 
     // รองรับไฟล์เก่าที่ไม่มี version แต่ไม่รับไฟล์จากรุ่นใหม่กว่าที่แอปนี้ยังอ่านไม่เข้าใจ
-    if (parsed.backupSchemaVersion !== undefined &&
-        (!Number.isInteger(parsed.backupSchemaVersion) || parsed.backupSchemaVersion < 1 || parsed.backupSchemaVersion > BACKUP_SCHEMA_VERSION)) {
-      return false;
+    if (parsed.backupSchemaVersion !== undefined) {
+      const v = parsed.backupSchemaVersion;
+      if (Number.isInteger(v) && v > BACKUP_SCHEMA_VERSION) {
+        this._lastBackupRejectNewer = true;
+        return reject(`ไฟล์นี้มาจากแอปรุ่นใหม่กว่า (รูปแบบไฟล์รุ่น ${v} · แอปในเครื่องนี้อ่านได้ถึงรุ่น ${BACKUP_SCHEMA_VERSION}) — ` +
+          'อัปเดตแอปก่อน (เปิดแอปตอนมีเน็ต แล้วกด "อัปเดตเลย") แล้วค่อยกู้ไฟล์นี้');
+      }
+      if (!Number.isInteger(v) || v < 1) return reject('รุ่นของไฟล์สำรองอ่านไม่ได้ — ไฟล์อาจเสียหรือถูกแก้');
     }
 
-    if (!objectArray(parsed.services, 10000) ||
-        !objectArray(parsed.staff, 2000) ||
-        !objectArray(parsed.transactions, 200000)) return false;
+    const required = [['services', 10000, 'รายการบริการ'], ['staff', 2000, 'รายชื่อพนักงาน'], ['transactions', 200000, 'รายการบิล']];
+    for (const [key, max, label] of required) {
+      if (!objectArray(parsed[key], max)) {
+        return reject(!Array.isArray(parsed[key]) ? `ไม่พบ${label}ในไฟล์` : `${label}ในไฟล์มีรูปแบบไม่ถูกต้องหรือมากผิดปกติ`);
+      }
+    }
 
     const optionalArrays = [
       ['categories', 10000], ['customers', 100000], ['queue', 10000],
       ['voidLog', 100000], ['expenseLog', 100000], ['editLog', 100000], ['quarantine', 100000]
     ];
     for (const [key, max] of optionalArrays) {
-      if (parsed[key] !== undefined && !objectArray(parsed[key], max)) return false;
+      if (parsed[key] !== undefined && !objectArray(parsed[key], max)) return reject(`รายการ "${key}" ในไฟล์มีรูปแบบไม่ถูกต้อง`);
     }
-    if (parsed.shift !== undefined && !isObject(parsed.shift)) return false;
+    if (parsed.shift !== undefined && !isObject(parsed.shift)) return reject('ข้อมูลกะในไฟล์มีรูปแบบไม่ถูกต้อง');
 
     // งานคลาวด์ค้าง (v3+) — ถ้ามีต้องเป็นรูปแบบที่อ่านได้ ไม่งั้นจะไปพังตอนสร้างงานคืน
     // ตรวจแค่โครง ส่วนความถูกต้องของแต่ละรายการกรองอีกชั้นใน rebuildCloudOutboxFromBackup()
@@ -10356,17 +10671,38 @@ class PosApp {
     // ปลอดภัยเพราะฝั่งชีตเป็น upsert ตามเลขที่บิล ส่งซ้ำไม่เกิดแถวซ้ำ
     this.state.transactions = parsed.transactions;
     const restoreStamp = Date.now();   // เวลาเดียวของการกู้รอบนี้ ใช้ร่วมกันทุกบิล
+    // ── "ไฟล์นี้รู้เรื่องถึงเมื่อไร" (รอบตรวจ 5 ข้อ 1 · เจ้าของเลือก 2 ต.ค. 2569: ชีตใหม่กว่าไฟล์ = ถามก่อน) ──────
+    // ⚠️ เดิมทุกบิลได้ "เวลาที่กดกู้" ซึ่งใหม่กว่าทุกเหตุการณ์บนชีตเสมอ → บิลที่ยกเลิก/คืนเงินหลังไฟล์สำรองถูกสร้าง
+    //    กลับขึ้นชีตเงียบ ๆ และการแก้บิลหลังไฟล์นั้นถูกเขียนทับ (ตรวจความตรงกันก็จับไม่ได้ เพราะเครื่องกับชีตตรงกันแล้ว)
+    // ตอนนี้: restoredAt = เวลาที่สร้างไฟล์สำรอง → ชีตยกเลิกบิลนี้หลังไฟล์นั้น = ALREADY_VOIDED (กล่องบิลรอตรวจ เจ้าของเลือก)
+    //        restoreBase = รุ่นของบิลตามไฟล์ → ชีตแก้บิลนี้หลังไฟล์นั้น (ยอด/ช่องทาง/พนักงานต่าง) = STALE_REVISION (เจ้าของเลือก)
+    //        ยังยกยุค (revEpoch) เป็นเวลาที่กู้เหมือนเดิม — คำขอเก่าที่ค้างในเน็ตจากก่อนกู้ยังแพ้เสมอ
+    // forceWin (ปุ่มย้อนกลับไปก่อนกู้) = เจตนา "กลับไปเป็นแบบเดิมทั้งชุด" → กติกาเดิม (ใช้เวลาที่กดกู้ ไม่ส่งรุ่นตามไฟล์)
+    // ไฟล์ที่ไม่มีเวลาสร้าง/เวลาเพี้ยน (ไฟล์รุ่นเก่ามาก) = ไม่รู้ว่าไฟล์รู้เรื่องถึงเมื่อไร → ใช้กติกาเดิมเช่นกัน
+    const forceWin = !!(opts && opts.forceWin);
+    const createdMs = Date.parse(parsed && parsed.createdAt);
+    const fileTimeOk = Number.isFinite(createdMs) && createdMs > 0 && createdMs <= restoreStamp;
+    const askWhenSheetNewer = !forceWin && fileTimeOk;
+    const knownAt = askWhenSheetNewer ? createdMs : restoreStamp;
     let resyncCount = 0;
     (Array.isArray(this.state.transactions) ? this.state.transactions : []).forEach(tx => {
       if (tx && typeof tx === 'object') {
         // ⚠️ เดิมเป็นธง boolean ที่ติดกับบิลถาวร = ข้อยกเว้น "ข้ามทะเบียนบิลที่ยกเลิก" แบบไม่มีวันหมดอายุ
         // คำขอเก่าที่ค้างในเน็ตตั้งแต่ก่อน void ก็พกธงนี้ไปด้วย ปลายทางจึงแยกไม่ออกว่า
         // "ตั้งใจคืนบิลหลังยกเลิก" หรือ "คำขอเก่าที่หลงมาถึงทีหลัง" — ยอมรับทั้งคู่
-        // ตอนนี้เก็บ "เวลาที่กดกู้" ไว้แทน ปลายทางเทียบกับเวลาที่ยกเลิกแล้วยอมเฉพาะที่ใหม่กว่า
-        // (เวลาทั้งสองฝั่งมาจากนาฬิกาเครื่องเดียวกัน จึงเทียบกันได้ตรง ๆ ไม่ต้องพึ่งนาฬิกา Google)
-        tx.restoredAt = restoreStamp;
+        // ตอนนี้เก็บเวลาไว้แทน ปลายทางเทียบกับเวลาที่ยกเลิกแล้วยอมเฉพาะที่ใหม่กว่า
+        // (เวลาทั้งสองฝั่งมาจากนาฬิกาเครื่องขาย จึงเทียบกันได้ตรง ๆ ไม่ต้องพึ่งนาฬิกา Google)
+        tx.restoredAt = knownAt;
+        // รุ่นตามไฟล์ — ต้องจำ "ก่อน" ยกยุค (ค่าเสีย = 0 เหมือนที่ส่งขึ้นชีตมาตลอด)
+        if (askWhenSheetNewer) {
+          const r0 = Number(tx.rev), e0 = Number(tx.revEpoch);
+          tx.restoreBase = { epoch: Number.isInteger(e0) && e0 >= 0 ? e0 : 0, rev: Number.isInteger(r0) && r0 >= 0 ? r0 : 0 };
+        } else {
+          delete tx.restoreBase;
+        }
         // รุ่นของบิล: การกู้ = เจตนาให้ข้อมูลชุดนี้ชนะของบนชีต → ยกยุค (epoch) ของทุกบิลเป็นเวลาที่กู้
         // คำขอเก่าที่ค้างในเน็ตจากก่อนกู้จะแพ้เสมอ (ดู STALE_REVISION ฝั่ง Apps Script)
+        // — ยกเว้นชีตมีการแก้ที่ "ใหม่กว่าไฟล์" ซึ่งตรวจด้วย restoreBase ข้างบน (รอบตรวจ 5 ข้อ 1)
         tx.revEpoch = restoreStamp;
         if (!(Number(tx.rev) >= 0)) tx.rev = 0;
         delete tx.syncIssue;            // ความขัดแย้งเก่าเป็นของความสัมพันธ์ชุดเดิม — ส่งใหม่แล้วค่อยตัดสินใหม่
@@ -10435,17 +10771,19 @@ class PosApp {
     this.state.cloudOutbox = this.rebuildCloudOutboxFromBackup(parsed);
 
     // เติมงานรีเฟรชสรุปของทุกงวดที่ได้รับผลจากการกู้ (ดู _restoreSummaryPeriods)
+    // รอบตรวจ 6 ข้อ 2: รวมกับงวดสรุปที่ค้างมากับไฟล์ แล้วแยกเป็น "งานละ 1 เดือน" (ดู buildRestoreSummaryJobs)
+    // — งานสรุปที่ค้างมากับไฟล์อาจเป็นงานก้อนใหญ่ของการกู้รอบก่อน ถ้าปล่อยไว้ก้อนเดียวจะกลับไปเป็นปัญหาเดิม
     const rp = this._restoreSummaryPeriods || { dateKeys: new Set(), monthKeys: new Set() };
-    const rpDates = [...rp.dateKeys], rpMonths = [...rp.monthKeys];
-    if (rpDates.length || rpMonths.length) {
-      this.state.cloudOutbox.push({
-        id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        createdAt: Date.now(),
-        dateKeys: rpDates, monthKeys: rpMonths,
-        needVoidDelete: false, voidDelete: null,
-        needSummary: true, needTelegram: false, telegramMessage: '', tries: 0, rev: 0
-      });
-    }
+    const allDates = new Set(rp.dateKeys), allMonths = new Set(rp.monthKeys);
+    const carried = this.state.cloudOutbox.filter(j => j && j.needSummary &&
+      !j.needVoidDelete && !j.needTelegram && !j.needBackup);
+    carried.forEach(j => {
+      (Array.isArray(j.dateKeys) ? j.dateKeys : []).forEach(k => allDates.add(k));
+      (Array.isArray(j.monthKeys) ? j.monthKeys : []).forEach(k => allMonths.add(k));
+    });
+    if (carried.length) this.state.cloudOutbox = this.state.cloudOutbox.filter(j => !carried.includes(j));
+    this.buildRestoreSummaryJobs([...allDates], [...allMonths], Date.now())
+      .forEach(job => this.state.cloudOutbox.push(job));
     this.state.cart = [];
 
     this.state.shift = (parsed.shift && typeof parsed.shift === 'object' && !Array.isArray(parsed.shift))
@@ -10504,7 +10842,23 @@ class PosApp {
       console.error('[Restore] render after save failed', e);
       this.showToast('กู้ข้อมูลลงเครื่องแล้ว แต่บางหน้าจอแสดงผลไม่ได้ — ปิดแล้วเปิดแอปใหม่', 'warning', 9000);
     }
+    // ชื่อร้าน/โลโก้/คำโปรย/ธีม อยู่นอก renderEveryScreen — เดิมแถบข้างยังเป็นค่าเก่าจนกว่าจะปิดเปิดแอป
+    // (ดูเหมือนกู้ไม่ครบ ชวนให้กู้ซ้ำ) · รอบตรวจ 5 ข้อ 5
+    this.safeRender('ชื่อร้าน', () => this.applyShopName());
+    this.safeRender('ธีม', () => this.applyTheme());
+    this.safeRender('โลโก้', () => this.updateLogoPreview());
     this.vibrateDevice(100);
+
+    // บัญชีเจ้าของสำรอง/ผู้จัดการที่ยังไม่มี PIN ในเครื่องนี้ (ไฟล์สำรองตัด PIN ของบัญชีเหล่านี้ออกโดยตั้งใจ)
+    // เดิมไม่บอก — ชื่อหายจากหน้าล็อกอินเงียบ ๆ ผู้จัดการที่ต้องปิดกะคืนนั้นเข้าระบบไม่ได้ (รอบตรวจ 5 ข้อ 5)
+    const needPin = (Array.isArray(this.state.staff) ? this.state.staff : [])
+      .filter(st => st && PRIVILEGED_LEVELS.includes(st.accessLevel) && !st.pin);
+    if (needPin.length) {
+      const names = needPin.slice(0, 4).map(st => `${st.name || '-'} (${st.accessLevel === 'owner' ? 'เจ้าของ' : 'ผู้จัดการ'})`).join(', ') +
+        (needPin.length > 4 ? ` และอีก ${needPin.length - 4} คน` : '');
+      this.showToast(`บัญชี ${names} ยังไม่มี PIN ในเครื่องนี้ (ไฟล์สำรองไม่เก็บ PIN ของบัญชีสิทธิ์สูง) — ` +
+        'ตั้ง PIN ใหม่ 6 หลักที่ ตั้งค่า → พนักงาน → แก้ไข ก่อน บัญชีนี้จึงจะเข้าระบบได้', 'warning', 15000);
+    }
 
     // ── บอกผลของ "งานคลาวด์ค้าง" ให้เจ้าของรู้เสมอ ──────────────────────
     // เรื่องนี้เงียบไม่ได้: ถ้าสร้างงานลบคืนไม่ได้ แถวบิลที่ยกเลิกจะค้างบนชีตถาวร
@@ -10619,7 +10973,13 @@ class PosApp {
         return;
       }
 
-      list.innerHTML = files.map((f, idx) => {
+      // รายชื่อถูกตัดที่ไฟล์ล่าสุด DRIVE_BACKUP_LIST_MAX ไฟล์ (ราว 2 สัปดาห์) — บอกตรง ๆ ว่าไฟล์เก่ากว่านั้นอยู่ที่ไหน (รอบตรวจ 6 ข้อ 5)
+      const capNote = files.length >= DRIVE_BACKUP_LIST_MAX
+        ? `<p style="font-size:0.74rem;color:var(--text-muted);margin:6px 2px 0;line-height:1.5;">แสดงไฟล์ล่าสุด ${files.length} ไฟล์ (ราว 2 สัปดาห์) — ` +
+          'ไฟล์ที่เก่ากว่านี้ยังอยู่ในโฟลเดอร์ Erotica_POS_Backups บน Google Drive (เก็บ 90 วัน): ดาวน์โหลดไฟล์ที่ต้องการ ' +
+          'แล้วใช้ปุ่ม "นำเข้าข้อมูลสำรอง (.json)" ในหน้าตั้งค่า</p>'
+        : '';
+      list.innerHTML = capNote + files.map((f, idx) => {
         const label = this.formatBackupLabel(f);
         const tag = idx === 0 ? '<span style="font-size:0.7rem;padding:2px 8px;border-radius:99px;background:var(--accent-premium,#f5c842);color:#1a1a1a;font-weight:700;">ล่าสุด</span>' : '';
         return '<button type="button" class="btn-small secondary restore-item"' +
@@ -10669,9 +11029,10 @@ class PosApp {
 
           const parsed = d.details && d.details.backupData;
           if (!this.isValidBackupObject(parsed)) {
+            // ไฟล์จากแอปรุ่นใหม่กว่า: ลองไฟล์วันอื่นก็ไม่ผ่าน (มาจากแอปรุ่นเดียวกันหมด) — ต้องอัปเดตแอป (รอบตรวจ 5 ข้อ 7)
             throw new Error('ไฟล์สำรองใช้ไม่ได้' +
-              (this._lastBackupRejectReason ? `: ${this._lastBackupRejectReason}` : ' (ไม่พบรายการบริการ/พนักงาน/บิล)') +
-              ' — ลองเลือกไฟล์วันอื่น');
+              (this._lastBackupRejectReason ? `: ${this._lastBackupRejectReason}` : '') +
+              (this._lastBackupRejectNewer ? '' : ' — ลองเลือกไฟล์วันอื่น'));
           }
 
           // 2) ตรวจสุขภาพไฟล์ — ตรวจได้หลังดาวน์โหลดเท่านั้น (ตอนกดเลือกยังไม่เห็นเนื้อไฟล์)
@@ -10826,12 +11187,22 @@ class PosApp {
         // ── ขอบเขต: เดือนที่มีในเครื่อง + เดือนที่มี "เฉพาะบนชีต" (ข้อ 15) ──────────────
         const localMonths = this.reconcileMonthsToCheck();
         let cloudMonths = [];
+        // รอบตรวจ 5 ข้อ 7: "Apps Script รุ่นเก่า" เฉพาะเมื่อชีตบอกว่าไม่รู้จักคำสั่งนี้จริง ๆ
+        // เดิมเหมารวมทุกความล้มเหลว (ยังไม่ตั้งรหัสเจ้าของ / กดยกเลิกช่องรหัส / เน็ตสะดุด) ว่าเป็นรุ่นเก่า = ไล่แก้ผิดที่
         try {
           const cm = await this.cloudPost('list_bill_months', {}, 20000, { owner: true });
           if (cm && cm.status === 'success' && cm.details && Array.isArray(cm.details.months)) {
             cloudMonths = cm.details.months.map(m => m && m.monthKey).filter(mk => this.isValidMonthKey(mk));
-          } else result.cloudMonthsSupported = false;
-        } catch (e) { result.cloudMonthsSupported = false; }
+          } else if (cm && cm.code === 'INVALID_ACTION') {
+            result.cloudMonthsSupported = false;
+          } else {
+            result.cloudMonthsError = this.explainCloudError(cm && cm.message) || 'ชีตไม่ตอบรายชื่อเดือน';
+          }
+        } catch (e) {
+          result.cloudMonthsError = this.explainCloudError(e);
+          // เจ้าของกดยกเลิกช่องรหัสเจ้าของ — ไม่ถามซ้ำทีละเดือนอีก (ทุกเดือนต้องใช้รหัสเดียวกัน)
+          if (/^ยกเลิก — ต้องใช้รหัสเจ้าของ/.test(String((e && e.message) || ''))) result.ownerKeyCancelled = true;
+        }
         const ord = mk => mk.slice(3) + mk.slice(0, 2);
         const all = [...new Set(localMonths.concat(cloudMonths))].sort((a, b) => ord(b).localeCompare(ord(a)));
         const months = all.slice(0, MONTH_CAP);
@@ -10839,11 +11210,18 @@ class PosApp {
         result.cloudOnlyMonths = cloudMonths.filter(mk => !localMonths.includes(mk) && ![...localMonthOf.values()].includes(mk));
 
         for (const mk of months) {
+          // เจ้าของกดยกเลิกช่องรหัสไปแล้ว — ไม่เด้งถามซ้ำทุกเดือน (รอบตรวจ 5 ข้อ 7)
+          if (result.ownerKeyCancelled) {
+            result.errors.push({ monthKey: mk, message: 'ไม่ได้ตรวจ — ต้องใส่รหัสเจ้าของร้าน (Owner key) ก่อน' });
+            continue;
+          }
           let info;
           try {
             info = await this.fetchCloudBills(mk);
           } catch (e) {
-            result.errors.push({ monthKey: mk, message: (e && e.message) || String(e) });
+            const em = (e && e.message) || String(e);
+            if (/^ยกเลิก — ต้องใช้รหัสเจ้าของ/.test(em)) result.ownerKeyCancelled = true;
+            result.errors.push({ monthKey: mk, message: em });
             continue;
           }
           result.months.push(mk);
@@ -10965,6 +11343,7 @@ class PosApp {
       ${(r.cloudOnlyMonths && r.cloudOnlyMonths.length) ? `<br>เดือนที่มีเฉพาะบนชีต (ไม่มีบิลในเครื่อง): ${r.cloudOnlyMonths.map(m => escapeHtml(m)).join(', ')}` : ''}
       ${(r.skippedMonths && r.skippedMonths.length) ? `<br><b style="color:var(--accent-premium);">ยังไม่ได้ตรวจ ${r.skippedMonths.length} เดือนที่เก่ากว่า (${r.skippedMonths.slice(0, 6).map(m => escapeHtml(m)).join(', ')}${r.skippedMonths.length > 6 ? ' …' : ''})</b>` : ''}
       ${r.cloudMonthsSupported === false ? '<br>ตรวจหาเดือนที่มีเฉพาะบนชีตไม่ได้ (Apps Script รุ่นเก่า) — ตรวจเฉพาะเดือนที่มีในเครื่อง' : ''}
+      ${r.cloudMonthsError ? '<br>ตรวจหาเดือนที่มีเฉพาะบนชีตไม่ได้: ' + escapeHtml(r.cloudMonthsError) + ' — ตรวจเฉพาะเดือนที่มีในเครื่อง' : ''}
     </p>`);
     const dups = Array.isArray(r.duplicates) ? r.duplicates : [];
     const conflicts = Array.isArray(r.conflicts) ? r.conflicts : [];
@@ -11341,7 +11720,10 @@ class PosApp {
 
   // ส่งข้อความ Telegram แล้วคืน true/false ว่าส่งถึงไหม (ใช้กับ outbox retry)
   async postTelegram(message) {
-    if (!this.telegramToken || !this.telegramChatId) return false;
+    if (!this.telegramToken || !this.telegramChatId) {
+      this._cloudFailReason = 'ยังไม่ได้ตั้ง Telegram Token / Chat ID ในหน้าตั้งค่า';
+      return false;
+    }
     try {
       const url = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
       const r = await this.fetchWithTimeout(url, {
@@ -11349,12 +11731,40 @@ class PosApp {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' })
       }, 15000);
-      const d = await r.json();
-      return !!(d && d.ok);
+      let d = null;
+      try { d = await r.json(); } catch (e) { d = null; }
+      if (d && d.ok) return true;
+      // รอบตรวจ 5 ข้อ 3: เก็บเหตุผลที่ Telegram ปฏิเสธไว้ให้เจ้าของเห็น (เดิมทิ้ง description ไปเลย)
+      this._cloudFailReason = this.explainTelegramError(d, r && r.status);
+      console.error('Telegram rejected:', d && d.description, r && r.status);
+      return false;
     } catch (err) {
       console.error('Telegram post failed:', err);
+      this._cloudFailReason = 'ส่ง Telegram ไม่ได้: ' + this.explainCloudError(err);
       return false;
     }
+  }
+
+  // แปลคำตอบ error ของ Telegram เป็นวิธีแก้ (รอบตรวจ 5 ข้อ 3) — ข้อความที่ไม่รู้จักคืนตามที่ Telegram บอก
+  explainTelegramError(d, status) {
+    const desc = String((d && d.description) || '').trim();
+    const newChat = d && d.parameters && d.parameters.migrate_to_chat_id;
+    if (newChat) {
+      return `กลุ่ม Telegram ถูกอัปเกรดเป็น supergroup — Chat ID เปลี่ยนเป็น ${newChat} ให้แก้ที่ ตั้งค่า → Telegram Chat ID`;
+    }
+    if (/unauthorized/i.test(desc) || status === 401) {
+      return 'Telegram Token ใช้ไม่ได้ (ผิด/ถูกยกเลิก) — วาง Token ใหม่ที่หน้าตั้งค่า';
+    }
+    if (/chat not found/i.test(desc)) {
+      return 'Telegram หาแชทไม่เจอ — Chat ID ผิด หรือบอทยังไม่ได้อยู่ในกลุ่ม/ถูกเอาออกจากกลุ่ม';
+    }
+    if (/bot was kicked|bot is not a member|have no rights|not enough rights/i.test(desc)) {
+      return 'บอท Telegram ถูกเอาออกจากกลุ่มหรือไม่มีสิทธิ์ส่งข้อความ — เพิ่มบอทกลับเข้ากลุ่ม';
+    }
+    if (/blocked by the user/i.test(desc)) {
+      return 'ผู้รับบล็อกบอท Telegram ไว้ — ให้ปลดบล็อกหรือเปลี่ยน Chat ID';
+    }
+    return 'Telegram ปฏิเสธข้อความ' + (desc ? ': ' + desc : (status ? ` (HTTP ${status})` : ''));
   }
 
   // หมายเหตุ: sendTelegramReport() ถูกลบออกในเวอร์ชัน 1.5.2 — ไม่มีที่ไหนเรียกแล้ว
@@ -11429,6 +11839,45 @@ class PosApp {
     return job;
   }
 
+  // ── สำรองหลัง "เงินของบิลที่ขายไปแล้วเปลี่ยน" (รอบตรวจ 5 ข้อ 1 · 2 ต.ค. 2569) ─────────────────
+  // ยกเลิกบิล / แก้บิล / บันทึกเงินส่วนต่าง — ข้อมูลพวกนี้อยู่ในเครื่องที่เดียว (ประวัติยกเลิก/แก้/คืนเงิน)
+  // เดิมไม่มีอะไรสั่งสำรอง: เครื่องพังก่อนรอบสำรองถัดไป → กู้ไฟล์ล่าสุด → บิลที่คืนเงินไปแล้วกลับมาเป็นยอดขาย
+  // รอรวมรอบ CHANGE_BACKUP_DELAY_MS (แก้หลายใบติดกัน = ไฟล์เดียว) · มีงานสำรองค้างอยู่แล้ว = บวกรุ่นให้ส่งรอบใหม่
+  // ต้องเรียกในคิวงานบันทึก ก่อน saveState ของงานนั้น (ผู้เรียกคืน cloudOutbox เดิมเองถ้าบันทึกล้ม)
+  planChangeBackup(kind) {
+    if (!this.hasCloudSetupStarted()) return null;
+    if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
+    const now = Date.now();
+    const pending = this.state.cloudOutbox.find(it => it && it.needBackup);
+    if (pending) {
+      // งานที่กำลังอัปโหลดอยู่จะไม่ถูกนับว่าเสร็จ ถ้ารุ่นเปลี่ยนระหว่างนั้น (ดู _doFlushCloudOutbox)
+      pending.backupRev = (Number(pending.backupRev) || 0) + 1;
+      // งานสำรองของการเปลี่ยนแปลงที่ยังไม่ถึงเวลาส่ง → เลื่อนออกไปรวมรอบ (ยังไม่เคยล้ม = ไม่ใช่ backoff)
+      const r = pending.retry && pending.retry.backup;
+      if (pending.reason === 'change' && r && !(r.tries > 0)) r.nextAt = now + CHANGE_BACKUP_DELAY_MS;
+      if (kind && Array.isArray(pending.changeKinds) && !pending.changeKinds.includes(kind)) pending.changeKinds.push(kind);
+      this.scheduleCloudRetry();
+      return pending;
+    }
+    const job = {
+      id: `cob-${now}-${Math.random().toString(36).substr(2, 5)}`,
+      createdAt: now,
+      dateKeys: [], monthKeys: [],
+      needSummary: false, needTelegram: false, needBackup: true,
+      quiet: true,            // งานเบื้องหลัง — สำเร็จแล้วไม่ต้องขึ้นข้อความ
+      reason: 'change',
+      changeKinds: kind ? [kind] : [],
+      backupRev: 0,
+      // ยังไม่ใช่ความล้มเหลว (tries 0) — แค่ "ยังไม่ถึงเวลา" ตัวปลุกงานคลาวด์ใช้ nextAt นี้ปลุกเอง
+      retry: { backup: { tries: 0, nextAt: now + CHANGE_BACKUP_DELAY_MS } },
+      tries: 0
+    };
+    this.state.cloudOutbox.push(job);
+    // ตั้งตัวปลุกไว้เลย — บางทาง (บันทึกเงินส่วนต่าง) ไม่ได้สั่งส่งงานคลาวด์ต่อท้าย งานจะรอจนมีเหตุการณ์อื่นมาปลุก
+    this.scheduleCloudRetry();
+    return job;
+  }
+
   enqueueShiftCloseCloudOps(shiftLog) {
     // ใช้ "วันทำการ" — กะปกติ 10:00 → ตี 3 เปิด/ปิดเป็นวันทำการเดียวกัน จึงได้วันเดียว
     // ถ้ากะลากยาวข้ามวัน จะได้ทุกวันระหว่างนั้น ไม่ใช่แค่หัวกับท้าย (ดู businessPeriodKeysBetween)
@@ -11450,7 +11899,15 @@ class PosApp {
     const needTelegram = !!(this.telegramToken && this.telegramChatId);
     if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
     // สำรองข้อมูลหลังปิดกะเป็น "งานในคิว" ที่ลองใหม่ได้ (ข้อ 14) — ใช้ข้อมูลล่าสุดตอนส่ง จึงมีค้างได้งานเดียวพอ
-    const needBackup = this.hasCloudSetupStarted() && !this.state.cloudOutbox.some(it => it && it.needBackup);
+    const pendingBackup = this.state.cloudOutbox.find(it => it && it.needBackup);
+    if (pendingBackup) {
+      // มีงานสำรองค้างอยู่ (เช่นของการยกเลิกบิลที่รอรวมรอบ) — ปิดกะแล้วต้องส่งทันที ไม่รอรวมรอบ
+      // (ปิดกะตีสามแล้วปิดแอป งานที่ตั้งเวลาไว้จะไม่ได้ส่งจนเปิดร้านพรุ่งนี้) · บวกรุ่นให้รวมการปิดกะนี้ด้วย
+      pendingBackup.backupRev = (Number(pendingBackup.backupRev) || 0) + 1;
+      const pr = pendingBackup.retry && pendingBackup.retry.backup;
+      if (pr && !(pr.tries > 0)) pr.nextAt = Date.now();
+    }
+    const needBackup = this.hasCloudSetupStarted() && !pendingBackup;
     if (!needSummary && !needTelegram && !needBackup) return; // ไม่ได้ตั้งค่าอะไรเลย ไม่ต้องคิว
     this.state.cloudOutbox.push({
       id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -11519,12 +11976,19 @@ class PosApp {
       if (!this.cloudServiceReady(item, svc, now)) return false;
       attempted = true;
       let ok = false, errMsg = '';
+      // ตัวส่งแต่ละบริการ "คืน false" เมื่อล้ม (ไม่ throw) แล้วฝากสาเหตุไว้ที่ _cloudFailReason (รอบตรวจ 5 ข้อ 3)
+      // เดิมเก็บสาเหตุได้เฉพาะตอน throw — Telegram ตอบ "chat not found" / ชีตตอบรหัสไม่ตรง จึงไม่มีสาเหตุเหลือให้เห็น
+      // (งานคลาวด์วิ่งทีละงานในคิวเดียว จึงฝากผ่านตัวแปรนี้ได้โดยไม่ปนกัน)
+      this._cloudFailReason = '';
       try { ok = await fn(); } catch (e) { ok = false; errMsg = (e && e.message) || String(e); }
+      if (!ok && !errMsg) errMsg = this._cloudFailReason || '';
+      this._cloudFailReason = '';
       this.noteCloudServiceResult(item, svc, ok, errMsg);
       if (ok && !item.quiet) delivered++;
       if (ok) anyOk = true;
       return ok;
     };
+    let restoreJobSent = false;   // รอบตรวจ 6 ข้อ 2 — ส่งงานสรุปหลังกู้ได้รอบละ 1 เดือน
     try {
       for (const item of this.state.cloudOutbox.slice()) {
         // ข้อมูลถูกแทนทั้งชุดระหว่างรอบนี้ — งานของชุดเก่าห้ามยิงต่อ (เช่นคำสั่งลบแถวบิลที่ชุดใหม่ยังใช้อยู่)
@@ -11540,7 +12004,13 @@ class PosApp {
         }
 
         // 1) สรุปวัน + เดือน — recompute จาก state ปัจจุบัน (ครบ + idempotent: GAS เขียนทับชีต)
-        if (item.needSummary && this.hasCloudSyncConfig() && !(item.needVoidDelete && this.hasCloudSyncConfig())) {
+        // รอบตรวจ 6 ข้อ 2: งานสรุปหลังกู้ข้อมูล (reason 'restore' — งานละ 1 เดือน) ส่งได้รอบละ 1 งาน
+        // เดือนที่เหลือรอรอบถัดไป (ตัวปลุกงานคลาวด์มาเองในไม่ถึงนาที และส่งบิลที่ค้างก่อนทุกครั้ง)
+        // บิลที่ขายระหว่างนี้จึงรอแค่สรุปของเดือนเดียว ไม่ใช่ทุกวันตั้งแต่เปิดร้าน
+        const deferRestoreJob = item.reason === 'restore' && restoreJobSent &&
+          this.cloudServiceReady(item, 'summary', now);
+        if (item.needSummary && this.hasCloudSyncConfig() && !(item.needVoidDelete && this.hasCloudSyncConfig()) && !deferRestoreJob) {
+          if (item.reason === 'restore' && this.cloudServiceReady(item, 'summary', now)) restoreJobSent = true;
           const revAtSend = item.rev || 0;   // จำรุ่นก่อนส่ง (ดู enqueueSummaryRefresh)
           await run(item, 'summary', async () => {
             let allOk = true;
@@ -11569,7 +12039,12 @@ class PosApp {
         // 3) สำรองข้อมูลขึ้น Drive (หลังปิดกะ) — ใช้ข้อมูล "ล่าสุด" ตอนส่ง จึงมีงานสำรองค้างได้ทีละงานเดียวพอ
         //    ⚠️ เดิมลองครั้งเดียวตอนปิดกะ ล้มแล้วไม่มีงานค้างให้ลองใหม่ = คืนนั้นไม่มีไฟล์สำรองโดยไม่มีใครรู้
         if (item.needBackup && this.hasCloudSyncConfig()) {
-          if (await run(item, 'backup', () => this.autoBackupToGoogleDrive({ silent: true }))) item.needBackup = false;
+          // ข้อมูลเปลี่ยนระหว่างกำลังอัปโหลด (ยกเลิก/แก้บิลตอนไฟล์กำลังขึ้น) = ไฟล์ที่เพิ่งขึ้นไม่มีการเปลี่ยนแปลงนั้น
+          // → เก็บงานไว้ส่งอีกรอบ (backupRev ถูกบวกโดย planChangeBackup) ไม่งั้นไฟล์ล่าสุดตกหล่นเงียบ ๆ (รอบตรวจ 5 ข้อ 1)
+          const backupRevAtSend = Number(item.backupRev) || 0;
+          if (await run(item, 'backup', () => this.autoBackupToGoogleDrive({ silent: true }))) {
+            if ((Number(item.backupRev) || 0) === backupRevAtSend) item.needBackup = false;
+          }
         }
       }
 
@@ -11718,6 +12193,30 @@ class PosApp {
     item.lastTry = Date.now();
   }
 
+  // เว้นระยะลองส่งบิลใหม่ตามจำนวนรอบที่ "ไม่ผ่านเลยสักใบ" ติดกัน (รอบตรวจ 5 ข้อ 2)
+  // รอบแรกที่ล้มยังลองใหม่ใน 1 นาทีเท่าเดิม (เน็ตสะดุดสั้น ๆ ต้องตามทันเร็ว) · ขายบิลใหม่/เน็ตกลับ/เปิดแอป ยังส่งทันทีเหมือนเดิม
+  billRetryDelayMs() {
+    const n = Math.max(0, (Number(this._billRetryStreak) || 0) - 1);
+    return BILL_RETRY_STEPS_MS[Math.min(n, BILL_RETRY_STEPS_MS.length - 1)];
+  }
+
+  // สาเหตุล่าสุดของงานคลาวด์ที่ส่งไม่ผ่าน (รอบตรวจ 5 ข้อ 3) — ใช้บอกเจ้าของในหน้าตั้งค่า ไม่ต้องรอครบ 7 วัน
+  // คืน { label, message, at } ของรายการที่ล้มล่าสุด · ไม่มี = null
+  latestCloudJobError() {
+    const NAME = { voidDelete: 'ลบแถวบิลที่ยกเลิกบนชีต', summary: 'สรุปวัน/เดือนบนชีต', telegram: 'ข้อความ Telegram', backup: 'ไฟล์สำรองขึ้น Drive' };
+    let best = null;
+    (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : []).forEach(it => {
+      if (!it || !it.retry || typeof it.retry !== 'object') return;
+      Object.keys(it.retry).forEach(svc => {
+        const r = it.retry[svc];
+        if (!r || !r.lastError || !(r.tries > 0)) return;
+        const at = Number(r.lastTry) || 0;
+        if (!best || at > best.at) best = { label: NAME[svc] || svc, message: String(r.lastError), at };
+      });
+    });
+    return best;
+  }
+
   // ── ตัวปลุกงานคลาวด์ที่ค้าง (ข้อ 14): เดิมพอครบเวลาเว้นระยะแล้วไม่มีอะไรปลุก ────────────
   // งานจะค้างจนกว่าจะมีเหตุการณ์อื่น (เปิดแอป/เน็ตกลับ/ขายบิลใหม่) — ปิดกะตอนตีสามแล้วเน็ตหลุด
   // ไฟล์สำรองและสรุปของคืนนั้นจะไม่ถูกส่งจนเปิดร้านวันรุ่งขึ้น
@@ -11732,15 +12231,19 @@ class PosApp {
         const flag = { voidDelete: 'needVoidDelete', summary: 'needSummary', telegram: 'needTelegram', backup: 'needBackup' }[svc];
         if (!it || !it[flag]) return;
         if ((svc === 'summary' || svc === 'backup') && this.isPrimaryBlocked()) return;   // พักไว้ — ไม่ต้องปลุก
+        // ยังตั้งค่าไม่ครบ = ส่งไม่ได้อยู่แล้ว ไม่ต้องปลุก (กันตัวปลุกวนทุกวินาทีกับงานที่ถึงเวลาแล้วแต่ส่งไม่ได้)
+        // ตั้งค่าเสร็จเมื่อไหร่ การบันทึกตั้งค่า/เปิดแอป/เน็ตกลับ จะสั่งส่งเอง
+        if (svc === 'telegram' ? !(this.telegramToken && this.telegramChatId) : !this.hasCloudSyncConfig()) return;
         if (this.isCloudJobExpired(it, svc, now)) return;   // ข้อ 16: หยุดแล้ว รอเจ้าของ — ไม่ต้องปลุก
         const r = it.retry && it.retry[svc];
         const at = r && r.nextAt ? r.nextAt : ((it.tries || 0) >= 3 && it.lastTry ? it.lastTry + 5 * 60 * 1000 : now + 30e3);
         next = Math.min(next, at);
       });
     });
-    // บิลที่ส่งไม่สำเร็จ (ไม่ใช่รอตรวจ) — ลองใหม่ทุก 1 นาทีขณะแอปเปิดอยู่
+    // บิลที่ส่งไม่สำเร็จ (ไม่ใช่รอตรวจ) — ลองใหม่ขณะแอปเปิดอยู่
+    // รอบตรวจ 5 ข้อ 2: ส่งไม่ผ่านทั้งรอบติดกัน = เว้นห่างขึ้น 1 → 2 → 5 → 10 → 30 นาที (เดิมทุก 1 นาทีตายตัว)
     if ((Array.isArray(this.state.transactions) ? this.state.transactions : []).some(tx => this.isBillAwaitingSync(tx)) &&
-        this.hasCloudSyncConfig()) next = Math.min(next, now + 60e3);
+        this.hasCloudSyncConfig()) next = Math.min(next, now + this.billRetryDelayMs());
     if (!isFinite(next)) return;
     const delay = Math.min(Math.max(next - now, 1000), 30 * 60 * 1000);
     this._cloudRetryTimer = setTimeout(() => { this._cloudRetryTimer = null; this.resumePendingCloudWork(); }, delay);
@@ -11777,7 +12280,7 @@ class PosApp {
 
   // ส่งคำขอลบแถวบิลใน Sheets แล้วคืน true/false — idempotent: "ไม่พบแถว" = ถือว่าลบแล้ว
   async postVoidDelete(v) {
-    if (!this.hasCloudSyncConfig()) return false;
+    if (!this.hasCloudSyncConfig()) { this._cloudFailReason = this.getCloudSetupMessage(); return false; }
     try {
       const r = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
@@ -11839,14 +12342,18 @@ class PosApp {
           this.showToast(`ลบบิล ${String((v && v.id) || '').slice(0, 24)} บนชีตไม่ได้: ${this.explainCloudError(d.message)} — ` +
             'แก้ในชีตแล้วระบบจะลองใหม่เอง', 'warning', 12000);
         }
+        this._cloudFailReason = this.explainCloudError(d.message) || d.code;
         return false;
       }
       const gone = !!d && (d.code === 'NOT_FOUND' ||
         (d.status === 'error' && /^ไม่พบ(บิลเลขที่|แผ่นงาน)/.test(String(d.message || ''))));
       if (d && (d.status === 'success' || gone)) return true;
-      return false; // error อื่น (เช่น unauthorized) → retry รอบหน้า
+      // error อื่น (เช่น รหัสเชื่อมต่อไม่ตรง) → retry รอบหน้า · เก็บสาเหตุไว้ให้เห็น (รอบตรวจ 5 ข้อ 3)
+      this._cloudFailReason = this.explainCloudError(d && d.message) || 'ชีตตอบกลับมาไม่ถูกต้อง';
+      return false;
     } catch (err) {
       console.error('Void delete failed:', err);
+      this._cloudFailReason = this.explainCloudError(err);
       return false;
     }
   }
@@ -11877,6 +12384,8 @@ class PosApp {
       telegramMessage: needTelegram ? this.buildVoidAlertMessage(voidRecord) : '',
       tries: 0
     });
+    // รอบตรวจ 5 ข้อ 1: ไฟล์สำรองต้องรู้ว่าบิลนี้ถูกยกเลิกแล้ว (ประวัติยกเลิก/เงินคืนมีอยู่ในเครื่องที่เดียว)
+    if (cloudSetupStarted) this.planChangeBackup('void');
   }
 
   // ทดสอบ Telegram

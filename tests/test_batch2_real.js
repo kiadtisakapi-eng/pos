@@ -69,7 +69,9 @@ const attempts = [
   ['ลบพนักงาน (deleteStaff)', ['staff', 'manager', null], async (app) => { app.deleteStaff('st-1'); await app._confirmP; }],
   ['ลบหมวด (deleteCategory)', ['staff', 'manager', null], async (app) => { app.deleteCategory('spare'); await app._confirmP; }],
   ['ลบโลโก้ (removeLogo)', ['staff', 'manager', null], async (app) => { await app.removeLogo(); }],
-  ['ล้างยอดขาย (clearSalesData)', ['staff', 'manager', null], async (app) => { app.clearSalesData(); await app._confirmP; }],
+  ['ล้างยอดขาย (clearSalesData)', ['staff', 'manager', null], async (app, env) => {
+    env.ctx.prompt = () => 'ล้างยอดขาย';   // รอบตรวจ 6 ข้อ 1: ต้องพิมพ์คำยืนยัน (+ สำรองขึ้น Drive จำลองก่อนล้าง)
+    await app.clearSalesData(); await app._confirmP; }],
   ['แทนข้อมูลทั้งร้าน (applyBackupData)', ['staff', 'manager', null], async (app) => {
     await app.applyBackupData(validBackup([])).catch(() => {}); }],
   ['แก้บิล (saveTransactionEdit)', ['staff', 'manager', null], async (app, env) => {

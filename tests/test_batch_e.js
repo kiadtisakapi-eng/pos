@@ -83,10 +83,12 @@ await t('outbox หลังกู้มีงานสรุปของทั�
     transactions:[{id:'TX-1757000000000-NEWNEWNE',date:'2026-09-01T14:00:00+07:00',total:300,syncStatus:'synced'}],
     shift:{active:false,startTime:null,startCash:0,startDetails:{},expenses:[],history:[]} };
   await app.applyBackupData(f);
+  // รอบตรวจ 6 ข้อ 2: แยกเป็นงานละ 1 เดือน (ส่งทีละเดือน · พลาดเดือนไหนส่งซ้ำแค่เดือนนั้น) — รวมทุกงานแล้วต้องครบทุกงวด
   const sum = app.state.cloudOutbox.filter(x => x.needSummary);
-  eq(sum.length, 1);
-  ok(sum[0].monthKeys.includes('08-2026'), 'ขาดงวดของข้อมูลเดิมก่อนกู้ ' + JSON.stringify(sum[0]));
-  ok(sum[0].monthKeys.includes('09-2026'), 'ขาดงวดของข้อมูลที่กู้มา ' + JSON.stringify(sum[0]));
+  const months = [].concat(...sum.map(j => j.monthKeys || []));
+  ok(sum.every(j => (j.monthKeys || []).length === 1), 'ต้องเป็นงานละ 1 เดือน ' + JSON.stringify(sum));
+  ok(months.includes('08-2026'), 'ขาดงวดของข้อมูลเดิมก่อนกู้ ' + JSON.stringify(months));
+  ok(months.includes('09-2026'), 'ขาดงวดของข้อมูลที่กู้มา ' + JSON.stringify(months));
 });
 // ชุด F เปลี่ยนจากธง boolean ถาวร → เวลาที่กู้ (restoredAt) เพื่อให้ปลายทางเทียบลำดับกับ void ได้
 t('บิลที่กู้มาติดเวลาที่กู้ (restoredAt) ไม่ใช่ธงถาวร', () => {

@@ -156,11 +156,22 @@ t('เป้าเป็น 0 -> ไม่มีค่าติดลบ', () =>
   const out = app.roundToTotal([100, 200], 0); ok(out.every(v => v >= 0));});
 // ยิงสุ่มแบบเดียวกับการใช้งานจริง: แตกยอดบิลตามสัดส่วนราคาแล้วเกลี่ยเศษกลับ
 // (ผู้เรียกตัวเดียวคือ buildEditableDetails ซึ่งส่งค่าที่รวมแล้วใกล้เคียง subtotal อยู่แล้ว)
+// ⚠️ รอบตรวจ 5 (2 ต.ค. 2569): เดิมใช้ Math.random() ตรง ๆ + ยอดบิลสุ่มตั้งแต่ 0.00 บาท
+//    ราว 1 ใน 60 รอบสุ่มเจอบิล "3 สตางค์แตกเป็น 5 รายการ" (ทุกรายการปัดเป็น 0.01 แล้วหักคืนได้ไม่ครบ)
+//    → ไฟล์นี้ล้มแบบสุ่ม แล้ว deploy.bat หยุดทั้งที่โค้ดไม่ได้เปลี่ยน · บิลจริงไม่มีแบบนั้น (ราคาเป็นจำนวนเต็มบาท)
+//    ตอนนี้: ตัวสุ่มแบบตั้งค่าเริ่มตายตัว (ผลเหมือนเดิมทุกครั้ง ทวนซ้ำได้) + ยอดบิลจริง 0 หรือ 1.00 – 5,000 บาท
+let seed = 20261002;
+const rand = () => {   // mulberry32
+  seed = (seed + 0x6D2B79F5) | 0;
+  let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+};
 let bad = 0, neg = 0, worst = 0;
 for (let n = 0; n < 300000; n++) {
-  const k = 1 + Math.floor(Math.random() * 6);
-  const subtotal = Math.round(Math.random() * 500000) / 100;      // 0 - 5,000 บาท
-  const weights = Array.from({ length: k }, () => Math.random() * 1000);
+  const k = 1 + Math.floor(rand() * 6);
+  const subtotal = rand() < 0.01 ? 0 : (100 + Math.round(rand() * 499900)) / 100;   // บิล 0 บาท หรือ 1 - 5,000 บาท
+  const weights = Array.from({ length: k }, () => rand() * 1000);
   const wSum = weights.reduce((a, b) => a + b, 0);
   const raw = weights.map(w => subtotal * w / wSum);              // มีเศษทศนิยมยาว ๆ ติดมาเสมอ
   const out = app.roundToTotal(raw, subtotal);

@@ -53,8 +53,14 @@ t('บันทึกลง DB 1 ครั้ง',()=>eq(saved,1));
 t('outbox หลังกู้: ไม่มีงานของข้อมูลชุดเก่าหลงเหลือ',()=>{
   eq(app.state.cloudOutbox.filter(x=>x.needTelegram||x.needVoidDelete).length,0);});
 t('outbox หลังกู้: มีงานรีเฟรชสรุปของงวดที่ได้รับผล',()=>{
+  // รอบตรวจ 6 ข้อ 2: งานรีเฟรชหลังกู้แยกเป็นงานละ 1 เดือน · สรุปรายวันส่งเฉพาะวันที่ไม่เก่ากว่า 64 วัน (เก่ากว่านั้นส่งแค่สรุปเดือน)
   const sum=app.state.cloudOutbox.filter(x=>x.needSummary);
-  eq(sum.length,1); ok(sum[0].dateKeys.length>0,'ไม่มีงวดให้รีเฟรช');});
+  ok(sum.length>=1,'ไม่มีงานรีเฟรชสรุป');
+  ok(sum.every(j=>j.reason==='restore'&&j.monthKeys.length===1),'ต้องเป็นงานละ 1 เดือน: '+JSON.stringify(sum));
+  ok(sum.some(j=>j.monthKeys.includes('07-2026')),'ไม่มีงวดเดือนของบิลที่กู้มา');
+  const daily=sum.some(j=>j.dateKeys.length>0);
+  const recent=(Date.now()-Date.parse('2026-07-01T10:00:00.000Z'))<64*86400000;   // ไม่ผูกกับวันที่รันเทสต์
+  eq(daily,recent,'สรุปรายวันต้องส่งเฉพาะวันที่ไม่เก่ากว่า 64 วัน');});
 t('voidLog เข้ามาครบ',()=>eq(app.state.voidLog.length,1));
 t('shift.history ที่พังถูกซ่อมเป็น []',()=>eq(app.state.shift.history,[]));
 t('shift.expenses null ถูกซ่อมเป็น []',()=>eq(app.state.shift.expenses,[]));

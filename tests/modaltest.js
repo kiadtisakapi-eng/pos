@@ -51,4 +51,10 @@ const MODALS=[['modal-cash-counter','นับเงินเปิด/ปิด
  }
  MODALS.forEach(([id,name])=>console.log(pad(name,24)+sizes.map(s=>pad(grid[name][s[0]]||'-',15)).join('')));
  await b.close(); srv.close();
-})();
+ // รอบตรวจ 6 ข้อ 7: เดิมพิมพ์ตารางอย่างเดียว ไม่เคยส่งผล "ล้มเหลว" — run-all-ui.js ดูแค่ผลออก จึงขึ้น "ผ่านทั้งหมด" แม้ตารางมี ❌
+ const bad=[];
+ MODALS.forEach(([id,name])=>sizes.forEach(s=>{ const v=grid[name]&&grid[name][s[0]]; if(v!=='✅') bad.push(`${name} @ ${s[0]} = ${v||'ไม่ได้ตรวจ'}`); }));
+ if(bad.length){ console.log('\n❌ ไม่ผ่าน '+bad.length+' ช่อง:\n   '+bad.join('\n   ')); process.exit(1); }
+ console.log('\nผ่าน — ทุกหน้าต่างกดปุ่มยืนยันถึงและไม่ตกขอบ ทุกขนาดจอ');
+ process.exit(0);
+})().catch(e=>{ console.log('❌ เทสต์ล้มกลางทาง: '+(e&&e.stack||e)); process.exit(1); });

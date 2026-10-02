@@ -177,13 +177,17 @@ t('ไฟล์สำรองที่ editLog ผิดรูป -> ไม่�
   ok(real('isValidBackupObject')(Object.assign({}, base, { editLog: ['x'] })) === false, 'สมาชิกที่ไม่ใช่อ็อบเจกต์ต้องไม่ผ่าน');
 });
 
-t('ล้างยอดขาย -> ล้างทะเบียนการแก้บิลไปด้วย (เป็นของยอดเก่า)', () => {
+await t('ล้างยอดขาย -> ล้างทะเบียนการแก้บิลไปด้วย (เป็นของยอดเก่า)', async () => {
   app.state.editLog = [{ billId: 'TX-1', date: 2 }];
   app.state.transactions = [];
-  let done = null;
-  app.showConfirm = (msg, cb) => { done = cb(); };
-  real('clearSalesData')();
-  return Promise.resolve(done).then(() => eq(app.state.editLog, []));
+  // รอบตรวจ 6 ข้อ 1: คำสั่งนี้ต้องพิมพ์คำยืนยัน + สำรองขึ้น Drive ก่อน (ด่านเหล่านี้ทดสอบเองใน test_batch12_real.js)
+  const prevPrompt = h.ctx.prompt, prevBackup = app.autoBackupToGoogleDrive, prevOpen = app.openCashCounter;
+  h.ctx.prompt = () => 'ล้างยอดขาย';
+  app.autoBackupToGoogleDrive = async () => true;
+  app.openCashCounter = () => {};
+  try { eq(await real('clearSalesData')(), true, 'ผ่านทุกด่านแล้วต้องล้างได้'); }
+  finally { h.ctx.prompt = prevPrompt; app.autoBackupToGoogleDrive = prevBackup; app.openCashCounter = prevOpen; }
+  eq(app.state.editLog, []);
 });
 
 t('หน้ารายงานแสดงตารางบิลที่ถูกแก้ (ดูจากที่ขึ้นจอจริง)', () => {

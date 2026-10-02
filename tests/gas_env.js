@@ -227,6 +227,11 @@ function createGasEnv(opts) {
   };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx, { filename: 'google_apps_script.js' });
+  // ⚠️ แท็บสรุปรายวันที่เก่ากว่า DAILY_SHEET_RETENTION_DAYS (62 วัน) ถูกลบทันทีหลังเขียน (pruneOldDailySheets)
+  //    เทสต์ส่วนใหญ่ใช้วันที่ตายตัว (เช่น 2026-09-05) — พอวันจริงเลยไป 62 วัน แท็บที่เทสต์เพิ่งเขียนจะหายเอง
+  //    แล้วเทสต์ล้มทั้งที่โค้ดไม่ได้เปลี่ยน = deploy.bat หยุดทุกครั้ง (เจอตอนรอบตรวจ 5 · 2 ต.ค. 2569)
+  //    จึงปิดการลบแท็บเก่าเป็นค่าเริ่มต้นของสภาพทดสอบ · เทสต์ของการลบแท็บเองส่ง { keepDailyRetention: true }
+  if (!opts.keepDailyRetention) vm.runInContext('DAILY_SHEET_RETENTION_DAYS = 0', ctx);
 
   // ── ทางเข้า HTTP ──
   const held = [];      // คำขอที่ถูกกักไว้ { match, resolve }

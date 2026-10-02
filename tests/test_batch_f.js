@@ -87,6 +87,9 @@ function gas(store, opts) {
   };
   vm.createContext(g);
   vm.runInContext(GAS, g, { filename: 'google_apps_script.js' });
+  // ปิดการลบแท็บสรุปรายวันที่เก่ากว่า 62 วัน — เทสต์ใช้วันที่ตายตัว (2026-09-06) ถ้าไม่ปิด
+  // ตั้งแต่ 8 พ.ย. 2569 แท็บที่เพิ่งเขียนถูกลบทันที เทสต์ล้มเอง และ deploy.bat หยุด (รอบตรวจ 5 · ดู tests/gas_env.js)
+  vm.runInContext('DAILY_SHEET_RETENTION_DAYS = 0', g);
   return g;
 }
 // อ่านทะเบียนยกเลิก/กู้คืนของบิลหนึ่งใบ เป็นค่าแบบเดิม (บวก = ยกเลิกเมื่อ · ลบ = กู้คืนเมื่อ · 0 = ไม่มี)
@@ -170,7 +173,9 @@ await t('กฎ: renderer ห้ามเรียก .toLocaleString บน sta
 console.log('\n--- E-F04: restore ต้องรีเฟรชงวดที่มีแต่ค่าใช้จ่าย/กะ ---');
 // ══════════════════════════════════════════════════════════════════
 await t('งวดที่มีแต่ค่าใช้จ่าย (ไม่มีบิลสักใบ) ต้องมีงานสรุปออกมา', async () => {
-  const day = Date.parse('2026-07-15T14:00:00+07:00');
+  // รอบตรวจ 6 ข้อ 2: สรุปรายวันหลังกู้ส่งเฉพาะวันที่ไม่เก่ากว่า 64 วัน — ใช้วันที่นับจากวันนี้ (เดิมตายตัว 15 ก.ค. 2569)
+  const day = Date.now() - 10 * 86400000;
+  const dayKey = app.getBusinessISODate(day), monthKey = app.getBusinessMonthKey(day);
   app.state.transactions = []; app.state.cloudOutbox = [];
   app.state.shift = { active: false, startCash: 0, expenses: [], history: [] };
   const file = {
@@ -180,10 +185,11 @@ await t('งวดที่มีแต่ค่าใช้จ่าย (ไม
     ] }
   };
   await app.applyBackupData(file, { checkIds: false });
-  const job = app.state.cloudOutbox.find(x => x.needSummary);
-  ok(job, 'ไม่มีงานสรุปเลย');
-  ok(job.dateKeys.includes('2026-07-15'), 'ขาดงวดวันของค่าใช้จ่าย ' + JSON.stringify(job.dateKeys));
-  ok(job.monthKeys.includes('07-2026'), 'ขาดงวดเดือนของค่าใช้จ่าย ' + JSON.stringify(job.monthKeys));
+  const jobs = app.state.cloudOutbox.filter(x => x.needSummary);
+  ok(jobs.length, 'ไม่มีงานสรุปเลย');
+  const dks = [].concat(...jobs.map(j => j.dateKeys || [])), mks = [].concat(...jobs.map(j => j.monthKeys || []));
+  ok(dks.includes(dayKey), 'ขาดงวดวันของค่าใช้จ่าย ' + JSON.stringify(dks));
+  ok(mks.includes(monthKey), 'ขาดงวดเดือนของค่าใช้จ่าย ' + JSON.stringify(mks));
 });
 await t('งวดค่าใช้จ่ายของ "ข้อมูลเดิมก่อนกู้" ก็ต้องถูกรีเฟรชด้วย', async () => {
   const oldDay = Date.parse('2026-06-10T14:00:00+07:00');
@@ -193,8 +199,8 @@ await t('งวดค่าใช้จ่ายของ "ข้อมูลเ
   ] };
   await app.applyBackupData({ services: [], staff: [], customers: [], queue: [], transactions: [],
     shift: { active: false, startCash: 0, expenses: [], history: [] } }, { checkIds: false });
-  const job = app.state.cloudOutbox.find(x => x.needSummary);
-  ok(job && job.monthKeys.includes('06-2026'), 'ขาดงวดของข้อมูลเดิมก่อนกู้ ' + JSON.stringify(job && job.monthKeys));
+  const mks = [].concat(...app.state.cloudOutbox.filter(x => x.needSummary).map(j => j.monthKeys || []));
+  ok(mks.includes('06-2026'), 'ขาดงวดของข้อมูลเดิมก่อนกู้ ' + JSON.stringify(mks));
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -404,13 +410,23 @@ await t('GAS: list_bills ต้องอยู่ในรายการคำ�
   ok(/"list_bills":/.test(GAS), 'ไม่ได้ลงทะเบียนใน ACTION_HANDLERS');
   eq(JSON.parse(gas({}).handleListBills({ monthKey: 'ขยะ' }, { getSheetByName: () => null })).code, 'INVALID_MONTH');
 });
+// ชีตจำลองที่ตอบ "ตามเดือนที่ขอ" (รอบตรวจ 5 · 2 ต.ค. 2569)
+// เดิมตอบแถวชุดเดียวกันทุกคำขอ — พอขึ้นเดือนใหม่ (1 ต.ค. 2569) ตัวตรวจขอทั้งเดือน ก.ย. และ "เดือนปัจจุบัน"
+// บิลเดียวกันจึงถูกนับสองครั้ง = เทสต์ล้มเองทั้งที่โค้ดไม่ได้เปลี่ยน และ deploy.bat หยุดทุกครั้ง (รันเทสต์ก่อนปล่อย)
+const sheetByMonth = (byMonth) => async (_u, o) => {
+  const body = JSON.parse(o.body);
+  if (body.action === 'list_bill_months') {
+    return { ok: true, json: async () => ({ status: 'success', details: { months: Object.keys(byMonth).map(monthKey => ({ monthKey })) } }) };
+  }
+  const mk = body.monthKey;
+  return { ok: true, json: async () => ({ status: 'success', details: { sheet: mk, exists: !!byMonth[mk], truncated: false, bills: byMonth[mk] || [] } }) };
+};
 await t('reconcile จับได้ว่ามีบิลบนชีตที่ไม่มีในเครื่อง (เคส E-F05)', async () => {
   const day = Date.parse('2026-09-06T12:00:00+07:00');
   app.state.transactions = [{ id: 'TX-A', date: day, total: 300, subtotal: 300, discount: 0,
     paymentMethod: 'cash', services: [], staffNames: [], details: [], syncStatus: 'synced', customerName: 'A' }];
-  app.fetchWithTimeout = async () => ({ ok: true, json: async () => ({ status: 'success', details: { sheet: '09-2026', exists: true, truncated: false,
-    bills: [{ id: 'TX-A', when: '2026-09-06 12:00:00', customer: 'A', total: 300 },
-            { id: 'TX-B', when: '2026-09-06 13:00:00', customer: 'B', total: 200 }] } }) });
+  app.fetchWithTimeout = sheetByMonth({ '09-2026': [{ id: 'TX-A', when: '2026-09-06 12:00:00', customer: 'A', total: 300 },
+                                                    { id: 'TX-B', when: '2026-09-06 13:00:00', customer: 'B', total: 200 }] });
   await app.runCloudReconcile();
   const r = app._reconcile;
   eq(r.extra.map(x => x.id), ['TX-B']);
@@ -418,14 +434,13 @@ await t('reconcile จับได้ว่ามีบิลบนชีตท�
   eq(r.mismatch.length, 0);
 });
 await t('reconcile จับยอดไม่ตรงกันได้ (เคส E-F03 ฝั่งแถวบิล)', async () => {
-  app.fetchWithTimeout = async () => ({ ok: true, json: async () => ({ status: 'success', details: { sheet: '09-2026', exists: true, truncated: false,
-    bills: [{ id: 'TX-A', when: '2026-09-06 12:00:00', customer: 'A', total: 250 }] } }) });
+  app.fetchWithTimeout = sheetByMonth({ '09-2026': [{ id: 'TX-A', when: '2026-09-06 12:00:00', customer: 'A', total: 250 }] });
   await app.runCloudReconcile();
   eq(app._reconcile.mismatch.map(x => [x.id, x.localTotal, x.cloudTotal]), [['TX-A', 300, 250]]);
 });
 await t('บิลที่ยังไม่ได้ซิงก์ต้องไม่ถูกรายงานว่า "หายจากชีต"', async () => {
   app.state.transactions[0].syncStatus = 'pending';
-  app.fetchWithTimeout = async () => ({ ok: true, json: async () => ({ status: 'success', details: { sheet: '09-2026', exists: true, truncated: false, bills: [] } }) });
+  app.fetchWithTimeout = sheetByMonth({ '09-2026': [] });
   await app.runCloudReconcile();
   eq(app._reconcile.missing.map(x => x.pending), [true]);
   app.state.transactions[0].syncStatus = 'synced';
@@ -439,14 +454,11 @@ await t('บิลที่ยังมีในเครื่องแต่�
       paymentMethod: 'cash', services: [], staffNames: [], details: [], syncStatus: 'synced', customerName: 'B' }
   ];
   // แท็บ 09-2026 มีแถวของบิลเดือน ส.ค. ปนอยู่ (บิลใบนั้นยังมีชีวิตอยู่ในเครื่อง)
-  app.fetchWithTimeout = async (_u, o) => {
-    const mk = JSON.parse(o.body).monthKey;
-    const bills = mk === '09-2026'
-      ? [{ id: 'TX-1788700000000-AAAAAAAA', when: '', customer: 'A', total: 300, idOk: true },
-         { id: 'TX-1788600000000-BBBBBBBB', when: '', customer: 'B', total: 200, idOk: true }]
-      : [{ id: 'TX-1788600000000-BBBBBBBB', when: '', customer: 'B', total: 200, idOk: true }];
-    return { ok: true, json: async () => ({ status: 'success', details: { sheet: mk, exists: true, truncated: false, bills } }) };
-  };
+  app.fetchWithTimeout = sheetByMonth({
+    '09-2026': [{ id: 'TX-1788700000000-AAAAAAAA', when: '', customer: 'A', total: 300, idOk: true },
+                { id: 'TX-1788600000000-BBBBBBBB', when: '', customer: 'B', total: 200, idOk: true }],
+    '08-2026': [{ id: 'TX-1788600000000-BBBBBBBB', when: '', customer: 'B', total: 200, idOk: true }]
+  });
   await app.runCloudReconcile();
   eq(app._reconcile.extra.length, 0, 'จัดบิลที่ยังมีชีวิตเป็น "ลบได้"');
   eq(app._reconcile.wrongTab.map(x => x.id), ['TX-1788600000000-BBBBBBBB']);

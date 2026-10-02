@@ -35,7 +35,11 @@
  * เวอร์ชันนี้ fail-closed — หัวคอลัมน์ขาด/ซ้ำ/มีช่องว่างเกิน จะหยุดเขียนทั้งงานแทนการเดาช่อง
  *
  * ─────────────────────────────────────────────
- * อัปเกรดเป็นรุ่น 1.7 (ก.ย. 2569) — ทำหลังอัปเดตหน้าเว็บ (app.js/index.html) แล้ว
+ * ลำดับอัปเดตปกติ (ตั้งแต่ ต.ค. 2569): วางโค้ดนี้ใน Apps Script ก่อน → แล้วค่อย deploy.bat → อัปเดต iPad (ทำหลังปิดกะ)
+ *   โค้ดรุ่นใหม่ต้องรับคำขอของแอปรุ่นเก่าได้เสมอ (คำสั่ง/ข้อความเดิมไม่เปลี่ยน)
+ *   หัวข้อรุ่น 1.7 ข้างล่างเป็น "ประวัติ" ของการอัปเกรดครั้งนั้นเท่านั้น — ไม่ใช่ลำดับของรอบปัจจุบัน
+ * ─────────────────────────────────────────────
+ * (ประวัติ) อัปเกรดเป็นรุ่น 1.7 (ก.ย. 2569) — ครั้งนั้นทำหลังอัปเดตหน้าเว็บ (app.js/index.html) แล้ว
  * ─────────────────────────────────────────────
  *   1) วางโค้ดนี้ทับ > Save > Deploy > Manage deployments > แก้ deployment เดิมให้ชี้เวอร์ชันใหม่
  *      (ห้ามสร้าง URL ใหม่ · ห้ามรัน rotatePosApiToken — รหัสเชื่อมต่อเดิมใช้ต่อได้)
@@ -129,10 +133,17 @@ var BILL_LEGACY_HEADERS = [
 // ─────────────────────────────────────────────
 //  ROUTER
 // ─────────────────────────────────────────────
+// ── รหัส error ที่แอปใช้ตัดสินว่า "ส่งใบถัดไปต่อ" หรือ "หยุดรอบ" (รอบตรวจ 5 ข้อ 2 · 2 ต.ค. 2569) ──────
+//   TOKEN_NOT_SET / UNAUTHORIZED = ตั้งค่าผิด (แอปหยุดส่งทั้งรอบทันที แล้วบอกเจ้าของว่าต้องแก้อะไร)
+//   BUSY                         = รอคิวเกิน 30 วินาที (แอปนับเหมือนเน็ตสะดุด — ไม่ไล่ยิงใบละ 30 วินาทีต่อ)
+//   SERVER_ERROR                 = ข้อผิดพลาดระหว่างทำงาน — อาจเป็นเรื่องของแท็บเดือนเดียว แอปจึงยังส่งใบอื่นต่อ
+// ⚠️ เดิมไม่มีรหัส — แอปจึงนับเป็น "บิลใบนั้นล้ม" แล้วไล่ส่งทุกใบซ้ำทุกนาที (รหัสผิดค้างข้ามวันอาจชนโควตา
+//    อ่าน Script Properties 50,000 ครั้ง/วัน ซึ่งพอชนแล้วแม้แก้รหัสถูกก็ยังใช้ไม่ได้จนโควตารีเซ็ต)
+// ข้อความยังเหมือนเดิมทุกตัวอักษร — แอปรุ่นก่อนที่ดูจากข้อความยังทำงานได้ตามเดิม
 function doPost(e) {
   var lock = LockService.getScriptLock();
   try { lock.waitLock(30000); }
-  catch (err) { return json("error", "ระบบหนาแน่น กรุณาลองใหม่"); }
+  catch (err) { return json("error", "ระบบหนาแน่น กรุณาลองใหม่", null, "BUSY"); }
 
   try {
     if (!e || !e.postData || !e.postData.contents)
@@ -143,10 +154,10 @@ function doPost(e) {
     // ตรวจสอบรหัสเชื่อมต่อจาก Script Properties — ไม่ยอมให้ endpoint ทำงานถ้ายังไม่ได้ตั้งค่า
     var expectedToken = getPosApiToken_();
     if (!expectedToken) {
-      return json("error", "ยังไม่ได้ตั้งรหัสเชื่อมต่อ POS — ให้รัน setupPosApiToken() ใน Apps Script ก่อน");
+      return json("error", "ยังไม่ได้ตั้งรหัสเชื่อมต่อ POS — ให้รัน setupPosApiToken() ใน Apps Script ก่อน", null, "TOKEN_NOT_SET");
     }
     if (!constantTimeEquals_(String(data.secret || ""), expectedToken)) {
-      return json("error", "ไม่ได้รับอนุญาต (unauthorized)");
+      return json("error", "ไม่ได้รับอนุญาต (unauthorized)", null, "UNAUTHORIZED");
     }
 
     var ss   = SpreadsheetApp.getActiveSpreadsheet();
@@ -195,7 +206,8 @@ function doPost(e) {
     return ACTION_HANDLERS[action]();
 
   } catch (err) {
-    return json("error", "ข้อผิดพลาด: " + err.toString());
+    // เช่น โควตาของ Google หมด / บริการชีตล่มชั่วคราว (ดูรหัสที่หัวฟังก์ชัน)
+    return json("error", "ข้อผิดพลาด: " + err.toString(), null, "SERVER_ERROR");
   } finally {
     lock.releaseLock();
   }
@@ -1081,6 +1093,30 @@ function handleTransaction(data, ss) {
        subtotal, discount, total, staffCell];
   var moneyCols = hasVat ? 7 : 3;   // ช่องเงินติดกันตั้งแต่คอลัมน์ 6
 
+  // ── บิลที่มาจาก "การกู้ไฟล์สำรอง": ชีตถูกแก้หลังไฟล์นั้นหรือเปล่า (รอบตรวจ 5 ข้อ 1) ─────────
+  // แอปส่ง restoreBase = รุ่นของบิลตามที่ไฟล์สำรองรู้จัก (ก่อนกู้จะยกยุคให้ชนะคำขอเก่าที่ค้างในเน็ต)
+  // ⚠️ เดิมการกู้ "ชนะเสมอ" — เจ้าของแก้บิล 300 → 200 แล้วเครื่องพัง กู้ไฟล์ที่ทำก่อนแก้
+  //    ชีตกลับเป็น 300 เงียบ ๆ และปุ่มตรวจความตรงกันก็จับไม่ได้ (เครื่องกับชีตตรงกันแล้ว ผิดทั้งคู่)
+  // ตอนนี้: ชีตมีรุ่นใหม่กว่าที่ไฟล์รู้จัก "และ" ค่าที่มีผลกับเงินต่างจากที่จะเขียน → ไม่เขียนทับ
+  //        ตอบ STALE_REVISION ให้เจ้าของเลือกที่แอป (ใช้ข้อมูลในเครื่องทับ / แก้บิลในเครื่องให้ตรงกับชีต)
+  //        ค่าเหมือนกันทุกช่อง (เช่นกู้ไฟล์เดิมซ้ำ หรือรุ่นเปลี่ยนเพราะการกู้รอบก่อน) = เขียนต่อตามปกติ
+  // แอปรุ่นก่อนไม่ส่ง restoreBase = กติกาเดิมทุกอย่าง
+  if (foundRow > -1) {
+    var restoreBase = readRestoreBase_(data);
+    if (restoreBase && compareBillVersion_(stored, restoreBase) > 0) {
+      var current = sheet.getRange(foundRow, 1, 1, row.length).getValues()[0];
+      var changes = billRowChanges_(current, row, hasVat);
+      if (changes.length) {
+        var shown = changes.slice(0, 3).map(function (c) {
+          return c.field + " บนชีต " + c.sheet + " · ในไฟล์ที่กู้ " + c.local;
+        }).join(" / ");
+        return json("error",
+          "บิลเลขที่ " + billId + " บนชีตถูกแก้หลังไฟล์สำรองที่กู้มา (" + shown + ") — ยังไม่เขียนทับ ให้เจ้าของเลือกที่แอป",
+          { billId: billId, stored: stored, got: incoming, base: restoreBase, changes: changes }, "STALE_REVISION");
+      }
+    }
+  }
+
   // ── เขียน: "รุ่นก่อน แล้วค่อยแถว" ──────────────────────────────────────
   // ถ้าเขียนรุ่นสำเร็จแต่แถวล้ม → แอปได้ error แล้วส่งรุ่นเดิมซ้ำ = เท่ากัน → เขียนทับได้ (ไม่ค้าง)
   // ถ้ากลับลำดับ (แถวก่อน) แล้วเขียนรุ่นล้ม → คำขอรุ่นเก่ากว่าที่มาถึงทีหลังจะทับแถวใหม่ได้
@@ -1359,6 +1395,44 @@ function compareBillVersion_(a, b) {
   if (a.epoch !== b.epoch) return a.epoch < b.epoch ? -1 : 1;
   if (a.rev !== b.rev) return a.rev < b.rev ? -1 : 1;
   return 0;
+}
+// รุ่นของบิลตามที่ไฟล์สำรองรู้จัก (ส่งมาเฉพาะบิลที่มาจากการกู้ข้อมูล) — ค่าเสีย = ถือว่าไม่ได้ส่งมา (กติกาเดิม)
+function readRestoreBase_(data) {
+  var b = data && data.restoreBase;
+  if (!b || typeof b !== "object") return null;
+  var epoch = Number(b.epoch), rev = Number(b.rev);
+  if (!(isFinite(epoch) && epoch >= 0 && epoch % 1 === 0 && epoch < 1e16)) return null;
+  if (!(isFinite(rev) && rev >= 0 && rev % 1 === 0 && rev < 1e9)) return null;
+  return { epoch: epoch, rev: rev };
+}
+// ช่องที่ "ค่าบนชีต" ต่างจาก "ค่าที่กำลังจะเขียน" — เทียบเฉพาะช่องที่กระทบเงิน/ค่าคอม
+// (ช่องทางจ่าย · ตัวเลขเงินทุกช่องเป็นสตางค์ · พนักงาน) ตั้งใจไม่เทียบชื่อลูกค้า/รายการบริการ/เวลา:
+// แก้ชื่อลูกค้าไม่กระทบยอด และแถวเก่าก่อนมี safeCell อาจถูกชีตแปลงชนิดไปแล้ว (เช่นชื่อที่เป็นตัวเลข) จะฟ้องผิด
+function billRowChanges_(current, row, hasVat) {
+  var out = [];
+  var text = function (v) {
+    var s = (v == null) ? "" : String(v);
+    if (s.charAt(0) === "'") s = s.slice(1);          // ตัวกันแปลงชนิดของ safeCell ไม่ใช่ส่วนของข้อความ
+    return s.replace(/\s+/g, " ").trim();
+  };
+  var sat = function (v) { var n = Number(v === "" ? 0 : v); return isFinite(n) ? Math.round(n * 100) : null; };
+  var moneyNames = hasVat
+    ? ["ราคารวม", "ส่วนลด", "ไม่คิด VAT", "คิด VAT", "VAT", "ปัดเศษ", "ยอดสุทธิ"]
+    : ["ราคารวม", "ส่วนลด", "ยอดสุทธิ"];
+  var payIdx = 4, moneyFrom = 5, staffIdx = moneyFrom + moneyNames.length;
+  if (text(current[payIdx]) !== text(row[payIdx])) {
+    out.push({ field: "ช่องทางชำระเงิน", sheet: text(current[payIdx]), local: text(row[payIdx]) });
+  }
+  for (var i = 0; i < moneyNames.length; i++) {
+    var a = sat(current[moneyFrom + i]), b = sat(row[moneyFrom + i]);
+    if (a === null || b === null || a !== b) {
+      out.push({ field: moneyNames[i], sheet: a === null ? String(current[moneyFrom + i]) : a / 100, local: b === null ? String(row[moneyFrom + i]) : b / 100 });
+    }
+  }
+  if (text(current[staffIdx]) !== text(row[staffIdx])) {
+    out.push({ field: "พนักงาน", sheet: text(current[staffIdx]), local: text(row[staffIdx]) });
+  }
+  return out;
 }
 // ตำแหน่งคอลัมน์รุ่นบิล: หาจากชื่อหัวตารางเท่านั้น · ซ้ำ = -1 (ผู้เรียกต้องหยุด) · ไม่มี = 0
 function billRevColumn_(sheet) {
