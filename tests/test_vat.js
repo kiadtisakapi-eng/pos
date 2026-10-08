@@ -64,9 +64,14 @@ t('คิด VAT จากยอดหลังหักส่วนลด ไ�
 t('ยอดก่อน VAT รวม = ราคารวม - ส่วนลด เป๊ะ',()=>eq(Math.round((r.nonVatBase+r.vatableBase)*100)/100,320));
 t('4 ช่องยังบวกลงตัว',()=>eq(sum4(r),r.total));
 
+// เจ้าของตัดสิน 8 ต.ค. 2569: ส่วนลดเท่า/เกินราคารวม = หยุด (เดิม clamp เป็นบิล 0 บาท)
 setCart([L(300,'barber'),L(100,'drinks')],400);
+t('ส่วนลดเท่ายอด/เกินยอด -> หยุดพร้อม badDiscount ไม่คิดเป็นบิล 0 บาท',()=>{
+  let e=null; try{app.getCartBillTotals();}catch(x){e=x;} ok(e&&e.badDiscount===true);
+  discountEl.value='500'; e=null; try{app.getCartBillTotals();}catch(x){e=x;} ok(e&&e.badDiscount===true);});
+setCart([L(300,'barber'),L(100,'drinks')],399);
 r=app.getCartBillTotals();
-t('ส่วนลดเกินยอด ถูก clamp ไม่ติดลบ',()=>{ok(r.total>=0);eq(r.nonVatBase,0);eq(r.vatableBase,0);eq(r.total,0);});
+t('ส่วนลดน้อยกว่ายอด 1 บาท -> ยอดยังมากกว่า 0 และ 4 ช่องบวกลงตัว',()=>{ok(r.total>0);eq(sum4(r),r.total);});
 
 console.log('\n--- เศษสตางค์ / ปัดขึ้น ---');
 const cases=[
@@ -101,7 +106,15 @@ t('ไม่มีเคสไหนได้เศษสตางค์หร�
     // ส่วนลดเป็นจำนวนเต็มบาทเท่านั้น (กติกาตัวเลข 26 ก.ย. 2569) — ราคายังสุ่มถึงสตางค์เพื่อทดสอบตัวคิด VAT
     const disc=Math.random()<0.3?Math.floor(Math.random()*50):0;
     setCart(items,disc);
+    // เจ้าของตัดสิน 8 ต.ค. 2569: ส่วนลดเท่า/เกินราคารวม = หยุด (badDiscount) ไม่ใช่บิล 0 บาท — ราคาสุ่มเล็ก ๆ ชนกรณีนี้ได้
+    const subSat=items.reduce((a,it)=>a+Math.round(it.price*100),0);
+    if(disc>0 && disc*100>=subSat){
+      let e=null; try{app.getCartBillTotals();}catch(err){e=err;}
+      if(!(e&&e.badDiscount)) throw new Error('ส่วนลด '+disc+' ≥ ราคารวม '+subSat/100+' ต้องหยุดพร้อม badDiscount');
+      continue;
+    }
     const x=app.getCartBillTotals();
+    if(!(x.total>0)) throw new Error('ยอดต้องมากกว่า 0: '+x.total);
     if(!Number.isInteger(x.total)) throw new Error('ยอดไม่ใช่จำนวนเต็ม: '+x.total);
     if(x.rounding<0||x.rounding>=1) throw new Error('ปัดเศษผิดช่วง: '+x.rounding);
     if(Math.abs(sum4(x)-x.total)>0.001) throw new Error('4 ช่องบวกไม่ลงตัว: '+JSON.stringify(x));

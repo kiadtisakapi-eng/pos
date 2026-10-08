@@ -119,13 +119,16 @@ await section('[E]', async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n[X] ค่าใช้จ่ายจากลิ้นชัก: เพดาน 300 บาท/คน/กะ · สิทธิ์ลบ (A5)');
+// ⚠️ กติกาเปลี่ยนตามคำตัดสินเจ้าของ 8 ต.ค. 2569 (ตรวจ Claude หมวด D ข้อ 1) — แทนกติกาเดิมของรอบตรวจ 4 ข้อ A5
+//    เดิม: พนักงานลงได้ 300/คน/กะ เกินต้องให้ผู้จัดการ/เจ้าของใส่ PIN อนุมัติ · พนักงานลบของตัวเองได้ · ผู้จัดการลบของคนอื่นต้องใส่ PIN
+//    ตอนนี้: ลง/ลบได้เฉพาะผู้จัดการและเจ้าของ ไม่มีเพดาน ไม่ถาม PIN · รายการเก่าที่เคยอนุมัติยังโชว์ผู้อนุมัติ
+console.log('\n[X] ค่าใช้จ่าย: ลง/ลบได้เฉพาะผู้จัดการ/เจ้าของ · ไม่มีเพดาน · ไม่ถาม PIN (ตรวจหมวด D ข้อ 1)');
 await section('[X]', async () => {
   const { env, app, toasts } = await makeShop({ role: 'staff' });
   await settle();
   const E = (id) => env.document.getElementById(id);
-  let asked = 0, answer = null;
-  app.askSecret = async () => { asked++; return answer; };
+  let asked = 0;
+  app.askSecret = async () => { asked++; return '222222'; };
   app.confirmPinStepUp = app._realConfirmPinStepUp;
   const add = async (amount, source, note) => {
     E('expense-type').value = 'other'; E('expense-amount').value = String(amount);
@@ -139,103 +142,73 @@ await section('[X]', async () => {
     app.currentUser = role === 'owner' ? { id: '__owner__', name: 'เจ้าของร้าน' } : role === 'manager' ? { id: 'mg-1', name: 'บี' } : { id: 'st-1', name: 'เอ' };
   };
 
-  me('staff');
-  const e1 = await add(250, 'drawer', 'น้ำแข็ง');
-  await t('พนักงานลง 250 (ยังไม่เกิน 300) → บันทึกเลย ไม่ถาม PIN', () => { ok(e1); eq(asked, 0); eq(e1.byId, 'st-1'); });
-  answer = '000000';
-  const e2 = await add(100, 'drawer', 'ของใช้');
-  await t('ลงเพิ่ม 100 (รวม 350 เกินเพดาน) + PIN ผิด → ไม่บันทึก (เดิมบันทึกได้ไม่จำกัด)', () => { eq(e2, null); eq(asked, 1); });
-  const savedOwner = app.ownerPin;
-  app.ownerPin = await app.hashPin('123456'); answer = '123456';
-  await t('PIN เจ้าของที่ยังเป็นค่าเริ่มต้น (123456 อยู่ในคู่มือสาธารณะ) อนุมัติไม่ได้', async () => eq(await add(100, 'drawer'), null));
-  app.ownerPin = savedOwner;
-  answer = '111111';
-  await t('พนักงานใส่ PIN ตัวเอง → อนุมัติไม่ได้', async () => eq(await add(100, 'drawer'), null));
-  // ผู้จัดการที่ยังไม่เคยล็อกอินหลังกติกา PIN 6 หลัก (PIN เดิม 4 หลัก) → อนุมัติไม่ได้จนกว่าจะตั้งใหม่
-  app.state.staff.push({ id: 'mg-4', name: 'ดี', role: 'ผู้จัดการ', accessLevel: 'manager', pin: await app.hashPin('4444') });
-  answer = '4444'; toasts.length = 0;
-  await t('PIN ผู้จัดการ 4 หลัก (ยังไม่ตั้งใหม่) → อนุมัติไม่ได้ และบอกเหตุผล', async () => {
-    eq(await add(100, 'drawer'), null); ok(toasts.some(x => /6 หลัก/.test(x.m)), JSON.stringify(toasts));
+  me('staff'); toasts.length = 0;
+  const s1 = await add(50, 'drawer', 'น้ำแข็ง');
+  await t('พนักงานลงค่าใช้จ่ายไม่ได้แม้ 50 บาท (เดิมลงได้ถึง 300/กะ) — บอกเหตุผล ไม่ถาม PIN', () => {
+    eq(s1, null); eq(asked, 0); ok(toasts.some(x => /เฉพาะผู้จัดการ/.test(x.m)), JSON.stringify(toasts));
   });
-  app.state.staff = app.state.staff.filter(s => s.id !== 'mg-4');
-  app.loginGuardReset('__approval__');
-  answer = '222222';
-  const e4 = await add(100, 'drawer', 'ของใช้');
-  await t('ผู้จัดการใส่ PIN → บันทึก พร้อมชื่อผู้อนุมัติ', () => { ok(e4); eq(e4.approvedBy, 'บี'); eq(e4.approvedById, 'mg-1'); });
-  answer = '246810';
-  const eO = await add(60, 'drawer', 'เจ้าของอนุมัติ');   // 250 (ยังไม่อนุมัติ) + 60 = 310 → ต้องอนุมัติ
-  await t('เจ้าของใส่ PIN อนุมัติได้ด้วย', () => { ok(eO); eq(eO.approvedBy, 'เจ้าของร้าน'); });
-  const asked0 = asked;
-  const e5 = await add(50, 'drawer');
-  await t('รายการที่อนุมัติแล้วไม่นับซ้ำ: 250 + 50 = 300 พอดี → ไม่ถาม', () => { ok(e5); eq(asked, asked0); });
-  const e6 = await add(5000, 'other', 'ค่าเช่า');
-  await t('จ่ายทางอื่น (ไม่หักลิ้นชัก) → ไม่มีเพดาน', () => { ok(e6); eq(asked, asked0); });
-  answer = null;
-  await add(1, 'drawer');
-  await t('เกินแม้ 1 บาท (รวม 301) → ถาม PIN', () => eq(asked, asked0 + 1));
-  // แบ่งลงทีละน้อยไม่รอด (อีกบัญชี ยอดเริ่มจาก 0)
-  app.currentRole = 'staff'; app.currentUser = { id: 'st-9', name: 'ซี' };
-  const s1 = await add(299, 'drawer'); const s2 = await add(299, 'drawer');
-  await t('แบ่งลง 299 สองครั้ง → ครั้งที่สองต้องขออนุมัติ (นับยอดรวมทั้งกะ ไม่ใช่ทีละรายการ)', () => { ok(s1); eq(s2, null); });
-  // ผู้จัดการ: ใส่ PIN ตัวเองซ้ำ
-  me('manager'); answer = '222222';
-  const m1 = await add(400, 'drawer');
-  await t('ผู้จัดการลง 400 → ใส่ PIN ตัวเองซ้ำแล้วบันทึก (ผู้อนุมัติ = ตัวเอง)', () => { ok(m1); eq(m1.approvedBy, 'บี'); });
-  answer = '000000';
-  await t('ผู้จัดการลงเกินเพดาน + PIN ผิด → ไม่บันทึก', async () => eq(await add(400, 'drawer'), null));
-  app.loginGuardReset('mg-1');
-  me('owner'); const askedO = asked;
-  const o1 = await add(5000, 'drawer');
-  await t('เจ้าของลงเท่าไรก็ได้ ไม่ถาม PIN', () => { ok(o1); eq(asked, askedO); });
-
-  // ตัวนับการอนุมัติแยกจากบัญชีจริง
-  me('staff'); answer = '000000';
-  for (let i = 0; i < 6; i++) await add(1000, 'drawer');
-  await t('กด PIN อนุมัติผิดจนล็อก → ล็อกเฉพาะ "การอนุมัติ" บัญชีผู้จัดการ/เจ้าของยังเข้าได้', () => {
-    ok(app.loginGuardWaitSec('__approval__') > 0); eq(app.loginGuardWaitSec('mg-1'), 0); eq(app.loginGuardWaitSec('__owner__'), 0);
+  await t('พนักงานลงแบบ "จ่ายทางอื่น" ก็ไม่ได้', async () => eq(await add(500, 'other', 'ค่าเช่า'), null));
+  me('manager');
+  const m1 = await add(400, 'drawer', 'ค่าไฟ');
+  const m2 = await add(5000, 'drawer', 'ค่าซ่อมแอร์');
+  await t('ผู้จัดการลง 400 แล้ว 5,000 จากลิ้นชัก → บันทึกเลย ไม่ถาม PIN ไม่มีเพดาน (เดิม 400 ต้องใส่ PIN)', () => {
+    ok(m1); ok(m2); eq(asked, 0); eq(m1.byId, 'mg-1'); eq(m1.by, 'บี'); eq(m1.approvedBy, undefined); eq(m1.paidFrom, 'drawer');
   });
+  me('owner');
+  const o1 = await add(3000, 'other', 'ค่าน้ำ');
+  await t('เจ้าของลงได้ ไม่ถาม PIN', () => { ok(o1); eq(asked, 0); eq(o1.byId, '__owner__'); });
 
   // ── สิทธิ์ลบ ──
   const has = (id) => app.state.shift.expenses.some(x => x.id === id);
   const del = async (id) => { app._confirmP = null; await app.deleteExpense(id); await (app._confirmP || Promise.resolve()); await settle(); };
-  me('staff');
-  const legacy = { id: 'exp_legacy_1', type: 'other', amount: 20, note: 'เก่า', time: Date.now(), by: 'เอ' };
-  app.state.shift.expenses.push(legacy);
-  toasts.length = 0;
-  await del(m1.id);
-  await t('พนักงานลบค่าใช้จ่ายของผู้จัดการไม่ได้ (เดิมลบได้)', () => { ok(has(m1.id)); ok(toasts.some(x => /ลบได้เฉพาะ/.test(x.m)), JSON.stringify(toasts)); });
-  await del(legacy.id);
-  await t('รายการเก่าที่ไม่มีรหัสคนลง → พนักงานลบไม่ได้ แม้ชื่อตรงกัน', () => ok(has(legacy.id)));
-  await del(e1.id);
-  await t('พนักงานลบรายการของตัวเองได้', () => ok(!has(e1.id)));
-  // หน้าแดชบอร์ด: ปุ่มลบโผล่เฉพาะรายการที่ลบได้
+  // รายการเก่าสมัยมีเพดาน: พนักงานลงเอง + ผู้จัดการอนุมัติไว้
+  const old = { id: 'exp_old_1', type: 'other', amount: 350, note: 'ของใช้ (เก่า)', time: Date.now(), by: 'เอ', byId: 'st-1', paidFrom: 'drawer',
+    approvedBy: 'บี', approvedById: 'mg-1' };
+  app.state.shift.expenses.push(old);
+  me('staff'); toasts.length = 0;
+  await del(old.id);
+  await t('พนักงานลบไม่ได้ แม้รายการที่ตัวเองลง (เดิมลบได้)', () => { ok(has(old.id)); ok(toasts.some(x => /เฉพาะผู้จัดการ/.test(x.m)), JSON.stringify(toasts)); });
   const real = (name) => app.constructor.prototype[name].bind(app);
   real('renderDashboard')();
-  const listHtml = E('expense-list').innerHTML;
-  await t('แดชบอร์ด (พนักงาน): ไม่มีปุ่มลบของรายการคนอื่น · มีของตัวเอง · โชว์ผู้อนุมัติ', () => {
-    ok(!listHtml.includes(`deleteExpense('${m1.id}')`), 'ต้องไม่มีปุ่มลบของผู้จัดการ');
-    ok(listHtml.includes(`deleteExpense('${e4.id}')`), 'ต้องมีปุ่มลบของตัวเอง');
-    ok(/อนุมัติโดย บี/.test(listHtml), 'ต้องโชว์ผู้อนุมัติ');
+  const staffView = { list: E('expense-list').innerHTML, form: E('form-add-expense').style.display, note: E('expense-role-note').style.display };
+  await t('แดชบอร์ด (พนักงาน): ซ่อนฟอร์ม + บอกว่าให้ผู้จัดการลง · ไม่มีปุ่มลบเลย · ยังโชว์ผู้อนุมัติของรายการเก่า', () => {
+    eq(staffView.form, 'none'); eq(staffView.note, 'block');
+    ok(!/deleteExpense\(/.test(staffView.list), 'ต้องไม่มีปุ่มลบ'); ok(/อนุมัติโดย บี/.test(staffView.list));
   });
-  me('manager'); answer = '222222'; const a0 = asked;
-  await del(legacy.id);
-  await t('ผู้จัดการลบรายการของคนอื่นได้ โดยใส่ PIN ตัวเองซ้ำ', () => { ok(!has(legacy.id)); eq(asked, a0 + 1); });
-  answer = '000000';
-  await del(e4.id);
-  await t('ผู้จัดการใส่ PIN ผิด → ไม่ลบ', () => ok(has(e4.id)));
-  app.loginGuardReset('mg-1');
-  const a1 = asked;
-  await del(m1.id);
-  await t('ผู้จัดการลบรายการของตัวเอง → ไม่ถาม PIN', () => { ok(!has(m1.id)); eq(asked, a1); });
+  me('manager');
+  real('renderDashboard')();
+  const mgrView = { list: E('expense-list').innerHTML, form: E('form-add-expense').style.display, note: E('expense-role-note').style.display };
+  await t('แดชบอร์ด (ผู้จัดการ): ฟอร์มแสดง · ปุ่มลบครบทุกรายการ (รวมของเจ้าของ/พนักงาน)', () => {
+    eq(mgrView.form, 'flex'); eq(mgrView.note, 'none');
+    [m1, m2, o1, old].forEach(x => ok(mgrView.list.includes(`deleteExpense('${x.id}')`), x.id));
+  });
+  await del(o1.id);
+  await t('ผู้จัดการลบรายการของเจ้าของได้ ไม่ถาม PIN (เดิมต้องใส่ PIN ซ้ำ)', () => { ok(!has(o1.id)); eq(asked, 0); });
+  await del(old.id);
+  const lastLog = app.state.expenseLog[app.state.expenseLog.length - 1];
+  await t('ลบรายการที่เคยอนุมัติ → ประวัติการลบเก็บชื่อ/รหัสผู้อนุมัติไว้ (ตรวจหมวด D ข้อ 2)', () => {
+    ok(!has(old.id)); eq(lastLog.expenseId, old.id); eq(lastLog.approvedBy, 'บี'); eq(lastLog.approvedById, 'mg-1'); eq(lastLog.addedBy, 'เอ'); eq(lastLog.by, 'บี');
+  });
   me('owner');
-  await del(e4.id);
-  await t('เจ้าของลบได้ทุกรายการ ไม่ถาม PIN', () => { ok(!has(e4.id)); eq(asked, a1); });
-  const raw = await env.raw('shift');
-  await t('ข้อมูลลงเครื่องจริง: ผู้อนุมัติ + รหัสคนลงติดไปกับรายการ', () => ok(raw.expenses.some(x => x.id === eO.id && x.approvedBy === 'เจ้าของร้าน' && x.byId === 'st-1')));
-  // ข้อความปิดกะ Telegram แสดงผู้อนุมัติ
+  await del(m2.id);
+  await t('เจ้าของลบได้ทุกรายการ ไม่ถาม PIN', () => { ok(!has(m2.id)); eq(asked, 0); });
+  const logOfM2 = app.state.expenseLog[app.state.expenseLog.length - 1];
+  await t('รายการที่ไม่เคยมีผู้อนุมัติ → ประวัติการลบไม่มีช่องผู้อนุมัติ', () => { eq(logOfM2.expenseId, m2.id); ok(!('approvedBy' in logOfM2)); ok(!('approvedById' in logOfM2)); });
+  const rawShift = await env.raw('shift');
+  const rawLog = await env.raw('expenseLog');
+  await t('ข้อมูลลงเครื่องจริง: รหัสคนลงติดรายการ · ประวัติการลบมีผู้อนุมัติ', () => {
+    ok(rawShift.expenses.some(x => x.id === m1.id && x.byId === 'mg-1'));
+    ok(rawLog.some(x => x.expenseId === old.id && x.approvedBy === 'บี' && x.approvedById === 'mg-1'));
+  });
+  real('renderAuditTrail')('daily', app.getBusinessISODate(Date.now()), '');
+  await t('หน้ารายงาน "ค่าใช้จ่ายที่ถูกลบ": แถวของรายการเก่าบอกผู้อนุมัติ', () => {
+    const html = E('report-expense-deletions-body').innerHTML;
+    ok(/ของใช้ \(เก่า\)[\s\S]*เอ[\s\S]*อนุมัติโดย บี/.test(html), html);
+  });
+  // ข้อความปิดกะ Telegram ยังแสดงผู้อนุมัติของรายการเก่า
   const msg = app.buildShiftReportMessage({ startTime: Date.now() - 3600e3, endTime: Date.now(), startCash: 1000,
-    countedCash: 1000, expectedCash: 1000, difference: 0, cashSales: 0, expenses: app.state.shift.expenses, closedBy: 'บี' });
-  await t('ข้อความปิดกะ (Telegram) บอกว่าใครอนุมัติ', () => ok(/อนุมัติ เจ้าของร้าน/.test(msg), msg));
+    countedCash: 1000, expectedCash: 1000, difference: 0, cashSales: 0, expenses: [old, m1], closedBy: 'บี' });
+  await t('ข้อความปิดกะ (Telegram) ยังบอกผู้อนุมัติของรายการเก่า', () => ok(/อนุมัติ บี/.test(msg), msg));
   env.dispose();
 });
 

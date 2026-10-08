@@ -239,9 +239,13 @@ await section('[8.3]', async () => {
   loginAs(app, 'owner');
   // ต้องเป็นการแก้จริง — ตั้งแต่ข้อ 17 กดบันทึกโดยไม่เปลี่ยนอะไรไม่ถือว่าแก้บิล (ไม่เขียนทับบิล/ไม่ล้างสถานะ)
   await editDiscount(env, ID, 50); await flushSync(app);
-  const b = (await env.raw('transactions'))[0];
-  await t('หลังแก้บิล: syncIssue ถูกล้าง และส่งรุ่นใหม่ (rev 1 = เท่ากับบนชีต → เขียนทับได้)', () => {
-    eq(b.syncIssue, undefined); eq(b.syncStatus, 'synced'); eq(b.total, 250); eq(sheetRow(gas, '09-2026', ID).total, 250); });
+  let b = (await env.raw('transactions'))[0];
+  await t('รุ่นเดียวกันแต่ข้อมูลต่างกันยังคงรอตรวจ และเจ้าของต้องสั่งให้ข้อมูลในเครื่องชนะ', () => eq((app.state.transactions.find(t => t.id === ID)).syncIssue.code, 'REVISION_CONFLICT'));
+  await app.resolveBillConflict(ID, 'push-local'); await flushSync(app);
+  const updated = (await env.raw('transactions'))[0];
+  const accepted = updated;
+  await t('เจ้าของยืนยันแล้ว รุ่นใหม่ขึ้นชีตและล้างสถานะขัดแย้ง', () => {
+    eq(accepted.syncIssue, undefined); eq(accepted.syncStatus, 'synced'); eq(accepted.total, 250); eq(sheetRow(gas, '09-2026', ID).total, 250); });
   env.dispose();
 });
 

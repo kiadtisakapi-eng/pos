@@ -120,6 +120,7 @@ const mkBill = (id) => ({
 });
 
 const openEdit = (tx, discount, customer) => {
+  app.primaryStatus = { isPrimary: true, checkedAt: Date.now() }; // Provisioned primary, including offline edits.
   app.state.transactions = [tx];
   app.state.staff = [{ id: 'st1', name: 'A', accessLevel: 'staff' }];
   real('openTransactionEdit')(tx.id);

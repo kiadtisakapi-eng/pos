@@ -15,6 +15,7 @@ const fs=require('fs'), vm=require('vm'), path=require('path'), assert=require('
 const root=require('path').resolve(__dirname,'..');
 function sheet(headers, rows){const grid=[headers.slice(),...(rows||[]).map(r=>r.slice())];return{grid,
  getLastColumn:()=>grid[0].length,getLastRow:()=>grid.length,
+ getMaxColumns:()=>Math.max(26,grid[0].length),insertColumnsAfter(){},   // ชีตจริงมีเสมอ (ตรวจหมวด D ข้อ 6)
  getRange:(r,c,nr,nc)=>({getDisplayValues:()=>{const o=[];for(let i=0;i<(nr||1);i++){const row=[];for(let j=0;j<(nc||1);j++)row.push(String((grid[r-1+i]||[])[c-1+j]??''));o.push(row)}return o},
  getValues:()=>{const o=[];for(let i=0;i<(nr||1);i++){const row=[];for(let j=0;j<(nc||1);j++)row.push((grid[r-1+i]||[])[c-1+j]??'');o.push(row)}return o},
  setValue(){return this},setValues(){return this},setBackground(){return this},setFontColor(){return this},
@@ -27,7 +28,7 @@ function gas(store){
     ContentService:{MimeType:{JSON:'json'},createTextOutput:t=>({setMimeType:()=>t})},
     // ← สิ่งเดียวที่ต่างจาก harness ของ Codex: ของจริงมี PropertiesService เสมอ (โค้ดเก็บ token ที่นี่อยู่แล้ว)
     PropertiesService:{getScriptProperties:()=>({getProperty:k=>store[k]??null,setProperty:(k,v)=>{store[k]=String(v)},deleteProperty:k=>{delete store[k]}})}};
-  vm.createContext(g); vm.runInContext(fs.readFileSync(path.join(root,'google_apps_script.js'),'utf8'),g); return g;
+  vm.createContext(g); vm.runInContext(fs.readFileSync(path.join(root,'google_apps_script.js'),'utf8'),g); require('./gas_legacy_adapter')(g, store); return g;
 }
 const tx = over => ({ id:'TX-AUDIT-0001', date:Date.parse('2026-09-06T12:00:00+07:00'), monthKey:'09-2026',
   subtotal:300, discount:0, total:300, paymentMethod:'cash', services:['Cut'], staffNames:['A'], ...over });
@@ -78,7 +79,7 @@ t('กู้ข้อมูลคืนบิลโดยตั้งใจ (res
 t('คืนบิลสำเร็จแล้วทะเบียนต้องบันทึกว่า "กู้คืน" ไม่ใช่ค้างสถานะยกเลิก', () =>
   assert.ok(reg(store, late.id) < 0));
 t('สิ่งที่ต้องเป็นจริง: แก้บิลใบนี้ครั้งถัดไป (ไม่มี restoredAt) ต้องไม่ค้าง', () => {
-  const r4 = JSON.parse(gas(store).handleTransaction({ ...late, total: 350, subtotal: 350 }, ss));
+  const r4 = JSON.parse(gas(store).handleTransaction({ ...late, total: 350, subtotal: 350, rev: 1 }, ss));
   assert.equal(r4.status, 'success');
   assert.equal(s.grid.length - 1, 1);
 });

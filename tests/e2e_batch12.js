@@ -3,9 +3,9 @@
 //   [B] พิมพ์ใบเสร็จ/ใบแจ้งยอด ตอนบนจอมีปุ่มตะกร้าลอย + แถบ "มีเวอร์ชันใหม่" + ข้อความแจ้งเตือน
 //       → บนกระดาษเหลือแค่ใบเสร็จ (จอกว้างเท่ากระดาษ 80 มม. / มือถือ / iPad)
 //       · ทุกคำสั่งในบล็อกพิมพ์ เบราว์เซอร์รับจริง (เดิม size: 80mm auto ถูกทิ้งเงียบ ๆ แต่เทสต์เดิมบังคับให้มีบรรทัดนั้น)
-//   [C] พนักงานลงค่าใช้จ่ายจากลิ้นชักสองรายการติดกันขณะคิวงานบันทึกติดงานอื่น (เช่นผลซิงก์หลังขาย)
-//       → รายการที่ทำให้เกิน 300 ไม่ถูกบันทึก
-//       ฟอร์มยังมีค่าครบ → กดบันทึกอีกครั้ง → ขอ PIN ผู้จัดการ → บันทึกพร้อมรายละเอียด (อ่าน IndexedDB หลังรีโหลด)
+//   [C] ผู้จัดการลงค่าใช้จ่ายจากลิ้นชักสองรายการติดกันขณะคิวงานบันทึกติดงานอื่น (เช่นผลซิงก์หลังขาย)
+//       → บันทึกครบทุกรายการ ไม่ถาม PIN (เพดาน 300 ยกเลิกแล้ว — เจ้าของตัดสิน 8 ต.ค. 2569 · ตรวจหมวด D ข้อ 1)
+//       ฟอร์มว่างหลังบันทึก · อ่าน IndexedDB หลังรีโหลดได้ครบ
 //   [D] หน้ากู้จาก Drive (Apps Script ตัวจริง): ไฟล์เกิน 50 → บอกว่าแสดงไฟล์ล่าสุด 50 ไฟล์ + ไฟล์เก่าอยู่ที่ไหน
 //       (iPad + มือถือ ไม่ล้นจอ ปุ่มไฟล์ยังกดได้) · ไฟล์น้อยกว่า 50 → ไม่มีข้อความนี้
 //   [E] คำสั่งล้างยอดขาย (ถอดปุ่มแล้ว แต่คำสั่งยังอยู่): มีบิลค้างนอกชีต → ไม่ถามต่อ · พิมพ์คำยืนยันผิด → ไม่ล้าง
@@ -146,6 +146,8 @@ const layerState = (p, billId) => p.evaluate((billId) => {
     const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const rec = document.getElementById('modal-receipt'), quo = document.getElementById('modal-quote');
   const prev = document.getElementById('thermal-receipt-preview'), qprev = document.getElementById('quote-preview');
+  const frame = vis(rec) ? rec.querySelector('.modal-card') : vis(quo) ? quo.querySelector('.modal-card') : null;
+  const frameStyle = frame && getComputedStyle(frame);
   return {
     shown: [...document.body.children].filter(vis).map(e => e.id || String(e.className || e.tagName)),
     cart: vis(document.getElementById('mobile-cart-trigger')),
@@ -153,6 +155,8 @@ const layerState = (p, billId) => p.evaluate((billId) => {
     bar: vis(document.getElementById('app-update-bar')),
     receipt: vis(prev), bill: !!prev && prev.innerText.includes(billId),
     quote: vis(qprev),
+    borderless: !!frameStyle && ['top', 'right', 'bottom', 'left'].every(side =>
+      frameStyle.getPropertyValue(`border-${side}-style`) === 'none' && frameStyle.getPropertyValue(`border-${side}-width`) === '0px'),
     chrome: [rec, quo].some(m => m && [...m.querySelectorAll('.modal-header, .modal-footer, .modal-close')].some(vis)),
     direct: !!rec && !!quo && rec.parentElement === document.body && quo.parentElement === document.body
   };
@@ -213,6 +217,7 @@ const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ||
     t(`${v.label}: ตอนพิมพ์ ชั้นบนสุดของหน้าเหลือแค่หน้าต่างใบเสร็จ`, pr.shown.length === 1 && pr.shown[0] === 'modal-receipt', pr.shown);
     t(`${v.label}: ปุ่มตะกร้า/แถบอัปเดต/ข้อความแจ้งเตือน ไม่ติดไปบนกระดาษ`, !pr.cart && !pr.toast && !pr.bar, pr);
     t(`${v.label}: ใบเสร็จอยู่บนกระดาษครบ (มีเลขที่บิล) · หัว/ปุ่มของหน้าต่างไม่ติด`, pr.receipt && pr.bill && !pr.chrome, pr);
+    t(`${v.label}: กรอบใบเสร็จตอนพิมพ์ไม่มีขอบทั้งสี่ด้าน (computed style)`, pr.borderless, pr);
   }
   t('หน้าต่างใบเสร็จ/ใบแจ้งยอดอยู่ชั้นบนสุดของหน้า (กฎซ่อนตอนพิมพ์อาศัยข้อนี้)', (await layerState(p, BILL)).direct);
   // ⚠️ page.pdf() ใช้สื่อแบบ "จอ" ถ้าสั่ง emulateMedia screen ค้างไว้ — ต้องตั้งเป็น print ก่อนทุกครั้ง
@@ -248,6 +253,7 @@ const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ||
   await p.emulateMedia({ media: 'screen' });
   t('ใบแจ้งยอด (มือถือ): ตอนพิมพ์เหลือแค่ใบแจ้งยอด ไม่มีปุ่มตะกร้า/แถบอัปเดต/ข้อความแจ้งเตือน',
     q.shown.length === 1 && q.shown[0] === 'modal-quote' && q.quote && !q.cart && !q.toast && !q.bar && !q.chrome, q);
+  t('ใบแจ้งยอด (มือถือ): กรอบตอนพิมพ์ไม่มีขอบทั้งสี่ด้าน (computed style)', q.borderless, q);
   await p.evaluate(() => { app.closeModal('modal-quote'); app.state.cart = []; const u = document.getElementById('app-update-bar'); if (u) u.remove(); });
   await clearToasts(p);
 
@@ -263,8 +269,18 @@ const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ||
       const cr = rules[i];
       if (!cr) { dropped.push(r.prelude + ' (ทั้งกฎ)'); return; }
       const has = prop => !!cr.style && cr.style.getPropertyValue(prop) !== '';
+      const hasDeclaration = d => {
+        if (has(d.prop)) return true;
+        // shorthand ที่ browser แยกเป็น longhand อาจ serialize กลับไม่ได้ เช่น border: none ใน Chrome 154
+        const value = d.value.replace(/\s*!important\s*$/i, '').trim();
+        if (!CSS.supports(d.prop, value)) return false;
+        const probe = document.createElement('div').style;
+        probe.setProperty(d.prop, value, /!important\s*$/i.test(d.value) ? 'important' : '');
+        const longhands = [...probe];
+        return longhands.length > 0 && longhands.every(has);
+      };
       r.decls.forEach(d => {
-        if (has(d.prop)) return;
+        if (hasDeclaration(d)) return;
         // คำสั่ง -webkit- ที่ใส่ไว้ให้ Safari (iPad ของร้าน) คู่กับคำสั่งมาตรฐานในกฎเดียวกัน — Chromium ไม่รู้จักได้ ไม่ใช่ข้อผิดพลาด
         const std = d.prop.replace(/^-webkit-/, '');
         if (std !== d.prop && r.decls.some(x => x.prop === std) && has(std)) { safariOnly.push(d.prop); return; }
@@ -280,21 +296,22 @@ const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ||
   t('@page: ไม่กำหนดขนาดกระดาษ (ให้เครื่องพิมพ์กำหนด) · ขอบ 3 มม.', cssom.pageSize === '' && cssom.pageMargin === '3mm', cssom);
 
   // ═══════════════════════════════════════════════════════════════════
-  console.log('\n[C] ค่าใช้จ่ายจากลิ้นชัก: กดสองรายการติดกันขณะคิวงานบันทึกติดงานอื่น ต้องไม่หลุดเพดาน 300');
+  // ⚠️ เพดาน 300/กะ ถูกยกเลิก (เจ้าของตัดสิน 8 ต.ค. 2569 · ตรวจ Claude หมวด D ข้อ 1) — ค่าใช้จ่ายลงได้เฉพาะผู้จัดการ/เจ้าของ
+  //    ข้อนี้เดิมพิสูจน์ "กดติดกันไม่หลุดเพดาน" → ตอนนี้พิสูจน์ว่ากดติดกันขณะคิวไม่ว่าง บันทึกครบ ไม่ถาม PIN ไม่มีรายการซ้ำ/หาย
+  console.log('\n[C] ค่าใช้จ่าย: ผู้จัดการกดสองรายการติดกันขณะคิวงานบันทึกติดงานอื่น → บันทึกครบ ไม่ถาม PIN');
   await p.setViewportSize({ width: 1180, height: 900 }); await settle(p, 300);
-  await login(p, 'st-1', '1111');
-  t('(เงื่อนไข) พนักงานล็อกอินได้', await p.evaluate(() => app.currentRole === 'staff'));
+  await login(p, 'mg-1', '222222');
+  t('(เงื่อนไข) ผู้จัดการล็อกอินได้', await p.evaluate(() => app.currentRole === 'manager'));
   await p.evaluate(() => app.switchTab('dashboard')); await settle(p, 300);
   await p.selectOption('#expense-type', 'other'); await p.dispatchEvent('#expense-type', 'change');
   await p.fill('#expense-amount', '250'); await p.fill('#expense-note', 'น้ำแข็ง');
   await p.selectOption('#expense-source', 'drawer');
   await p.click('#form-add-expense button[type="submit"]'); await settle(p, 500);
-  const mine = () => p.evaluate(() => app.state.shift.expenses.filter(e => e.byId === 'st-1').map(e => ({ amount: e.amount, note: e.note, approvedBy: e.approvedBy || '' })));
+  const mine = () => p.evaluate(() => app.state.shift.expenses.filter(e => e.byId === 'mg-1').map(e => ({ amount: e.amount, note: e.note, approvedBy: e.approvedBy || '' })));
   t('(เงื่อนไข) ลง 250 → บันทึกเลย ไม่ถาม PIN', JSON.stringify((await mine()).map(e => e.amount)) === '[250]' &&
     !(await p.evaluate(() => document.getElementById('modal-prompt').classList.contains('active'))));
   // คิวงานบันทึกกำลังติดงานอื่นอยู่ (เช่นผลซิงก์หลังขายบิล บนเครื่องที่ข้อมูลเยอะ) 600 ms
-  // ระหว่างนั้นพนักงานกดรายการ 40 แล้วพิมพ์รายการถัดไป 45 กดตามทันที (80 ms) — ทั้งสองรายการรอคิวอยู่
-  // ด่านก่อนเข้าคิวของทั้งคู่เห็นยอดเดิม 250 (รายการแรกยังไม่ถูกบันทึก) จึงผ่านทั้งคู่ — ต้องถูกจับที่จุดบันทึกจริง
+  // ระหว่างนั้นกดรายการ 40 แล้วพิมพ์รายการถัดไป 45 กดตามทันที (80 ms) — ทั้งสองรายการรอคิวอยู่
   await clearToasts(p);
   await p.evaluate(() => {
     app.withMutation('จำลองงานบันทึกเบื้องหลังที่ช้า', () => new Promise(r => setTimeout(r, 600)));
@@ -305,30 +322,16 @@ const pdfPages = (buf) => (buf.toString('latin1').match(/\/Type\s*\/Page\b/g) ||
   });
   await settle(p, 1600);
   const m1 = await mine();
-  t('กดสองรายการติดกัน → บันทึกแค่รายการแรก รวม 290 ไม่เกินเพดาน (เดิมได้ 335 โดยไม่มีใครอนุมัติ)',
-    JSON.stringify(m1.map(e => e.amount)) === '[250,40]', m1);
-  t('รายการที่สองบอกเหตุผลบนจอ และไม่ได้เด้งหน้าต่าง PIN เอง', /เกินเพดานแล้ว/.test(await toastText(p)) &&
-    !(await p.evaluate(() => document.getElementById('modal-prompt').classList.contains('active'))), await toastText(p));
-  const form1 = await p.evaluate(() => ({ amount: document.getElementById('expense-amount').value, note: document.getElementById('expense-note').value }));
-  t('ฟอร์มยังมีค่ารายการที่สองครบ (ยอด + รายละเอียด) ให้กดบันทึกใหม่ได้เลย', form1.amount === '45' && form1.note === 'ของใช้ ข', form1);
-  await shot(p, 'e2e12-c-refused');
-  // (โค้ดก่อนแก้: หน้าต่าง PIN อาจค้างจากรายการที่สอง — ปิดก่อน ไม่ให้บังปุ่ม แล้วให้ข้อถัดไปฟ้องเอง)
-  await p.evaluate(() => { if (document.getElementById('modal-prompt').classList.contains('active')) app.closeModal('modal-prompt'); });
-  await p.click('#form-add-expense button[type="submit"]');
-  const asked = await p.waitForSelector('#modal-prompt.active', { timeout: 6000 }).then(() => true, () => false);
-  const askTxt = asked ? await p.evaluate(() => document.getElementById('modal-prompt').innerText) : '(ไม่มีหน้าต่างขอ PIN)';
-  t('กดบันทึกอีกครั้ง → ขอ PIN ผู้จัดการ บอกยอดรวม 335 และเพดาน 300', asked && /335/.test(askTxt) && /300/.test(askTxt), askTxt);
-  t('ช่องใส่ PIN อยู่บนสุด กดได้จริง', asked && await onTop(p, '#prompt-modal-input'));
-  if (asked) await typePrompt(p, '222222');
-  await settle(p, 500);
-  const m2 = await mine();
-  const e45 = m2.find(e => e.amount === 45);
-  t('ผู้จัดการใส่ PIN → บันทึก พร้อมชื่อผู้อนุมัติและรายละเอียดที่พิมพ์ไว้', !!e45 && e45.approvedBy === 'สมหญิง' && e45.note === 'ของใช้ ข', m2);
-  t('บันทึกแล้วฟอร์มว่าง', await p.evaluate(() => document.getElementById('expense-amount').value === '' && document.getElementById('expense-note').value === ''));
+  t('กดสองรายการติดกัน → บันทึกครบ 250 · 40 · 45 (รวม 335 เกิน 300 ได้ ไม่มีเพดาน) พร้อมรายละเอียดที่พิมพ์',
+    JSON.stringify(m1.map(e => [e.amount, e.note])) === JSON.stringify([[250, 'น้ำแข็ง'], [40, 'ของใช้ ก'], [45, 'ของใช้ ข']]), m1);
+  t('ไม่มีหน้าต่างขอ PIN และไม่มีผู้อนุมัติ', !(await p.evaluate(() => document.getElementById('modal-prompt').classList.contains('active'))) &&
+    m1.every(e => e.approvedBy === ''), m1);
+  t('บันทึกครบแล้วฟอร์มว่าง', await p.evaluate(() => document.getElementById('expense-amount').value === '' && document.getElementById('expense-note').value === ''));
+  await shot(p, 'e2e12-c-saved');
   await p.reload({ waitUntil: 'networkidle' }); await ready(p);
   const m3 = await mine();
-  t('รีโหลดแล้วอ่านจาก IndexedDB: 250 · 40 · 45 (อนุมัติโดยสมหญิง) — ไม่มีรายการเกิน/หาย',
-    JSON.stringify(m3.map(e => e.amount)) === '[250,40,45]' && m3[2].approvedBy === 'สมหญิง', m3);
+  t('รีโหลดแล้วอ่านจาก IndexedDB: 250 · 40 · 45 — ไม่มีรายการเกิน/หาย',
+    JSON.stringify(m3.map(e => e.amount)) === '[250,40,45]', m3);
 
   // ═══════════════════════════════════════════════════════════════════
   console.log('\n[D] หน้ากู้จาก Drive: บอกว่ารายชื่อตัดที่ 50 ไฟล์ล่าสุด และไฟล์เก่าอยู่ที่ไหน');

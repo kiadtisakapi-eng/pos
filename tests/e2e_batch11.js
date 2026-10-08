@@ -76,7 +76,8 @@ async function loginOwner(p) {
 async function sell(p) {
   return p.evaluate(async () => {
     app.state.cart = [{ uniqueCartId:'u' + Date.now(), id:'s1', name:'ตัดผมชาย', price:300, duration:30, commission:10, commissionType:'percent', category:'barber', staffId:'st-1', staffName:'สมชาย' }];
-    app.state.selectedPaymentMethod = 'credit';
+    // โอน/QR (ไม่ใช่บัตร): ตั้งแต่ 6 ต.ค. 2569 บิลบัตรมีค่าธรรมเนียม และแก้ส่วนลดไม่ได้ — ชุดนี้ต้องแก้ส่วนลดของบิล x2
+    app.state.selectedPaymentMethod = 'promptpay';
     document.getElementById('cart-discount').value = '0';
     app.beginCheckoutAttempt();
     await app.processCheckout();

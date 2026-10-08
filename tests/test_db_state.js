@@ -27,6 +27,8 @@ async function seed(env, extra) {
     shopLogo: '', theme: 'light', ownerPin: pinHash,
     googleSheetsUrl: 'https://script.google.com/macros/s/REAL/exec',
     googleSheetsApiToken: 'T'.repeat(40),
+    primaryStatus: { isPrimary: true, checkedAt: Date.now(), primaryLabel: 'known offline primary' },
+    deviceId: 'dev-' + require('crypto').randomBytes(16).toString('hex'),
     telegramToken: '123:ABC', telegramChatId: '-100999',
     vatEnabled: true, vatRate: 7
   }, extra || {});

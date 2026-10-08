@@ -30,6 +30,7 @@ async function seed(env, extra) {
     vatEnabled: true, vatRate: 7
   }, extra || {});
   await env.db.state.bulkPut(Object.keys(rows).map(k => ({ key: k, value: rows[k] })));
+  if (env.ctx.fetch) env.ctx.fetch.fixtureDeviceId = rows.deviceId;
   return rows;
 }
 
@@ -73,9 +74,17 @@ async function makeShop(o) {
   const env = createEnv({ fetch: gas.fetch, factory: o.factory, onLine: o.onLine,
     querySelectorAll: (sel) => (/cash-qty-input/.test(String(sel)) ? cashInputs(o.cash || { 1000: 1 }) : []) });
   const toasts = quiet(env.app);
-  const rows = await seed(env, Object.assign({ googleSheetsApiToken: gas.token }, o.rows || {}));
+  const importedPrimary = !gas.fetch.fixtureDeviceId && gas.ctx.readPrimaryDevice_();
+  const rows = await seed(env, Object.assign({ googleSheetsApiToken: gas.token }, importedPrimary ? { deviceId: importedPrimary.id } : {}, o.rows || {}));
   if (o.noInit) await env.app.loadState(); else await env.app.init();
   loginAs(env.app, o.role === undefined ? 'owner' : o.role);
+  // Most suites model a provisioned shop, including offline sales and later network failures.
+  // Tests of first-device setup explicitly opt into unknownPrimary.
+  if (!o.unknownPrimary && env.app.hasCloudSyncConfig() && !env.app.primaryStatus) {
+    const status = await env.app.cloudPost('register_primary', {}, 15000);
+    if (status.status === 'success') await env.app.notePrimaryStatus(true, status.details && status.details.primary);
+    else if (status.code === 'NOT_PRIMARY_DEVICE') await env.app.notePrimaryStatus(false, status.details && status.details.primary);
+  }
   return { env, app: env.app, gas, toasts, rows };
 }
 

@@ -24,12 +24,12 @@ const el = id => h.document.getElementById(id);
 console.log('\n--- ค่าใช้จ่าย: ติดชื่อคนเพิ่ม/คนลบ ---');
 app.state.shift = { active:true, startTime:Date.now()-3600e3, startCash:1000, startDetails:{}, expenses:[], history:[] };
 app.state.expenseLog = [];
-app.currentUser = { id:'st-1', name:'สมชาย ใจดี' }; app.currentRole = 'staff';
+app.currentUser = { id:'st-1', name:'สมชาย ใจดี' }; app.currentRole = 'manager';
 app.saveState = async () => true;
-// ตั้งแต่รอบตรวจ 4 (ข้อ A5): ค่าใช้จ่ายจากลิ้นชักที่พนักงานลงเกิน 300 บาทในกะ ต้องให้ผู้จัดการใส่ PIN อนุมัติ
-// และผู้จัดการลบรายการของคนอื่นต้องใส่ PIN ตัวเองซ้ำ — ใช้ผู้จัดการ st-3 (PIN 333333) ทั้งสองทาง
+// ตั้งแต่ 8 ต.ค. 2569 (เจ้าของตัดสิน · ตรวจหมวด D ข้อ 1): ค่าใช้จ่ายลง/ลบได้เฉพาะผู้จัดการ/เจ้าของ ไม่มีเพดาน ไม่ถาม PIN
+// เทสต์นี้จึงให้ผู้จัดการคนหนึ่งลง (สมชาย) แล้วผู้จัดการอีกคนลบ (ประสิทธิ์) — ยังพิสูจน์ "ใครเพิ่ม/ใครลบ" ได้เหมือนเดิม
 app.state.staff = [
-  { id:'st-1', name:'สมชาย ใจดี', role:'ช่าง', accessLevel:'staff', pin: await app.hashPin('111111') },
+  { id:'st-1', name:'สมชาย ใจดี', role:'ผู้จัดการ', accessLevel:'manager', pin: await app.hashPin('111111') },
   { id:'st-3', name:'ประสิทธิ์ มือทอง', role:'ผู้จัดการ', accessLevel:'manager', pin: await app.hashPin('333333') }
 ];
 app.askSecret = async () => '333333';

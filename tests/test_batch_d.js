@@ -194,7 +194,7 @@ await t('หลังกู้ บิลทุกใบถูกตั้งเ�
     categories:[{id:'barber',name:'ตัดผมชาย'}], customers:[], queue:[], voidLog:[], expenseLog:[],
     transactions:[{id:'TX-1757000000000-CCCCCCCC',date:'2026-09-01T14:00:00+07:00',total:300,syncStatus:'synced'}],
     shift:{active:false,startTime:null,startCash:0,startDetails:{},expenses:[],history:[]} };
-  await app.applyBackupData(f);
+  await app.applyBackupData(f, { acceptUnsynced: true });   // ตรวจ 8 ต.ค. 2569 ข้อ 3: ข้อมูลเดิมในเทสต์มีบิลที่ยังไม่ขึ้นชีต — ยืนยันกู้ทับ
   eq(app.state.transactions[0].syncStatus, 'pending');
 });
 

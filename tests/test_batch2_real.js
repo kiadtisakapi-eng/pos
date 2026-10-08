@@ -196,6 +196,7 @@ async function ownerKeyReady(app, gas) {
 await section('[5.1]', async () => {
   const { env, app, gas } = await makeShop();
   await settle();
+  app.askTypedConfirm = async () => true;   // ตรวจ 8 ต.ค. 2569 ข้อ 3: บิลที่ขายระหว่างรอยังไม่ขึ้นชีต → เจ้าของพิมพ์ยอมรับ (เทสต์นี้ตรวจสำเนาก่อนกู้)
   await ownerKeyReady(app, gas);
   const up = gas.post({ action: 'backup', backupData: backupTwo() });
   const hold = gas.hold(b => b && b.action === 'get_backup');
@@ -223,6 +224,7 @@ console.log('\n[5.2] นำเข้าไฟล์พร้อมกับก�
 await section('[5.2]', async () => {
   const { env, app } = await makeShop();
   await settle();
+  app.askTypedConfirm = async () => true;   // ตรวจ 8 ต.ค. 2569 ข้อ 3: เจ้าของพิมพ์ยอมรับ (เทสต์นี้ตรวจว่าบิลไม่หายจากทั้งข้อมูลและสำเนา)
   env.ctx.FileReader = class { readAsText(f) { setTimeout(() => this.onload({ target: { result: f._text } }), 0); } };
   readyCheckout(env);
   const pSale = app.processCheckout();            // ยังไม่รอ — งานบันทึกค้างอยู่

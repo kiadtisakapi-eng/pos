@@ -68,5 +68,8 @@ const probe = async (page) => page.evaluate(async () => {
   console.log('  ' + (sarabunUsed ? '✅' : '❌') + ' ข้อความไทยใช้ Sarabun จริง ไม่ใช่ฟอนต์ระบบ');
   console.log('  ' + (!failures.length ? '✅' : '❌') + ' ไม่มีไฟล์ไหนโหลดไม่ติด');
   await browser.close(); srv.close();
+  // บรรทัดสรุปบังคับโดย runner_judge.js (ตรวจ 8 ต.ค. 2569 ข้อ 7) — ไม่มีบรรทัดนี้ run-all-ui.js นับว่าไม่ผ่าน
+  const checks = [iconOk, faLoaded, sarabunLoaded, sarabunUsed, !failures.length];
+  console.log(`\n=== ผ่าน ${checks.filter(Boolean).length} · ไม่ผ่าน ${checks.filter(c => !c).length} ===`);
   process.exit((iconOk && faLoaded && sarabunLoaded && sarabunUsed && !failures.length) ? 0 : 1);
 })();

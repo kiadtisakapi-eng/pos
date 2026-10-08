@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 #  Erotica POS - One-command deploy
 #  1) ตรวจสภาพ git ให้พร้อมก่อน (กันเคสที่เคยเจอ: index.lock ค้าง แล้วสคริปต์เดินต่อเงียบ ๆ)
 #  2) รันชุดทดสอบก่อนแตะเวอร์ชันหรือ stage ไฟล์
@@ -48,13 +48,7 @@ if (-not (Test-Path $swPath)) { Fail "sw.js not found" }
 # ทำให้ git add ล้มทุกครั้ง แต่สคริปต์เดิมไม่เช็ค exit code เลยเดินต่อจนพิมพ์ DEPLOYED
 $lock = Join-Path $PSScriptRoot '.git\index.lock'
 if (Test-Path $lock) {
-    $age = (Get-Date) - (Get-Item $lock).LastWriteTime
-    if ($age.TotalMinutes -gt 10) {
-        Remove-Item $lock -Force
-        Write-Host "[0/5] cleared stale .git/index.lock (age $([int]$age.TotalMinutes) min)" -ForegroundColor Yellow
-    } else {
-        Fail "another git process seems to be running (.git/index.lock is fresh). Close it and retry."
-    }
+    Fail "Git index.lock exists. Stop other Git operations and verify the lock owner before manual recovery. The script never removes a Git lock."
 }
 
 # --- รายการไฟล์ใหม่ (untracked) ที่อนุญาตให้ขึ้น repo ------------------------
@@ -62,7 +56,7 @@ $safeNewPaths = @(
     '.nojekyll', '.gitattributes', '.gitignore',
     'index.html', 'app.js', 'style_v2.css', 'sw.js', 'manifest.json',
     'promptpay-qr.js', 'dexie.min.js', 'google_apps_script.js', 'README.md',
-    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests',
+    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests', 'apple-touch-icon.png', 'คู่มือเริ่มใช้งาน.html', 'วิธีกู้ข้อมูล_อ่านตอนฉุกเฉิน.md',
     # Font Awesome ที่ย้ายมาเก็บเอง — ถ้าลืมบรรทัดนี้ ไฟล์จะไม่ถูก push
     # แล้วไอคอนทั้งแอปบนเว็บจริงจะหายหมดทันทีโดยสคริปต์ไม่เตือนอะไรเลย
     'vendor',
@@ -79,12 +73,29 @@ function Test-SafeNewPath($p) {
     return $false
 }
 
+# Include both sides of renames and deleted files. Never reset the user's index.
+function Assert-SafeIndex {
+    $raw = @(git -c core.quotepath=false diff --cached --name-only --no-renames -z)
+    if ($LASTEXITCODE -ne 0) { Fail "cannot inspect staged paths" }
+    $paths = ([string]::Join("`n", $raw)).Split([char]0) | Where-Object { $_ }
+    foreach ($p in $paths) {
+        if (-not (Test-SafeNewPath $p)) { Fail "staged path outside project allowlist: $p (index preserved)" }
+    }
+}
+Assert-SafeIndex
+
 # --- 1) มีอะไรให้ deploy ไหม --------------------------------------------
 # นับเฉพาะของที่ขั้นที่ 4 จะ stage จริง: ไฟล์ที่ติดตามอยู่ + ไฟล์ใหม่ในรายการอนุญาต
 # เดิมนับทุกบรรทัดของ git status → มีไฟล์ส่วนตัวที่ไม่ถูกกันวางไว้ในโฟลเดอร์ (ไม่ได้ถูก stage อยู่แล้ว)
 # สคริปต์ก็คิดว่ามีของเปลี่ยน แล้วบวกเลขแคช + push รุ่นเปล่า (iPad ขึ้นว่ามีอัปเดตทั้งที่โค้ดเหมือนเดิม)
 $dirtyAll = @(git status --porcelain)
 if ($LASTEXITCODE -ne 0) { Fail "git status failed - is this folder a git repo?" }
+$changedRaw = @(git -c core.quotepath=false diff HEAD --name-only --no-renames -z)
+if ($LASTEXITCODE -ne 0) { Fail "cannot inspect changed paths" }
+$changedPaths = @(([string]::Join("`n", $changedRaw)).Split([char]0) | Where-Object { $_ })
+foreach ($p in $changedPaths) {
+    if (-not (Test-SafeNewPath $p)) { Fail "tracked change outside project allowlist: $p (no files staged)" }
+}
 $dirty = @($dirtyAll | Where-Object { $_ -and ((-not $_.StartsWith('?? ')) -or (Test-SafeNewPath $_.Substring(3))) })
 $skipped = @($dirtyAll | Where-Object { $_ -and $_.StartsWith('?? ') -and -not (Test-SafeNewPath $_.Substring(3)) })
 if ($skipped.Count -gt 0) {
@@ -158,7 +169,8 @@ if ($appChanged.Count -gt 0) {
 $appPath = Join-Path $PSScriptRoot 'app.js'
 if ($new -and (Test-Path $appPath)) {
     $appTxt = [System.IO.File]::ReadAllText($appPath)
-    $today  = Get-Date -Format 'yyyy-MM-dd'
+    $releaseNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, [TimeZoneInfo]::FindSystemTimeZoneById('SE Asia Standard Time'))
+    $today = $releaseNow.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
     $verRe  = "const APP_VERSION = '([0-9]+\.[0-9]+\.[0-9]+) \(\d{4}-\d{2}-\d{2}\)';"
     $vm = [regex]::Match($appTxt, $verRe)
     if ($vm.Success) {
@@ -177,13 +189,13 @@ if ($new -and (Test-Path $appPath)) {
 # git add -A เคยกวาดไฟล์ backup/secret ที่เผลอวางไว้ในโฟลเดอร์ไปด้วย
 # ขั้นแรกเก็บเฉพาะไฟล์ที่ git ติดตามอยู่ แล้วอนุญาต untracked เฉพาะ source/test ที่ระบุชัดเจน
 Write-Host "[4/6] staging project files ..." -ForegroundColor Cyan
-git add -u -- .
-if ($LASTEXITCODE -ne 0) { Fail "git add tracked changes failed" }
 # ⚠️ ไฟล์ใหม่ที่ไม่อยู่ในลิสต์นี้จะไม่ถูก commit "แบบเงียบ ๆ" — สคริปต์ไม่เตือน
 #    เพิ่มไฟล์ config ใหม่ในโปรเจกต์เมื่อไหร่ ต้องมาเติมชื่อที่นี่ด้วยทุกครั้ง
 # (รายการนี้ย้ายไปประกาศไว้ด้านบน ก่อนขั้นที่ 1 — ใช้ทั้งตอนตัดสินว่ามีของจะ deploy และตอน stage)
-git add -- $safeNewPaths
+$stagePaths = @($safeNewPaths | Where-Object { (Test-Path -LiteralPath $_) -or ($changedPaths -contains $_) })
+git add -A -- $stagePaths
 if ($LASTEXITCODE -ne 0) { Fail "git add project files failed" }
+Assert-SafeIndex
 
 $staged = git diff --cached --name-only
 if ([string]::IsNullOrWhiteSpace($staged)) { Fail "nothing was staged - check .gitignore" }

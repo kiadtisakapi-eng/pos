@@ -43,6 +43,8 @@ function sheet(headers, rows) {
   return {
     grid,
     getLastColumn: () => grid[0].length, getLastRow: () => grid.length,
+    // ชีตจริงมีเสมอ (ensureBillRevColumn_ · ตรวจหมวด D ข้อ 6) — ชีตจำลองนี้ขยายเองไม่จำกัด
+    getMaxColumns: () => Math.max(26, grid[0].length), insertColumnsAfter() {},
     getRange(r, c, nr, nc) {
       nr = nr || 1; nc = nc || 1;
       const get = () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => (grid[r - 1 + i] || [])[c - 1 + j] ?? ''));
@@ -70,7 +72,7 @@ function gas(store, opts) {
     getProperty(k) { if (opts.readError && (k === 'POS_VOIDED_BILLS' || String(k).startsWith('POSVB_'))) throw new Error('read failed'); return store[k] ?? null; },
     setProperty(k, v) {
       v = String(v);
-      if (opts.writeError) throw new Error('write failed');
+      if (opts.writeError && String(k).startsWith('POSVB_')) throw new Error('write failed'); // Isolate the tombstone write, not unrelated migration metadata.
       if (opts.maxValueBytes && Buffer.byteLength(v, 'utf8') > opts.maxValueBytes) throw new Error('Property value exceeds size limit');
       store[k] = v; return props;
     },
@@ -90,6 +92,7 @@ function gas(store, opts) {
   // ปิดการลบแท็บสรุปรายวันที่เก่ากว่า 62 วัน — เทสต์ใช้วันที่ตายตัว (2026-09-06) ถ้าไม่ปิด
   // ตั้งแต่ 8 พ.ย. 2569 แท็บที่เพิ่งเขียนถูกลบทันที เทสต์ล้มเอง และ deploy.bat หยุด (รอบตรวจ 5 · ดู tests/gas_env.js)
   vm.runInContext('DAILY_SHEET_RETENTION_DAYS = 0', g);
+  require('./gas_legacy_adapter')(g, store);
   return g;
 }
 // อ่านทะเบียนยกเลิก/กู้คืนของบิลหนึ่งใบ เป็นค่าแบบเดิม (บวก = ยกเลิกเมื่อ · ลบ = กู้คืนเมื่อ · 0 = ไม่มี)
@@ -249,7 +252,7 @@ await t('GAS: restoredAt ใหม่กว่าเวลายกเลิก 
   // ไม่ลบทะเบียนทิ้ง แต่บันทึกเวลาที่กู้ไว้เป็นค่าติดลบ (ดู FG-02)
   eq(reg(store, 'TX-AUDIT-0001'), -2000);
   // และการแก้บิลใบนี้ครั้งถัดไป (ไม่มี restoredAt) ต้องไม่ถูกปฏิเสธ
-  eq(JSON.parse(gas(store).handleTransaction(bill({ total: 350, subtotal: 350 }), ss)).status, 'success');
+  eq(JSON.parse(gas(store).handleTransaction(bill({ total: 350, subtotal: 350, rev: 1 }), ss)).status, 'success');
 });
 // ⚠️ ก.ย. 2569 (ข้อ 8): เดิมแอป "ยืนยันคืนบิลเอง" อัตโนมัติ ซึ่งแยกไม่ออกจากกรณีที่บิลถูกยกเลิกจริงหลังการกู้
 // ตอนนี้ต้องเป็นเจ้าของที่เลือก "คืนบิลนี้ขึ้นชีต" เท่านั้น — ทางออกจากทางตันยังมีอยู่ แต่ต้องมีเจตนาชัดเจน

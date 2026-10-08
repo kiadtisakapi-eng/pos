@@ -62,5 +62,8 @@ const srv = http.createServer((req, res) => {
   console.log('\n' + '─'.repeat(50));
   console.log('ไอคอนแสดงผลจริง:', iconRendered ? '✅ ใช่' : '❌ ไม่');
   await browser.close(); srv.close();
+  // บรรทัดสรุปบังคับโดย runner_judge.js (ตรวจ 8 ต.ค. 2569 ข้อ 7) — ไม่มีบรรทัดนี้ run-all-ui.js นับว่าไม่ผ่าน
+  const checks = [!external.length, !failures.length, !errors.length, iconRendered];
+  console.log(`\n=== ผ่าน ${checks.filter(Boolean).length} · ไม่ผ่าน ${checks.filter(c => !c).length} ===`);
   process.exit((!external.length && !failures.length && !errors.length && iconRendered) ? 0 : 1);
 })();

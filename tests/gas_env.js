@@ -57,6 +57,29 @@ function createGasEnv(opts) {
         return dt;
       }
     }
+    // ชื่อเดือนอังกฤษ + วัน เช่น "May 5" / "5 May" (ตรวจหมวด D เรื่องเล็ก) — Sheets ภาษาอังกฤษแปลงเป็นวันที่ปีปัจจุบัน
+    // locale ไทยยังไม่ยืนยัน จึงเปิดเฉพาะเทสต์ที่ขอ (opts.coerceMonthNames)
+    const MONS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const MON_RE = /^(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sep(t(ember)?)?|oct(ober)?|nov(ember)?|dec(ember)?)\.?$/i;
+    const parts = opts.coerceMonthNames ? s.split(/\s+/) : [];
+    if (parts.length === 2) {
+      let mon = null, day = 0;
+      if (MON_RE.test(parts[0]) && /^\d{1,2}$/.test(parts[1])) { mon = parts[0]; day = Number(parts[1]); }
+      else if (/^\d{1,2}$/.test(parts[0]) && MON_RE.test(parts[1])) { mon = parts[1]; day = Number(parts[0]); }
+      if (mon && day >= 1 && day <= 31) {
+        const dt = new Date(Date.UTC(new Date().getUTCFullYear(), MONS.indexOf(mon.toLowerCase().slice(0, 3)), day) - TZ_MS);
+        Object.defineProperty(dt, '_shown', { value: s });
+        return dt;
+      }
+    }
+    // "MM-yyyy" (เช่น "10-2026") — ยังไม่ยืนยันกับ Sheets จริงว่าแปลงทุก locale จึงเปิดเฉพาะเทสต์ที่ขอ (opts.coerceMonthYear)
+    // ใช้พิสูจน์ว่าทะเบียนระบบ (_POS_BILL_INDEX) ไม่พังถ้า Sheets แปลงช่องเดือนเป็นวันที่ (ตรวจรอบ Claude 7 ต.ค. 2569)
+    const my = opts.coerceMonthYear ? /^(\d{1,2})-(\d{4})$/.exec(s) : null;
+    if (my && Number(my[1]) >= 1 && Number(my[1]) <= 12) {
+      const dt = new Date(Date.UTC(Number(my[2]), Number(my[1]) - 1, 1) - TZ_MS);
+      Object.defineProperty(dt, '_shown', { value: s });
+      return dt;
+    }
     // วัน/เดือนสั้น ๆ "12/9" หรือ "12/9/2026" — Sheets แปลงเป็นวันที่ทุก locale (ตีความวัน/เดือนต่างกันตาม locale
     // แต่ "ไม่เป็นข้อความเดิมแล้ว" เหมือนกันหมด) · จำลองแบบวัน/เดือน (locale ไทย) ปีปัจจุบันถ้าไม่ระบุ
     const sm = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/.exec(s);
@@ -94,6 +117,9 @@ function createGasEnv(opts) {
     const fmts = [];   // รูปแบบตัวเลขของแต่ละช่อง (ขนานกับ grid) — ใช้ตัดสินการแปลงชนิด/ค่าที่โชว์
     const fmtAt = (r, c) => (fmts[r - 1] && fmts[r - 1][c - 1]) || '';
     let _name = name;
+    // จำนวนคอลัมน์จริงของแท็บ (ตรวจหมวด D ข้อ 6) — null = แบบเดิม (ขยายเองไม่จำกัด)
+    // เทสต์ตั้งด้วย _setMaxColumns(n) เพื่อจำลองแท็บที่คอลัมน์เต็มพอดี: เขียนเกิน n = โยน error แบบชีตจริง
+    let maxColsOverride = null;
     const api = {
       _grid: grid, _ss: ss, _hiddenCols: new Set(),
       getName: () => _name,
@@ -104,9 +130,17 @@ function createGasEnv(opts) {
       },
       getLastColumn: () => { let w = 0; grid.forEach(r => { for (let j = r.length - 1; j >= 0; j--) if (r[j] !== '' && r[j] != null) { w = Math.max(w, j + 1); break; } }); return w; },
       getLastRow: () => { for (let i = grid.length - 1; i >= 0; i--) if (grid[i].some(v => v !== '' && v != null)) return i + 1; return 0; },
-      getMaxColumns: () => Math.max(26, grid.reduce((m, r) => Math.max(m, r.length), 0)),
+      getMaxColumns: () => maxColsOverride !== null ? maxColsOverride : Math.max(26, grid.reduce((m, r) => Math.max(m, r.length), 0)),
+      _setMaxColumns: (n) => { maxColsOverride = n; },
+      insertColumnsAfter: (after, n) => {
+        hit('insertColumnsAfter');
+        [grid, fmts].forEach(g => g.forEach(row => { if (row.length > after) row.splice(after, 0, ...new Array(n).fill('')); }));
+        if (maxColsOverride !== null) maxColsOverride += n;
+      },
+      insertColumnAfter: (after) => api.insertColumnsAfter(after, 1),
       getRange: (r, c, nr, nc) => {
         nr = nr || 1; nc = nc || 1;
+        if (maxColsOverride !== null && c + nc - 1 > maxColsOverride) throw new Error('Exception: Those columns are out of bounds.');
         const cell = {
           getDisplayValue: () => shown((grid[r - 1] && grid[r - 1][c - 1]) ?? '', fmtAt(r, c)),
           getDisplayValues: () => { const o = []; for (let i = 0; i < nr; i++) { const row = []; for (let j = 0; j < nc; j++) row.push(shown((grid[r - 1 + i] && grid[r - 1 + i][c - 1 + j]) ?? '', fmtAt(r + i, c + j))); o.push(row); } return o; },
@@ -122,7 +156,8 @@ function createGasEnv(opts) {
         };
         return cell;
       },
-      insertColumnBefore: (c) => { [grid, fmts].forEach(g => g.forEach(row => { while (row.length < c - 1) row.push(''); row.splice(c - 1, 0, ''); })); },
+      insertColumnBefore: (c) => { [grid, fmts].forEach(g => g.forEach(row => { while (row.length < c - 1) row.push(''); row.splice(c - 1, 0, ''); }));
+        if (maxColsOverride !== null) maxColsOverride += 1; },
       autoResizeColumns: () => {}, setFrozenRows: () => {}, setColumnWidth: () => {}, setTabColor: () => {},
       hideColumns: (c, n) => { for (let i = 0; i < (n || 1); i++) api._hiddenCols.add(c + i); },
       appendRow: (r) => { hit('appendRow'); const at = api.getLastRow() + 1; while (grid.length < at - 1) grid.push([]);
@@ -154,7 +189,9 @@ function createGasEnv(opts) {
     const id = 'folder-' + (++folderSeq);
     const files = [];
     const folder = {
-      _files: files, getId: () => id, getName: () => name,
+      // ถังขยะของโฟลเดอร์ (ตรวจหมวด D ข้อ 5) — เหมือน Drive: ไฟล์ในโฟลเดอร์ที่ถูกทิ้งนับว่าอยู่ในถังขยะด้วย
+      _files: files, _trashed: false, getId: () => id, getName: () => name,
+      isTrashed: () => folder._trashed, setTrashed: (v) => { folder._trashed = !!v; return folder; },
       createFile: (fn, content, mime) => {
         hit('createFile');
         const fid = 'file-' + (++fileSeq);
@@ -164,7 +201,7 @@ function createGasEnv(opts) {
         const f = { _trashed: false, _content: stored, getId: () => fid, getName: () => fn, getMimeType: () => mime,
           getSize: () => Buffer.byteLength(f._content, 'utf8'), getDateCreated: () => created,
           getBlob: () => ({ getDataAsString: () => { hit('readFile'); return f._content; } }),
-          setTrashed: (v) => { f._trashed = !!v; }, isTrashed: () => f._trashed };
+          setTrashed: (v) => { f._trashed = !!v; }, isTrashed: () => f._trashed || folder._trashed };
         files.push(f); allFiles[fid] = f; return f;
       },
       // เหมือน Drive จริง: getFiles() คืนไฟล์ในถังขยะมาด้วย (โค้ดต้องกรองเองด้วย isTrashed())
@@ -288,7 +325,15 @@ function createGasEnv(opts) {
       if (!rule) return run();
       return new Promise((resolve, reject) => { rule.queue.push(() => run().then(resolve, reject)); });
     },
-    post(obj) { return JSON.parse(process(JSON.stringify(Object.assign({ secret: env.token }, obj)))); },
+    post(obj) {
+      // Direct test requests act as the current primary device unless the test explicitly supplies an ID.
+      const action = obj.action == null ? 'transaction' : obj.action;
+      let primary = null;
+      try { primary = ctx.readPrimaryDevice_(); } catch (e) { /* malformed registry must be reported by doPost itself */ }
+      const device = ['transaction', 'void_transaction', 'backup', 'summary_day', 'summary_month'].includes(action)
+        ? { deviceId: (primary && primary.id) || env.fetch.fixtureDeviceId || ('dev-' + 'a'.repeat(32)) } : {};
+      return JSON.parse(process(JSON.stringify(Object.assign({ secret: env.token }, device, obj))));
+    },
     setupToken() { props.POS_API_TOKEN = env.token; return env.token; },
     setupOwnerKey() { return typeof ctx.rotatePosOwnerKey === 'function' ? ctx.rotatePosOwnerKey() : null; },
     sheet(name) { return ss.getSheetByName(name); },

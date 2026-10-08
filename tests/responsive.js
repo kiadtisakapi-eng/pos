@@ -148,7 +148,11 @@ const AUDIT = (screenName) => {
   // (คอลัมน์ จุดที่ล้นจอ/ปุ่มเล็ก/ตัวหนังสือจิ๋ว เป็นข้อมูลประกอบ — เช่นตารางในกล่องเลื่อน · จอคอมที่ใช้เมาส์)
   const bad = Object.entries(byDev).filter(([k,v]) => v.ov > 1 || v.sbo || (!v.sb && !v.bn))
     .map(([k,v]) => `${k}: ` + [v.ov > 1 ? `ล้นแนวนอน ${v.ov}px` : '', v.sbo ? 'แถบข้างล้นจอ' : '', (!v.sb && !v.bn) ? 'ไม่มีเมนู' : ''].filter(Boolean).join(' · '));
+  // บรรทัดสรุปบังคับโดย runner_judge.js (ตรวจ 8 ต.ค. 2569 ข้อ 7) — ไม่มีบรรทัดนี้ run-all-ui.js นับว่าไม่ผ่าน
+  const nDev = Object.keys(byDev).length;
+  console.log(`\n=== ผ่าน ${nDev - bad.length} · ไม่ผ่าน ${bad.length || (nDev ? 0 : 1)} ===`);
   if (bad.length) { console.log('\n❌ ไม่ผ่าน:\n   ' + bad.join('\n   ')); process.exit(1); }
+  if (!nDev) { console.log('\n❌ ไม่ได้ตรวจขนาดจอเลย'); process.exit(1); }
   console.log('\nผ่าน — ทุกขนาดจอไม่ล้นแนวนอน และมีเมนูให้กดครบ');
   process.exit(0);
 })().catch(e => { console.log('❌ เทสต์ล้มกลางทาง: ' + (e && e.stack || e)); process.exit(1); });

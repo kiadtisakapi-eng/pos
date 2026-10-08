@@ -13,6 +13,8 @@ function FakeSheet(headers, rows){
     _grid:grid,
     getLastColumn:()=>{pad(); return grid[0].filter(c=>String(c).trim()!=='').length ? grid[0].length : 0;},
     getLastRow:()=>grid.length,
+    // ชีตจริงมีเสมอ — ensureBillRevColumn_ ถามก่อนเติมคอลัมน์รุ่นบิล (ตรวจหมวด D ข้อ 6) · ชีตจำลองนี้ขยายเองไม่จำกัด
+    getMaxColumns:()=>Math.max(26, ...grid.map(r=>r.length)), insertColumnsAfter:()=>{},
     getRange:(r,c,nr,nc)=>{
       nr=nr||1; nc=nc||1;
       const cell={
@@ -69,6 +71,7 @@ ctx.DriveApp={
 };
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(SRC,'utf8'),ctx,{filename:'gas.js'});
+require('./gas_legacy_adapter')(ctx, scriptProps);
 const g=ctx;
 const V=g.MASTER_VAR_HEADER, TS=g.MASTER_TS_HEADER;
 
@@ -303,7 +306,7 @@ console.log('\n--- แท็บบิลรายเดือน: 4 คอลั
 const BILL_OLD = ["เลขที่บิล","วันที่-เวลา","ลูกค้า","รายการบริการ","ช่องทางชำระเงิน",
                   "ราคารวม (฿)","ส่วนลด (฿)","ยอดสุทธิ (฿)","พนักงาน"];
 const BILL_NEW = ctx.BILL_HEADERS;
-const mkSS = (sheets) => ({ getSheetByName:(n)=>sheets[n]||null,
+const mkSS = (sheets) => ({ _ledgerKey: sheets, getSheetByName:(n)=>sheets[n]||null,
   insertSheet:(n)=>{ sheets[n]=FakeSheet([]); return sheets[n]; }, getSheets:()=>Object.values(sheets) });
 const vatBill = (id) => ({ id, date:'2026-08-10T14:00:00+07:00', monthKey:'08-2026',
   dateTimeStr:'2026-08-10 14:00:00', customerName:'ลูกค้า ก', services:['ตัดผม','น้ำ'],
@@ -454,7 +457,7 @@ t('แท็บใหม่เกิดมาพร้อม 13 คอลัม�
 console.log('\n  · upsert บิลเดิมซ้ำ');
 sheets={'08-2026':FakeSheet(BILL_NEW,[])};
 ctx.handleTransaction(vatBill('TX-UPSERT'), mkSS(sheets));
-res = JSON.parse(ctx.handleTransaction({ ...vatBill('TX-UPSERT'), customerName:'ลูกค้าแก้ชื่อ' }, mkSS(sheets)));
+res = JSON.parse(ctx.handleTransaction({ ...vatBill('TX-UPSERT'), customerName:'ลูกค้าแก้ชื่อ', rev: 1 }, mkSS(sheets)));
 bg = sheets['08-2026']._grid;
 t('ส่งซ้ำ = อัปเดตแถวเดิม ไม่เพิ่มแถวใหม่',()=>{eq(res.details.updated,true); eq(bg.length,2);});
 t('ค่า VAT ยังอยู่ครบหลังอัปเดต',()=>eq(bg[1].slice(7,12),[300,80,5.60,0.40,386]));
@@ -544,6 +547,77 @@ t('ไม่ส่งรหัส -> unauthorized',()=>eq(post({action:'backup',
 t('รหัสผิด -> unauthorized',()=>eq(post({secret:'X'.repeat(32),action:'backup',backupData:{}}).message,'ไม่ได้รับอนุญาต (unauthorized)'));
 t('ไม่มี body เลย -> ไม่พัง และไม่หลุดข้อมูล',()=>{
   const r=JSON.parse(ctx.doPost({})); eq(r.status,'error'); ok(/ไม่พบข้อมูลที่ส่งมา/.test(r.message));});
+
+// ── [ตรวจ 8 ต.ค. 2569 ข้อ 2] แถวบิลเก่าที่ช่อง VAT ว่างทั้ง 4 ช่อง (แท็บ 9 คอลัมน์ที่ถูกเติม VAT ทีหลัง) ──
+// ใช้ Apps Script ตัวจริงบนชีตจำลองเต็มระบบ (gas_env.js · POS_GAS_SRC ชี้รุ่นก่อนแก้ได้)
+console.log('\n  · ข้อ 2: แถวบิลเก่าที่ช่อง VAT ว่าง — ย้ายเครื่องหลัก/ส่งซ้ำต้องไม่ติด');
+{
+  const { createGasEnv } = require('./gas_env.js');
+  const DEV = 'dev-' + 'a'.repeat(32), DEV2 = 'dev-' + 'b'.repeat(32);
+  const dts = (ms) => { const d = new Date(ms + 7 * 3600e3), q = n => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${q(d.getUTCMonth() + 1)}-${q(d.getUTCDate())} ${q(d.getUTCHours())}:${q(d.getUTCMinutes())}:${q(d.getUTCSeconds())}`; };
+  const mk = (ms) => { const d = new Date(ms + 7 * 3600e3 - 6 * 3600e3); return String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + d.getUTCFullYear(); };
+  const bill = (id, ms, total, extra) => Object.assign({ id, date: new Date(ms).toISOString(), dateTimeStr: dts(ms), monthKey: mk(ms),
+    customerName: 'ลูกค้า', services: ['นวด'], staffNames: ['เอ'], subtotal: total, discount: 0, total, paymentMethod: 'cash', rev: 1, revEpoch: 0 }, extra || {});
+  const LEGACY = ['เลขที่บิล','วันที่-เวลา','ลูกค้า','รายการบริการ','ช่องทางชำระเงิน','ราคารวม (฿)','ส่วนลด (฿)','ยอดสุทธิ (฿)','พนักงาน'];
+  const t1 = Date.UTC(2026, 6, 10, 5, 0, 0), t2 = Date.UTC(2026, 6, 11, 5, 0, 0), t3 = Date.UTC(2026, 9, 1, 5, 0, 0);
+  // ร้านเดิม: แท็บ 07-2026 ทำโดย Apps Script รุ่น 9 คอลัมน์ → บิลใหม่ (ลงทะเบียน DEV เป็นเครื่องหลัก + อัปเกรดทะเบียน) → migrate แท็บเก่า
+  const setup = (label) => {
+    const env = createGasEnv({}); env.ownerKey = env.setupOwnerKey();
+    const old = env.ss.insertSheet('07-2026');
+    old.appendRow(LEGACY);
+    old.appendRow(['TX-A00001-LEGACY', dts(t1), 'ลูกค้า', 'นวด', 'เงินสด', 500, 0, 500, 'เอ']);
+    old.appendRow(['TX-A00002-LEGACY', dts(t2), 'ลูกค้า', 'นวด', 'เงินสด', 300, 0, 300, 'เอ']);
+    const r0 = env.post({ action: 'transaction', deviceId: DEV, ...bill('TX-A00003-NEW', t3, 400) });
+    t('ข้อ2 เตรียม' + label + ': บิลใหม่ลงทะเบียนเครื่องหลักได้', () => eq(r0.status, 'success', JSON.stringify(r0)));
+    env.ctx.migrateBillSheetAddVatColumns_(old);
+    t('ข้อ2 เตรียม' + label + ': migrate แล้วช่อง VAT ของแถวเก่าว่างทั้ง 4 ช่อง', () => eq(old.getRange(2, 8, 2, 4).getValues(), [['', '', '', ''], ['', '', '', '']]));
+    return { env, old, row2: () => old.getRange(2, 1, 1, 13).getValues()[0] };
+  };
+  {
+    const { env, row2 } = setup(' (ก)(ข)');
+    // ตัวตรวจในชีตจริงก่อน deploy (รันใน editor) — นับถูก และไม่เขียนอะไรลงชีต
+    const snapshot = JSON.stringify(env.ss.getSheets().map(sh => [sh.getName(), sh.getLastRow(), sh.getLastColumn()]));
+    const before07 = JSON.stringify(row2());
+    let chk; try { chk = env.ctx.checkLegacyBlankVatRows(); } catch (e) { chk = { error: String(e.message || e), perMonth: [] }; }
+    t('ข้อ2 checkLegacyBlankVatRows (อ่านอย่างเดียว) นับแถว VAT ว่างครบ 2 แถว · ว่างบางช่อง 0', () =>
+      eq([chk.blankRows, chk.partialRows, chk.perMonth.join('|')], [2, 0, '07-2026: 2 แถว']));
+    t('ข้อ2 checkLegacyBlankVatRows ไม่เขียนอะไรลงชีต', () => {
+      eq(JSON.stringify(env.ss.getSheets().map(sh => [sh.getName(), sh.getLastRow(), sh.getLastColumn()])), snapshot);
+      eq(JSON.stringify(row2()), before07); });
+    const local = ['TX-A00001-LEGACY', dts(t1), 'ลูกค้า', 'นวด', 'เงินสด', 500, 0, 500, 0, 0, 0, 500, 'เอ'];
+    t('ข้อ2 (ก) billRowChanges_ ไม่ฟ้องแถวที่ VAT ว่างครบ 4 ช่องเมื่อยอด/ช่องทาง/พนักงานตรง', () => eq(env.ctx.billRowChanges_(row2(), local, true), []));
+    t('ข้อ2 (ก) แต่ยอดสุทธิต่างยังต้องฟ้อง', () => {
+      const c = env.ctx.billRowChanges_(row2(), local.slice(0, 11).concat([450, 'เอ']), true);
+      ok(c.some(x => x.field === 'ยอดสุทธิ'), JSON.stringify(c)); });
+    t('ข้อ2 (ก) ว่างแค่บางช่อง → ยังเทียบ (ไม่คิด VAT ว่าง=0 ≠ 500)', () => {
+      const partial = row2().slice(); partial[8] = 0; partial[9] = 0;
+      const c = env.ctx.billRowChanges_(partial, local, true);
+      ok(c.some(x => x.field === 'ไม่คิด VAT'), JSON.stringify(c)); });
+    // เครื่องใหม่ถือบิลครบทุกใบ (กู้จากไฟล์สำรอง) → ย้ายเครื่องหลักต้องผ่าน
+    const r = env.post({ action: 'claim_primary', deviceId: DEV2, ownerKey: env.ownerKey,
+      bills: [bill('TX-A00001-LEGACY', t1, 500), bill('TX-A00002-LEGACY', t2, 300), bill('TX-A00003-NEW', t3, 400)], voidIntents: [], sheetOnly: [] });
+    t('ข้อ2 (ข) claim_primary ผ่านเมื่อเครื่องใหม่มีบิลเก่าครบ (ไม่ใช่ PRIMARY_TRANSFER_INCOMPLETE)', () =>
+      eq([r.status, r.code || ''], ['success', ''], JSON.stringify(r.details && r.details.different || r.message)));
+    const r2 = env.post({ action: 'claim_primary', deviceId: 'dev-' + 'c'.repeat(32), ownerKey: env.ownerKey,
+      bills: [bill('TX-A00001-LEGACY', t1, 450), bill('TX-A00002-LEGACY', t2, 300), bill('TX-A00003-NEW', t3, 400)], voidIntents: [], sheetOnly: [] });
+    t('ข้อ2 (ข) แต่เครื่องที่ยอดบิลเก่าไม่ตรงชีต ยังย้ายไม่ได้', () =>
+      ok(r2.code === 'PRIMARY_TRANSFER_INCOMPLETE' && r2.details.different.some(d => d.id === 'TX-A00001-LEGACY'), JSON.stringify(r2)));
+  }
+  {
+    const { env, old, row2 } = setup(' (ค)');
+    // ส่งบิลเก่า (รุ่น 0 = ก่อนมีเลขรุ่น) ซ้ำด้วยข้อมูลเดิมเป๊ะจากเครื่องหลัก → เขียนทับเติม VAT ให้ + success
+    let r = env.post({ action: 'transaction', deviceId: DEV, ...bill('TX-A00001-LEGACY', t1, 500, { rev: 0, revEpoch: 0 }) });
+    t('ข้อ2 (ค) ส่งบิลเก่ารุ่น 0 ซ้ำด้วยข้อมูลเดิม → success ไม่ใช่ REVISION_CONFLICT', () => eq([r.status, r.code || ''], ['success', ''], JSON.stringify(r)));
+    t('ข้อ2 (ค) ช่อง VAT ของแถวเก่าถูกเติม (ไม่คิด VAT 500 · คิด VAT 0 · VAT 0 · ปัดเศษ 0) ยอดเดิม', () =>
+      eq(row2().slice(5, 13), [500, 0, 500, 0, 0, 0, 500, 'เอ']));
+    t('ข้อ2 (ค) แถวอื่นไม่ถูกแตะ', () => eq(old.getRange(3, 8, 1, 4).getValues()[0], ['', '', '', '']));
+    // แถวว่างครบแต่ยอดต่าง → ยังเป็น REVISION_CONFLICT (ไม่เขียนทับเงิน)
+    r = env.post({ action: 'transaction', deviceId: DEV, ...bill('TX-A00002-LEGACY', t2, 350, { rev: 0, revEpoch: 0 }) });
+    t('ข้อ2 (ค) แถว VAT ว่างแต่ยอดต่าง → ยังปฏิเสธ REVISION_CONFLICT และแถวคงเดิม', () => {
+      eq(r.code, 'REVISION_CONFLICT', JSON.stringify(r)); eq(old.getRange(3, 6, 1, 8).getValues()[0], [300, 0, '', '', '', '', 300, 'เอ']); });
+  }
+}
 
 console.log(`\n=== ผ่าน ${pass} · ไม่ผ่าน ${fail} ===`);
 process.exit(fail?1:0);

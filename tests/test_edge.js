@@ -137,6 +137,7 @@ app.currentRole='owner';
 app.currentUser={id:'__owner__',name:'เจ้าของร้าน'};
 app.googleSheetsUrl='https://script.google.com/macros/s/TESTONLY/exec';
 app.googleSheetsApiToken='T'.repeat(40);
+app.primaryStatus={isPrimary:true,checkedAt:Date.now()}; // Isolate durable void writes on a verified primary.
 app.telegramToken=''; app.telegramChatId='';
 app.closeModal=()=>{}; app.filterReports=()=>{};
 

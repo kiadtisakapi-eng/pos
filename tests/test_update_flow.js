@@ -11,7 +11,7 @@ function loadSW(opts){
   const caches={_store:{}, _opened:[],
     open:async(n)=>{caches._opened.push(n); const box=caches._store[n]=caches._store[n]||{};
       return { put:async(k,v)=>{box[String(k)]=v}, add:async(k)=>{box[String(k)]='added'},
-               addAll:async(ks)=>{ks.forEach(k=>box[String(k)]='added')}, match:async(k)=>box[String(k)] };},
+               addAll:async(ks)=>{ks.forEach(k=>box[String(k)]='added')}, match:async(k)=>box[String((k&&k.url)||k)] };},
     keys:async()=>Object.keys(caches._store),
     delete:async(n)=>{delete caches._store[n]; caches._deleted=(caches._deleted||[]).concat(n); return true},
     match:async(req)=>opts.cacheHit? 'CACHED:'+String(req):undefined };
@@ -125,10 +125,12 @@ console.log('\n--- การเสิร์ฟไฟล์ (fetch) ---');
   t('คำสั่ง POST ขึ้นคลาวด์ไม่ถูกดักแคช',()=>ok(!e._resp));
 }
 {
+  // ข้อ 8: SW อ่านจากแคชของ POS รุ่นนี้เท่านั้น (ไม่ใช้ caches.match ที่ค้นทุกแคชของโดเมน) — ใส่ไฟล์ไว้ในแคชของ POS
   const sw=loadSW({cacheHit:true}); const e=mkEvent();
+  sw.caches._store[CACHE_NAME]={'./app.js':'CACHED:./app.js'};
   sw.listeners.fetch[0](Object.assign(e,{request:{method:'GET',url:'./app.js'}}));
   const r=await e._resp;
-  t('ไฟล์ที่มีในแคช เสิร์ฟจากแคช (ใช้ออฟไลน์ได้)',()=>ok(String(r).startsWith('CACHED:')));
+  t('ไฟล์ที่มีในแคชของ POS เสิร์ฟจากแคช (ใช้ออฟไลน์ได้)',()=>ok(String(r).startsWith('CACHED:')));
 }
 
 console.log('\n--- deploy.ps1 บวกเลขเวอร์ชันให้เองไหม ---');

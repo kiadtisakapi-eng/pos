@@ -1,8 +1,8 @@
 // ชุด 10 บนเบราว์เซอร์จริง (Chromium + IndexedDB จริง) — รอบตรวจ 4 (26 ก.ย. 2569)
 //   [L] พนักงานกด PIN ผิดจนล็อก → เจ้าของยังล็อกอินผ่านหน้าจอได้ (ล็อกเฉพาะบัญชี)
 //   [E] ผู้จัดการกด "แก้ไข" จากตารางรายงาน → หน้าต่างดูอย่างเดียว (ไม่มีปุ่มบันทึก · ช่องล็อก · ยกเลิกบิลยังกดได้)
-//   [X] พนักงานลงค่าใช้จ่ายจากลิ้นชักเกิน 300 → หน้าต่างขอ PIN ผู้จัดการอยู่บนสุด · อนุมัติแล้วชื่อขึ้นในรายการ ·
-//       ปุ่มลบของรายการคนอื่นไม่ขึ้น
+//   [X] ค่าใช้จ่ายลง/ลบได้เฉพาะผู้จัดการ/เจ้าของ (เจ้าของตัดสิน 8 ต.ค. 2569 · ตรวจหมวด D ข้อ 1 — แทนเพดาน 300 + PIN ของเดิม):
+//       พนักงานไม่เห็นฟอร์ม/ปุ่มลบ · ผู้จัดการลงเกิน 300 ได้เลยไม่ถาม PIN · ลบรายการเก่าแล้วประวัติเก็บผู้อนุมัติ
 //   [Q] ไลบรารี QR โหลดไม่ขึ้น → ปุ่มยืนยันรับเงินกดไม่ได้
 //   [C] กราฟรายวันเริ่ม 10:00
 //   [F] ส่งออกไฟล์สำรอง → เมนูแชร์ (จำลอง) + ข้อความบอกผลขึ้นบนจอ
@@ -122,7 +122,8 @@ async function addExpense(p, amount, note) {
   await p.click('#btn-close-tx-edit');
   await p.waitForTimeout(200);
 
-  console.log('\n[X] ค่าใช้จ่ายจากลิ้นชักเกินเพดาน');
+  // ⚠️ กติกาเปลี่ยนตามคำตัดสินเจ้าของ 8 ต.ค. 2569 (ตรวจ Claude หมวด D ข้อ 1) — แทนเพดาน 300/กะ + PIN อนุมัติของรอบตรวจ 4
+  console.log('\n[X] ค่าใช้จ่าย: ลง/ลบได้เฉพาะผู้จัดการ/เจ้าของ · ไม่มีเพดาน · ไม่ถาม PIN');
   await login(p, 'st-1', '1111');
   // ตัวนับของพนักงานถูกล็อกไว้จาก [L] — เข้าไม่ได้จนกว่าจะหมดเวลา · ล้างเฉพาะบัญชีนี้แทนการรอ
   if (!(await p.evaluate(() => app.currentRole === 'staff'))) {
@@ -130,26 +131,39 @@ async function addExpense(p, amount, note) {
     await login(p, 'st-1', '1111');
   }
   t('พนักงานล็อกอินได้', await p.evaluate(() => app.currentRole === 'staff'));
-  await addExpense(p, 250, 'น้ำแข็ง');
-  t('ลง 250 → บันทึกเลย ไม่มีหน้าต่างถาม PIN', await p.evaluate(() => app.state.shift.expenses.length === 1 && !document.getElementById('modal-prompt').classList.contains('active')));
-  await addExpense(p, 100, 'ของใช้');
-  await p.waitForSelector('#modal-prompt.active', { timeout: 5000 });
-  const promptTxt = await p.evaluate(() => document.getElementById('modal-prompt').innerText);
-  t('ลงเพิ่ม 100 (รวม 350) → ขึ้นหน้าต่างขอ PIN ผู้จัดการ บอกยอดรวมและเพดาน', /ผู้จัดการ/.test(promptTxt) && /300/.test(promptTxt) && /350/.test(promptTxt), promptTxt);
-  t('หน้าต่างขอ PIN อยู่บนสุด กดได้จริง', await onTop(p, '#prompt-modal-input'));
-  await typePrompt(p, '222222');
-  await p.waitForTimeout(300);
-  const ex = await p.evaluate(() => ({ n: app.state.shift.expenses.length, last: app.state.shift.expenses[app.state.shift.expenses.length - 1],
-    list: document.getElementById('expense-list').innerText }));
-  t('ผู้จัดการใส่ PIN → บันทึก พร้อมชื่อผู้อนุมัติ', ex.n === 2 && ex.last.approvedBy === 'สมหญิง', ex);
-  t('ชื่อผู้อนุมัติขึ้นในรายการบนจอ', /อนุมัติโดย สมหญิง/.test(ex.list), ex.list);
-  // รายการของคนอื่นในกะ → ปุ่มลบไม่ขึ้นให้พนักงาน
+  // รายการเก่าสมัยมีเพดาน: พนักงานลงเอง ผู้จัดการอนุมัติไว้
   await p.evaluate(async () => {
-    app.state.shift.expenses.push({ id:'exp_mgr_1', type:'other', amount:40, note:'ของผู้จัดการ', time:Date.now(), by:'สมหญิง', byId:'mg-1', paidFrom:'drawer' });
-    await app.saveState(); app.renderDashboard();
+    app.state.shift.expenses.push({ id:'exp_old_1', type:'other', amount:350, note:'ของใช้ (เก่า)', time:Date.now(), by:'สมชาย', byId:'st-1',
+      paidFrom:'drawer', approvedBy:'สมหญิง', approvedById:'mg-1' });
+    await app.saveState(); app.switchTab('dashboard');
   });
-  const btns = await p.evaluate(() => [...document.querySelectorAll('#expense-list button')].map(b => b.getAttribute('onclick')));
-  t('พนักงาน: ปุ่มลบขึ้นเฉพาะรายการของตัวเอง', btns.length === 2 && !btns.some(s => /exp_mgr_1/.test(s)), btns);
+  await p.waitForTimeout(300);
+  const sv = await p.evaluate(() => ({ list: document.getElementById('expense-list').innerText,
+    btns: document.querySelectorAll('#expense-list button').length, note: document.getElementById('expense-role-note').innerText }));
+  t('พนักงาน: ไม่เห็นฟอร์มลงค่าใช้จ่าย · เห็นข้อความให้ผู้จัดการลง', !(await p.isVisible('#form-add-expense')) &&
+    (await p.isVisible('#expense-role-note')) && /เฉพาะผู้จัดการ/.test(sv.note), sv);
+  t('พนักงาน: ไม่มีปุ่มลบค่าใช้จ่าย · รายการเก่ายังโชว์ผู้อนุมัติ', sv.btns === 0 && /อนุมัติโดย สมหญิง/.test(sv.list), sv);
+  await login(p, 'mg-1', '222222');
+  await p.evaluate(() => app.switchTab('dashboard')); await p.waitForTimeout(300);
+  t('ผู้จัดการล็อกอินได้ · เห็นฟอร์ม · ไม่เห็นข้อความห้าม', await p.evaluate(() => app.currentRole === 'manager') &&
+    (await p.isVisible('#form-add-expense')) && !(await p.isVisible('#expense-role-note')));
+  await addExpense(p, 400, 'ค่าไฟ');
+  t('ผู้จัดการลง 400 จากลิ้นชัก → บันทึกเลย ไม่มีหน้าต่างถาม PIN (เดิมรวมเกิน 300 ต้องขอ PIN)',
+    await p.evaluate(() => app.state.shift.expenses.some(e => e.amount === 400 && e.byId === 'mg-1' && !e.approvedBy) &&
+      !document.getElementById('modal-prompt').classList.contains('active')));
+  await addExpense(p, 5000, 'ค่าซ่อมแอร์');
+  t('ลงเพิ่ม 5,000 → บันทึกเลย ไม่มีเพดาน', await p.evaluate(() => app.state.shift.expenses.some(e => e.amount === 5000) &&
+    !document.getElementById('modal-prompt').classList.contains('active')));
+  // ลบรายการเก่าของพนักงาน (ที่มีผู้อนุมัติ) ผ่านปุ่มบนจอ
+  await p.click(`#expense-list button[onclick*="exp_old_1"]`);
+  await p.waitForSelector('#modal-confirm.active', { timeout: 5000 });
+  await p.click('#btn-confirm-yes');
+  await p.waitForTimeout(500);
+  const del = await p.evaluate(() => ({ gone: !app.state.shift.expenses.some(e => e.id === 'exp_old_1'),
+    prompt: document.getElementById('modal-prompt').classList.contains('active'),
+    log: app.state.expenseLog[app.state.expenseLog.length - 1] }));
+  t('ผู้จัดการกดลบรายการของพนักงาน → ยืนยันแล้วลบ ไม่ถาม PIN ซ้ำ', del.gone && !del.prompt, del);
+  t('ประวัติการลบเก็บชื่อผู้อนุมัติไว้ (ตรวจหมวด D ข้อ 2)', del.log && del.log.expenseId === 'exp_old_1' && del.log.approvedBy === 'สมหญิง', del.log);
 
   console.log('\n[Q] QR สร้างไม่สำเร็จ');
   await p.evaluate(() => {

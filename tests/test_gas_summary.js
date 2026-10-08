@@ -53,6 +53,7 @@ ctx.Logger={log:()=>{}};
 const sp={}; ctx.PropertiesService={getScriptProperties:()=>({getProperty:k=>sp[k]||null,setProperty:(k,v)=>{sp[k]=String(v)},deleteProperty:k=>{delete sp[k]}})};
 ctx.DriveApp={getFoldersByName:()=>({hasNext:()=>false}),createFolder:()=>({getId:()=>'x'}),getFolderById:()=>{throw new Error('nf')}};
 vm.createContext(ctx); vm.runInContext(fs.readFileSync(SRC,'utf8'),ctx,{filename:'gas.js'});
+require('./gas_legacy_adapter')(ctx, sp);
 // ⚠️ ปิดการลบแท็บสรุปรายวันที่เก่ากว่า 62 วัน — เทสต์นี้เขียนสรุปของวันที่ตายตัว (2026-08-05)
 // ถ้าไม่ปิด ตั้งแต่ 7 ต.ค. 2569 แท็บที่เพิ่งเขียนถูกลบทันที เทสต์ล้มเอง และ deploy.bat หยุด (รอบตรวจ 5)
 vm.runInContext('DAILY_SHEET_RETENTION_DAYS = 0', ctx);
@@ -76,7 +77,7 @@ function daySummary(over){
 console.log('\n--- handleTransaction: บิลจริงจาก app.js ---');
 t('บิลปกติผ่าน', ()=>{
   const ss=FakeSS(); const sh=ss.insertSheet('บิล-08-2026');
-  const r=g.handleTransaction({id:'TX-1754400000000-AB12CD34',monthKey:'08-2026',date:Date.now(),
+  const r=g.handleTransaction({id:'TX-1754400000000-AB12CD34',monthKey:'08-2026',date:Date.parse('2026-08-05T12:00:00+07:00'),
     dateTimeStr:'2026-08-05 12:00:00',customerName:'ลูกค้าทั่วไป (Walk-in)',services:['ตัดผม'],
     subtotal:300,discount:0,total:300,paymentMethod:'cash',staffNames:['A']}, ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));

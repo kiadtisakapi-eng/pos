@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v62-uifix';
+const CACHE_NAME = 'jahn-pos-v63-uifix';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
@@ -84,7 +84,7 @@ self.addEventListener('activate', (e) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME) {
+          if (key.startsWith('jahn-pos-') && key !== CACHE_NAME) {
             return caches.delete(key);
           }
         })
@@ -100,7 +100,8 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
 
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
+    // อ่านจากแคชของ POS รุ่นนี้เท่านั้น (ข้อ 8) — caches.match เปล่า ๆ ค้นทุกแคชของโดเมน รวมแคชของแอปอื่น
+    caches.open(CACHE_NAME).then((cache) => cache.match(e.request)).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
@@ -124,7 +125,7 @@ self.addEventListener('fetch', (e) => {
       }).catch(() => {
         // หากดึงข้อมูลล้มเหลวและเป็นหน้าหลัก ให้ส่งหน้า index.html กลับไป
         if (e.request.mode === 'navigate') {
-          return caches.match('./index.html');
+          return caches.open(CACHE_NAME).then((cache) => cache.match('./index.html'));
         }
         // request อื่นๆ ที่ล้มเหลวออฟไลน์ — คืน response ว่างแทน undefined (กัน error ใน respondWith)
         return new Response('', { status: 503, statusText: 'Offline' });

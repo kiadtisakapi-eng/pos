@@ -1,5 +1,4 @@
 // รันเทสต์ทุกไฟล์รวดเดียว — ใช้ก่อน deploy ทุกครั้ง
-const { execFileSync } = require('child_process');
 const path = require('path');
 // ใช้ runtime ตัวเดียวกับที่เริ่มชุดทดสอบ ไม่พึ่งคำว่า "node" ใน PATH
 // สำคัญกับ Windows หลังเพิ่งติดตั้ง Node แต่หน้าต่าง PowerShell เดิมยังไม่รับ PATH ใหม่
@@ -12,33 +11,30 @@ const nodeRuntime = process.execPath;
 const childEnv = Object.assign({}, process.env, { TZ: process.env.TZ || 'Asia/Bangkok' });
 
 // ── เทสต์ตรรกะล้วน ไม่ต้องลงอะไรเพิ่ม รันได้เสมอ ──────────────────────────
-const files = ['test_db_state.js','test_batch2_real.js','test_batch3_real.js','test_batch4_real.js','test_batch5_real.js','test_batch6_real.js','test_batch7_real.js','test_batch8_real.js','test_batch9_real.js','test_batch10_real.js','test_batch11_real.js','test_batch12_real.js','test_tool_dryrun.js','test_app.js','test_batch_a.js','test_batch_b.js','test_vat_sheet.js','test_batch_c.js','test_batch_d.js','test_tombstone.js','test_batch_e.js','test_batch_f.js','test_batch_g.js','test_batch_h.js','test_gas.js','test_gas_summary.js','test_shift_variance.js','test_update_flow.js','test_vat.js','test_edge.js','test_e2e.js','test_calc.js','test_promptpay.js','test_flows.js','test_datekey.js','test_quote.js','test_fullday.js','test_print.js','test_perf.js','test_roles.js','test_core.js','verify.js'];
+const files = ['test_audit_fixes.js','test_claude_review.js','test_claude_recheck.js','test_deploy_safety.js','test_db_state.js','test_batch2_real.js','test_batch3_real.js','test_batch4_real.js','test_batch5_real.js','test_batch6_real.js','test_batch7_real.js','test_batch8_real.js','test_batch9_real.js','test_batch10_real.js','test_batch11_real.js','test_batch12_real.js','test_card_fee_split.js','test_card_fee_vat.js','test_card_fee_regressions.js','test_card_fee_review.js','test_tool_dryrun.js','test_app.js','test_batch_a.js','test_batch_b.js','test_vat_sheet.js','test_batch_c.js','test_batch_d.js','test_tombstone.js','test_batch_e.js','test_batch_f.js','test_batch_g.js','test_batch_h.js','test_gas.js','test_gas_summary.js','test_shift_variance.js','test_update_flow.js','test_vat.js','test_edge.js','test_e2e.js','test_calc.js','test_promptpay.js','test_flows.js','test_datekey.js','test_quote.js','test_fullday.js','test_print.js','test_perf.js','test_roles.js','test_core.js','verify.js'];
 
 let bad = 0;
+files.unshift('test_recheck_fixes.js');
+files.push('test_audit_20261008.js', 'test_audit_20261008_d.js', 'test_runner.js');
+// ตัวตัดสินผ่าน/ไม่ผ่านอยู่ใน runner_judge.js (ใช้ร่วมกับ run-all-ui.js) — ต้องมีบรรทัดสรุป · อ่าน stderr · ค้างเกิน 5 นาที = ไม่ผ่าน
+const { runTestFile, parseArgs } = require('./runner_judge');
+const args = parseArgs((process.argv || []).slice(2));
+const list = args.only || files;
+if (args.only) console.log(`(รันเฉพาะ ${list.length} ไฟล์ตาม --only — ไม่ใช่ชุดเต็มของ deploy)`);
 const run = (f) => {
-  process.stdout.write(f.padEnd(26));
-  try {
-    const out = execFileSync(nodeRuntime, [path.join(__dirname, f)], { encoding: 'utf8', stdio: ['ignore','pipe','pipe'], env: childEnv });
-    // ⚠️ ไฟล์ที่ลืม process.exit(1) ตอนมีเทสต์ไม่ผ่าน เคยถูกนับว่า "ผ่าน" (exit code 0) — ตรวจจากผลที่พิมพ์ด้วย
-    const failed = out.split('\n').filter(l => /^\s*FAIL\b/.test(l) || l.includes('❌'));
-    // เฉพาะบรรทัดสรุปของไฟล์ ("=== ผ่าน N · ไม่ผ่าน M ===" / "ผ่าน N / ล้มเหลว M") — ไม่ใช่ชื่อเทสต์ที่มีคำว่าไม่ผ่าน
-    const summaryBad = /===\s*ผ่าน\s*\d+\s*·\s*ไม่ผ่าน\s*[1-9]\d*\s*===/.test(out) || /ผ่าน\s*\d+\s*\/\s*ล้มเหลว\s*[1-9]\d*/.test(out);
-    if (failed.length || summaryBad) {
-      bad++;
-      console.log('ไม่ผ่าน (exit code 0 แต่มีเทสต์ล้ม)');
-      failed.slice(0, 8).forEach(l => console.log('   ' + l.trim()));
-      return;
-    }
-    console.log((out.trim().split('\n').pop() || '').trim());
-  } catch (e) {
+  process.stdout.write(path.basename(f).padEnd(26));
+  const r = runTestFile(nodeRuntime, path.resolve(__dirname, f), childEnv, args.timeoutMs);
+  if (!r.ok) {
     bad++;
-    console.log('ไม่ผ่าน');
-    const out = String((e.stdout || '') + (e.stderr || ''));
-    out.split('\n').filter(l => l.includes('FAIL') || l.includes('❌')).slice(0, 8).forEach(l => console.log('   ' + l.trim()));
+    console.log('ไม่ผ่าน (' + r.why + ')');
+    r.failLines.slice(0, 8).forEach(l => console.log('   ' + l.trim()));
+    if (!r.failLines.length) r.out.trim().split('\n').slice(-4).forEach(l => l.trim() && console.log('   ' + l.trim()));
+    return;
   }
+  console.log(r.lastLine);
 };
 
-files.forEach(run);
+list.forEach(run);
 
 // เทสต์หน้าจอ (เปิดเบราว์เซอร์จริง) แยกไปอยู่ run-all-ui.js
 // ตั้งใจไม่รวมไว้ที่นี่: มันใช้เวลาหลายนาที ถ้าผูกกับ deploy จะต้องรอทุกครั้งที่แก้อะไรนิดเดียว

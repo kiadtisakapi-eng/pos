@@ -6,6 +6,7 @@
 //   [5] หน้ากู้จาก Drive บอกว่ารายชื่อตัดที่ 50 ไฟล์ล่าสุด และไฟล์เก่ากว่านั้นอยู่ที่ไหน
 //   [6] เอกสาร/ข้อความ: ลำดับอัปเดต = Apps Script ก่อน · ข้อความในแอปตรงกับที่ระบบทำจริง
 //   [7] เทสต์หน้าจอ responsive/modaltest ต้องส่งผล "ล้มเหลว" ได้จริง
+//   [8] ชื่อแอปตอนติดตั้ง = "Pos Massage" (manifest + iPad ตรงกัน) · ชื่อฐานข้อมูลในเครื่องห้ามเปลี่ยน
 //  (ข้อ 3 การพิมพ์ใบเสร็จ: test_print.js + e2e_batch12.js)
 //  โค้ดจริงทั้งสองฝั่ง (app.js บน IndexedDB จริง + google_apps_script.js ในชีตจำลอง)
 //  พิสูจน์ว่าจับของจริง: คัดลอกไฟล์นี้ไปรันกับโปรเจกต์ก่อนแก้ (รอบตรวจ 6) → ต้องตก
@@ -158,10 +159,12 @@ for (const role of ['staff', 'manager']) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n[4] เพดานค่าใช้จ่ายจากลิ้นชัก 300 บาท/คน/กะ — ตรวจซ้ำ ณ จุดบันทึก');
+// ⚠️ กติกาเพดาน 300/คน/กะ ถูกยกเลิก (เจ้าของตัดสิน 8 ต.ค. 2569 · ตรวจ Claude หมวด D ข้อ 1) — ค่าใช้จ่ายลงได้เฉพาะผู้จัดการ/เจ้าของ
+//    เทสต์ [4-1] เดิมพิสูจน์ "กดติดกันไม่หลุดเพดาน" → ตอนนี้พิสูจน์ว่ากดติดกันบันทึกครบ ไม่ถาม PIN และฟอร์มไม่ล้างทับรายการถัดไป
+console.log('\n[4] ค่าใช้จ่ายกดติดกันขณะคิวงานบันทึกไม่ว่าง — บันทึกครบ · ฟอร์มไม่ล้างทับรายการถัดไป');
 // ═══════════════════════════════════════════════════════════════════════════
 await section('[4-1]', async () => {
-  const { env, app, toasts } = await makeShop({ role: 'staff' });
+  const { env, app } = await makeShop({ role: 'manager' });
   await settle();
   const doc = env.document;
   const setForm = (amt, note) => {
@@ -171,36 +174,24 @@ await section('[4-1]', async () => {
     doc.getElementById('expense-staff-id').value = '';
     doc.getElementById('expense-note').value = note;
   };
-  const mineTotal = (list) => (list || []).filter(e => e.byId === 'st-1' && (e.paidFrom || 'drawer') === 'drawer').reduce((s, e) => s + e.amount, 0);
-  setForm(250, 'ของใช้ 1'); await app.addExpense(); await settle(30);
   let asked = 0;
-  app.approveDrawerExpense = async () => { asked++; return null; };   // ถามแล้วไม่มีใครอนุมัติ
+  app.askSecret = async () => { asked++; return null; };
+  app.confirmPinStepUp = async () => { asked++; return false; };
+  const mineTotal = (list) => (list || []).filter(e => e.byId === 'mg-1' && (e.paidFrom || 'drawer') === 'drawer').reduce((s, e) => s + e.amount, 0);
+  setForm(250, 'ของใช้ 1'); await app.addExpense(); await settle(30);
   setForm(40, 'ของใช้ 2'); const p1 = app.addExpense();
   setForm(45, 'ของใช้ 3'); const p2 = app.addExpense();                // พิมพ์รายการถัดไปแล้วกดทันที
   await Promise.all([p1, p2]); await settle(40);
-  await t('กดสองรายการ (คนละยอด) ติดกันเร็ว ๆ → ไม่หลุดเพดาน (เดิมได้ 335 โดยไม่มีใครอนุมัติ)', async () => {
-    eq(mineTotal(app.state.shift.expenses), 290);
-    eq(mineTotal(((await env.raw('shift')) || {}).expenses), 290);
+  await t('ผู้จัดการกดสองรายการ (คนละยอด) ติดกันเร็ว ๆ → บันทึกครบทั้งสาม รวม 335 · ไม่ถาม PIN (เดิมเกิน 300 ต้องอนุมัติ)', async () => {
+    eq(mineTotal(app.state.shift.expenses), 335);
+    eq(mineTotal(((await env.raw('shift')) || {}).expenses), 335);
+    eq(asked, 0);
+    ok(app.state.shift.expenses.some(e => e.amount === 45 && e.note === 'ของใช้ 3'));
   });
-  await t('รายการที่สองบอกเหตุผล และค่าในช่องยังอยู่ให้กดใหม่ (ทั้งยอดและรายละเอียด)', () => {
-    ok(toasts.some(x => /เกินเพดานแล้ว/.test(x.m)), JSON.stringify(toasts.slice(-3)));
-    eq(doc.getElementById('expense-amount').value, '45');
-    // เดิมรายการแรกบันทึกเสร็จแล้วล้างช่องรายละเอียดทิ้งเสมอ — กดใหม่ได้ "ค่าใช้จ่ายอื่นๆ" แทนสิ่งที่พิมพ์ไว้
-    eq(doc.getElementById('expense-note').value, 'ของใช้ 3');
-  });
-  await app.addExpense(); await settle(30);
-  await t('กดบันทึกอีกครั้ง → ถามอนุมัติตามปกติ (ไม่อนุมัติ = ไม่บันทึก)', () => { eq(asked, 1); eq(mineTotal(app.state.shift.expenses), 290); });
-  app.approveDrawerExpense = async () => { asked++; return { id: 'mg-1', name: 'บี' }; };
-  await app.addExpense(); await settle(30);
-  await t('ผู้จัดการอนุมัติ → บันทึกได้ พร้อมชื่อผู้อนุมัติและรายละเอียดที่พิมพ์ไว้', () => {
-    const e = app.state.shift.expenses.find(x => x.amount === 45);
-    ok(e && e.approvedBy === 'บี' && e.note === 'ของใช้ 3', JSON.stringify(e));
-  });
-  await t('บันทึกสำเร็จแล้วฟอร์มว่างตามปกติ', () => {
+  await t('รายการสุดท้ายบันทึกเสร็จแล้วฟอร์มว่างตามปกติ', () => {
     eq(doc.getElementById('expense-amount').value, ''); eq(doc.getElementById('expense-note').value, '');
   });
   // กดรายการเดียวตามปกติ (ไม่มีอะไรซ้อน) → ฟอร์มว่างหลังบันทึกเหมือนเดิม · ยอดเท่ากันแต่รายละเอียดต่าง = รายการถัดไป ไม่ล้างทับ
-  app.approveDrawerExpense = async () => ({ id: 'mg-1', name: 'บี' });
   setForm(20, 'ก'); const q1 = app.addExpense();
   setForm(20, 'ข'); await q1; await settle(30);
   await t('ระหว่างบันทึก พิมพ์รายการถัดไปยอดเท่ากันแต่รายละเอียดต่าง → ไม่ถูกล้างทับ', () => {
@@ -222,10 +213,10 @@ await section('[4-2]', async () => {
   setForm(280, 'ก'); const p1 = app.addExpense();
   setForm(290, 'ข'); const p2 = app.addExpense();
   await Promise.all([p1, p2]); await settle(40);
-  await t('เจ้าของไม่มีเพดาน — กดติดกันสองรายการได้ครบ (ด่านใหม่ไม่บล็อกงานปกติ)', () => eq(app.state.shift.expenses.length, 2));
+  await t('เจ้าของกดติดกันสองรายการได้ครบ (ไม่มีเพดาน)', () => eq(app.state.shift.expenses.length, 2));
   setForm(500, 'ค'); doc.getElementById('expense-source').value = 'other';
   await app.addExpense(); await settle(30);
-  await t('ค่าใช้จ่าย "จ่ายทางอื่น" ไม่นับเพดาน (เหมือนเดิม)', () => eq(app.state.shift.expenses.length, 3));
+  await t('ค่าใช้จ่าย "จ่ายทางอื่น" บันทึกได้ (เหมือนเดิม)', () => eq(app.state.shift.expenses.length, 3));
   env.dispose();
 });
 
@@ -345,6 +336,7 @@ await section('[2-2]', async () => {
   const key = gas.setupOwnerKey(); app.askOwnerKey = async () => key;
   app.resumePendingCloudWork = () => {};
   app.flushCloudOutbox = async () => {};
+  app.askTypedConfirm = async () => true;   // ตรวจ 8 ต.ค. 2569 ข้อ 3: บิลยังไม่ขึ้นชีต/รอส่งซ้ำหลังกู้ → เจ้าของพิมพ์ยอมรับ (เทสต์นี้ตรวจงานสรุปหลังย้อน)
   const older = JSON.parse(JSON.stringify(app.buildBackupPayload()));
   older.transactions = older.transactions.slice(0, 1);   // ไฟล์ที่มีบิลไม่ครบ
   const up = gas.post({ action: 'backup', backupData: older });
@@ -401,9 +393,12 @@ await t('หัวไฟล์ Apps Script บอกลำดับปัจจ�
   ok(/ลำดับอัปเดตปกติ[^\n]*วางโค้ดนี้ใน Apps Script ก่อน/.test(g)); ok(/\(ประวัติ\) อัปเกรดเป็นรุ่น 1\.7/.test(g));
 });
 await t('คู่มือเริ่มใช้งาน: วาง Apps Script ก่อน deploy (เหมือนเดิม)', () => ok(/ทำ <b>ก่อน<\/b> deploy/.test(read('คู่มือเริ่มใช้งาน.html'))));
-await t('SYSTEM_OVERVIEW: กติกาลบค่าใช้จ่ายตรงกับที่เจ้าของเลือก (เดิม "ลบได้ทุกตำแหน่ง")', () => {
+// กติกาลบค่าใช้จ่ายเปลี่ยนอีกครั้งตามคำตัดสินเจ้าของ 8 ต.ค. 2569 (ตรวจหมวด D ข้อ 1): ลง/ลบได้เฉพาะผู้จัดการ/เจ้าของ
+// (เดิม 26 ก.ย.: "พนักงานลบได้เฉพาะรายการที่ตัวเองลง") — เอกสารต้องตรงกับกติกาปัจจุบัน
+await t('SYSTEM_OVERVIEW: กติกาค่าใช้จ่ายตรงกับที่เจ้าของเลือกล่าสุด (ผู้จัดการ/เจ้าของเท่านั้น · ไม่มีเพดาน 300)', () => {
   const s = read('SYSTEM_OVERVIEW.md');
-  ok(!/ลบได้ทุกตำแหน่ง/.test(s)); ok(/พนักงานลบได้เฉพาะรายการที่ตัวเองลง/.test(s));
+  ok(!/ลบได้ทุกตำแหน่ง/.test(s)); ok(!/พนักงานลบได้เฉพาะรายการที่ตัวเองลง/.test(s));
+  ok(/ลง\/ลบได้เฉพาะผู้จัดการและเจ้าของ/.test(s)); ok(!/EXPENSE_DRAWER_FREE_LIMIT/.test(s));
 });
 await t('คู่มือฉุกเฉิน: บอกผลของการกู้ไฟล์ที่เก่ากว่าข้อมูลบนชีต', () => ok(/กู้ไฟล์ที่เก่ากว่าข้อมูลบนชีต/.test(read('วิธีกู้ข้อมูล_อ่านตอนฉุกเฉิน.md'))));
 
@@ -416,6 +411,24 @@ for (const f of ['responsive.js', 'modaltest.js']) {
     ok(/process\.exit\(1\)/.test(s), 'ไม่มีทางออกแบบล้มเหลว');
   });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n[8] ชื่อแอปตอนติดตั้งลงหน้าจอ = "Pos Massage" (เจ้าของสั่ง 6 ต.ค. 2569)');
+// ═══════════════════════════════════════════════════════════════════════════
+await t('manifest.json: ชื่อแอป (short_name / name) = Pos Massage', () => {
+  const m = JSON.parse(read('manifest.json'));
+  eq([m.short_name, m.name], ['Pos Massage', 'Pos Massage']);
+});
+await t('index.html: ชื่อตอนเพิ่มไปยังหน้าจอโฮมบน iPad ตรงกับ manifest', () => {
+  const h = read('index.html');
+  const meta = /<meta name="apple-mobile-web-app-title" content="([^"]*)">/.exec(h);
+  ok(meta && meta[1] === JSON.parse(read('manifest.json')).short_name, 'ชื่อบน iPad ไม่ตรงกับ manifest: ' + (meta && meta[1]));
+  ok(/<title>Pos Massage<\/title>/.test(h), '<title> ยังเป็นชื่อเดิม');
+});
+// ⚠️ เปลี่ยนชื่อแอปได้ แต่ "ห้ามเปลี่ยนชื่อฐานข้อมูลในเครื่อง" — ชื่อใหม่ = ฐานข้อมูลเปล่า
+//    เปิดแอปแล้วยอดขาย/พนักงาน/การตั้งค่าทั้งร้านหายจากหน้าจอทันที (ข้อมูลเดิมยังค้างอยู่ใต้ชื่อเก่า แต่แอปไม่เห็น)
+await t('ชื่อฐานข้อมูลในเครื่องยังเป็น EroticaPosDatabase (เปลี่ยน = ข้อมูลทั้งร้านหายจากแอปทุกเครื่อง)', () =>
+  ok(/new Dexie\('EroticaPosDatabase'\)/.test(read('app.js')), 'ชื่อฐานข้อมูลถูกเปลี่ยน'));
 
 R.done();
 })();

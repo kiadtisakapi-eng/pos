@@ -4,16 +4,22 @@
 //   ครั้งแรกต้องลงเครื่องมือก่อน:  npm i -D playwright
 //   แล้วสั่ง:                      node tests/run-all-ui.js
 //   อยากได้ภาพหน้าจอด้วย:          SHOT=pos node tests/responsive.js   (ภาพลงโฟลเดอร์ shots/)
-const { execFileSync } = require('child_process');
 const path = require('path');
 const nodeRuntime = process.execPath;
 const childEnv = Object.assign({}, process.env, { TZ: process.env.TZ || 'Asia/Bangkok' });
+const argv = (process.argv || []).slice(2);
 
-try { require.resolve('playwright'); }
-catch (e) {
-  console.log('ยังไม่ได้ลง Playwright — สั่ง  npm i -D playwright  ก่อน แล้วรันใหม่');
-  process.exit(0);
+// --only ใช้กับไฟล์หลอกใน tests/test_runner.js (ไม่ต้องมี Playwright) · ชุดเต็มต้องมี Playwright เสมอ (ไม่มี = ไม่ผ่าน ไม่ใช่ข้าม)
+if (!argv.some(a => /^--only=/.test(a))) {
+  try { require.resolve('playwright'); }
+  catch (e) {
+    console.log('ยังไม่ได้ลง Playwright — สั่ง  npm i -D playwright  ก่อน แล้วรันใหม่');
+    process.exit(1);
+  }
 }
+// ตัวตัดสินเดียวกับ run-all.js (ตรวจ 8 ต.ค. 2569 ข้อ 7/17): ต้องมีบรรทัดสรุป · อ่าน stderr · ค้างเกินเวลา = ไม่ผ่าน
+const { runTestFile, parseArgs } = require('./runner_judge');
+const args = parseArgs(argv);
 
 const files = [
   ['browsertest.js', 'ไม่มีคำขอวิ่งออกนอกเครื่อง + ไอคอนขึ้นจริง'],
@@ -31,20 +37,21 @@ const files = [
   ['e2e_batch7.js',  'ชุด 7: PIN เจ้าของค่าเริ่มต้นต้องถูกบังคับเปลี่ยน (หน้าต่างอยู่บนหน้าล็อกอิน) · ค่าใช้จ่ายจ่ายจากลิ้นชัก/ทางอื่น · ค่าใช้จ่ายเกินลิ้นชักเป็นเงินขาด (อ่าน IndexedDB)'],
   ['e2e_batch8.js',  'ชุด 8: QR พร้อมเพย์บน canvas จริงต้องสแกนติด · ลบพนักงานที่ผูกตะกร้าแล้วเลือกคนใหม่ได้ · แถบอัปเดตแอป (ติดตั้งช้า / มีรุ่นใหม่กว่าระหว่างแถบเปิดค้าง)'],
   ['e2e_batch9.js',  'ชุด 9: ช่องเงินเป็นแป้นตัวเลข + ส่วนลดทศนิยมชำระไม่ได้ · เปลี่ยน PIN เจ้าของถาม 2 รอบ · ผู้จัดการปิดกะต้องใส่ PIN ซ้ำ + ปิดแล้วไม่เด้งเปิดกะ · กล่องงานคลาวด์ที่หยุดส่ง · ผู้จัดการดูรายงานได้แค่วันนี้'],
-  ['e2e_batch10.js', 'ชุด 10: PIN ผิดล็อกเฉพาะบัญชี · ผู้จัดการเปิดบิลแบบดูอย่างเดียว · ค่าใช้จ่ายจากลิ้นชักเกิน 300 ต้องมี PIN ผู้จัดการ · QR ไม่ขึ้น = ปุ่มยืนยันปิด · กราฟเริ่ม 10:00 · ส่งออกไฟล์ผ่านเมนูแชร์'],
+  ['e2e_batch10.js', 'ชุด 10: PIN ผิดล็อกเฉพาะบัญชี · ผู้จัดการเปิดบิลแบบดูอย่างเดียว · ค่าใช้จ่ายลง/ลบได้เฉพาะผู้จัดการ/เจ้าของ ไม่ถาม PIN · QR ไม่ขึ้น = ปุ่มยืนยันปิด · กราฟเริ่ม 10:00 · ส่งออกไฟล์ผ่านเมนูแชร์'],
   ['e2e_batch11.js', 'ชุด 11: รหัสเชื่อมต่อผิด → สาเหตุขึ้นจอ + กดซิงก์ 1 ครั้ง = 1 คำขอ · นำเข้าไฟล์ที่เก่ากว่าการยกเลิก/แก้บิล → บิลรอตรวจให้เจ้าของเลือก (iPad+มือถือ) · แถบข้างเปลี่ยนตามไฟล์ · เตือนตั้ง PIN ผู้จัดการ · แตะบันทึกค่าใช้จ่ายซ้ำ = รายการเดียว · หน้าจอพังหลังบันทึกบิลไม่ขึ้นชำระเงินล้มเหลว'],
-  ['e2e_batch12.js', 'ชุด 12: ไม่มีปุ่มล้างประวัติยอดขาย · พิมพ์ใบเสร็จ (จอ 80 มม./มือถือ/iPad) เหลือแค่ใบเสร็จ ไม่มีปุ่มลอย/แถบอัปเดต/ข้อความแจ้งเตือน + คำสั่ง CSS ตอนพิมพ์ใช้ได้จริง · ค่าใช้จ่ายสองรายการติดกันไม่หลุดเพดาน 300 · หน้ากู้จาก Drive บอกเรื่อง 50 ไฟล์ · คำสั่งล้างยอดขายต้องผ่านด่าน'],
+  ['e2e_card_fee.js', 'แบ่งจ่าย + ค่าธรรมเนียมบัตร (6 ต.ค. 2569): เงินสด 400 → รูด 660 → ลด 5% → 630 · ใบเสร็จแจกแจง · IndexedDB หลังรีโหลด · แถวบนชีต · กรอก % เอง · หน้าแก้บิลล็อกยอด/ช่องทาง · ตั้งอัตราในหน้าตั้งค่า (iPad + มือถือ)'],
+  ['e2e_batch12.js', 'ชุด 12: ไม่มีปุ่มล้างประวัติยอดขาย · พิมพ์ใบเสร็จ (จอ 80 มม./มือถือ/iPad) เหลือแค่ใบเสร็จ ไม่มีปุ่มลอย/แถบอัปเดต/ข้อความแจ้งเตือน + คำสั่ง CSS ตอนพิมพ์ใช้ได้จริง · ค่าใช้จ่ายสองรายการติดกันบันทึกครบ · หน้ากู้จาก Drive บอกเรื่อง 50 ไฟล์ · คำสั่งล้างยอดขายต้องผ่านด่าน'],
 ];
 let bad = 0;
-files.forEach(([f, what]) => {
-  console.log('\n── ' + f + ' — ' + what);
-  try {
-    const out = execFileSync(nodeRuntime, [path.join(__dirname, f)], { encoding: 'utf8', stdio: ['ignore','pipe','pipe'], env: childEnv });
-    console.log(out.trimEnd());
-  } catch (e) {
+files.push(['e2e_recovery.js', 'รับช่วงฉุกเฉินด้วย Owner key: คำเตือน บิลใหม่ พักสำรอง และยกเลิกการปลดพัก']);
+const list = args.only ? args.only.map(f => [f, '(--only)']) : files;
+list.forEach(([f, what]) => {
+  console.log('\n── ' + path.basename(f) + ' — ' + what);
+  const r = runTestFile(nodeRuntime, path.resolve(__dirname, f), childEnv, args.timeoutMs);
+  console.log(r.out.trimEnd());
+  if (!r.ok) {
     bad++;
-    console.log(String((e.stdout || '') + (e.stderr || '')).trimEnd());
-    console.log('   ^^^ ไม่ผ่าน');
+    console.log('   ^^^ ไม่ผ่าน (' + r.why + ')');
   }
 });
 console.log(bad ? `\nมี ${bad} ไฟล์ไม่ผ่าน` : '\nผ่านทั้งหมด');

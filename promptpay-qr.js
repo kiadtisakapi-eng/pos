@@ -138,7 +138,7 @@
     for (var i = 0; i < 8; i++) { resv[8][size - 1 - i] = true; resv[size - 1 - i][8] = true; }
     // reserve version info
     if (ver >= 7) {
-      for (var i = 0; i < 18; i++) { var a2 = Math.floor(i / 3), b2 = i % 3; resv[b2][size - 11 + a2] = true; resv[size - 11 + a2][b2] = true; }
+      for (var i = 0; i < 18; i++) { var a2 = i % 3, b2 = Math.floor(i / 3); resv[b2][size - 11 + a2] = true; resv[size - 11 + a2][b2] = true; }
     }
   }
 
@@ -196,7 +196,7 @@
     if (ver < 7) return;
     var vi = bchVersion(ver);
     for (var i = 0; i < 18; i++) {
-      var bit = (vi >> i) & 1, a = Math.floor(i / 3), b = i % 3;
+      var bit = (vi >> i) & 1, a = i % 3, b = Math.floor(i / 3);
       mat[b][size - 11 + a] = bit;
       mat[size - 11 + a][b] = bit;
     }

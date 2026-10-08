@@ -82,7 +82,7 @@ await t('outbox หลังกู้มีงานสรุปของทั�
     categories:[], customers:[], queue:[], voidLog:[], expenseLog:[],
     transactions:[{id:'TX-1757000000000-NEWNEWNE',date:'2026-09-01T14:00:00+07:00',total:300,syncStatus:'synced'}],
     shift:{active:false,startTime:null,startCash:0,startDetails:{},expenses:[],history:[]} };
-  await app.applyBackupData(f);
+  await app.applyBackupData(f, { acceptUnsynced: true });   // ตรวจ 8 ต.ค. 2569 ข้อ 3: บิลเดิมในเทสต์ยังไม่ขึ้นชีต — ยืนยันกู้ทับ
   // รอบตรวจ 6 ข้อ 2: แยกเป็นงานละ 1 เดือน (ส่งทีละเดือน · พลาดเดือนไหนส่งซ้ำแค่เดือนนั้น) — รวมทุกงานแล้วต้องครบทุกงวด
   const sum = app.state.cloudOutbox.filter(x => x.needSummary);
   const months = [].concat(...sum.map(j => j.monthKeys || []));

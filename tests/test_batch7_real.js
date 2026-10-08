@@ -178,7 +178,8 @@ console.log('\n[E2] ค่าใช้จ่ายที่ "จ่ายทา�
 // ═══════════════════════════════════════════════════════════════════════════
 await section('[E2]', async () => {
   const gas = createGasEnv();
-  const { env, app } = await makeShop({ gas, role: 'staff', cash: { 1000: 1, 500: 1, 100: 2 }, rows: { vatEnabled: false, shift: SHIFT1300() } });
+  // ผู้จัดการเป็นคนลง — ค่าใช้จ่ายลงได้เฉพาะผู้จัดการ/เจ้าของแล้ว (เจ้าของตัดสิน 8 ต.ค. 2569 · ตรวจหมวด D ข้อ 1 · เดิมเทสต์นี้ใช้พนักงาน)
+  const { env, app } = await makeShop({ gas, role: 'manager', cash: { 1000: 1, 500: 1, 100: 2 }, rows: { vatEnabled: false, shift: SHIFT1300() } });
   await checkout(env, [{ id: 's1', name: 'ตัดผม', price: 400 }], 'cash', 400);
   await addExpense(env, 2000, 'other', 'ค่าเช่า');
   await addExpense(env, 100, 'drawer', 'น้ำแข็ง');
@@ -274,7 +275,7 @@ await section('[S1]', async () => {
     }
     return real(url, init);
   };
-  const shop = await makeShop({ gas, noInit: true, rows: { transactions: manyBills(60) } });
+  const shop = await makeShop({ gas, noInit: true, rows: { transactions: manyBills(60), primaryStatus: { isPrimary: true, checkedAt: Date.now() } } });
   envRef = shop.env;
   await shop.app.syncPendingTransactions(true); await settle(50);
   await t('ส่งครบ 60 ใบ', () => eq(shop.app.state.transactions.filter(x => x.syncStatus === 'synced').length, 60));
@@ -287,7 +288,7 @@ await section('[S2]', async () => {
   const real = gas.fetch;
   gas.fetch = (url, init) => { if (JSON.parse(init.body).action === 'transaction') calls++; return real(url, init); };
   gas.networkDown = true;
-  const shop = await makeShop({ gas, noInit: true, rows: { transactions: manyBills(60) } });
+  const shop = await makeShop({ gas, noInit: true, rows: { transactions: manyBills(60), primaryStatus: { isPrimary: true, checkedAt: Date.now() } } });
   await shop.app.syncPendingTransactions(true); await settle(30);
   await t('เน็ตล่ม: หยุดรอบหลังล้มติดกัน 3 ใบ (เดิมไล่ยิงทั้ง 60 ใบ ใบละ 20 วินาทีถ้าเน็ตค้าง)', () => ok(calls <= 3, String(calls)));
   await t('บิลที่ยังไม่ได้ส่งยังค้างรอส่งครบทุกใบ (ไม่มีอะไรหาย)', () => eq(shop.app.state.transactions.filter(x => x.syncStatus === 'pending').length, 60));

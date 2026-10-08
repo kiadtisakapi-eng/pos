@@ -1,5 +1,6 @@
 // ชุด 9 บนเบราว์เซอร์จริง (Chromium + IndexedDB จริง) — รอบตรวจ 3 (26 ก.ย. 2569)
 //   [N] ช่องตัวเลขเงินเปิดแป้นตัวเลข · ส่วนลดมีทศนิยม → ยอดขึ้นว่าต้องเป็นจำนวนเต็ม และชำระไม่ได้
+//       · ส่วนลดเท่าราคารวม (ยอด 0) → ชำระไม่ได้ (เจ้าของตัดสิน 8 ต.ค. 2569)
 //   [O] เปลี่ยน PIN เจ้าของจากหน้าตั้งค่า: ไม่มีช่องที่บันทึกเองแล้ว · ปุ่ม → ถาม PIN เดิม + ใหม่ 2 รอบ (หน้าต่างอยู่บนสุด)
 //   [M] ผู้จัดการปิดกะ → ต้องใส่ PIN ซ้ำ (หน้าต่างอยู่บนหน้าต่างนับเงิน) · ผิด = ไม่ปิด · ปิดแล้วไม่เด้งเปิดกะใหม่
 //   [J] งานคลาวด์ที่ล้มเกิน 7 วันโผล่ในหน้าตั้งค่าพร้อมปุ่ม ลองใหม่/ทิ้งงานนี้
@@ -91,6 +92,25 @@ async function login(p, uid, pin) {
   await p.click('#btn-checkout');
   await p.waitForTimeout(300);
   t('ส่วนลดมีทศนิยม → หน้าชำระเงินไม่เปิด', !(await p.isVisible('#pay-cash-btn')));
+  // เจ้าของตัดสิน 8 ต.ค. 2569: ลดจนยอดเหลือ 0 ไม่ได้ (เดิมบิล 0 บาทปิดด้วยเงินสดได้)
+  const sub = await p.evaluate(() => app.getCartSubtotal());
+  await p.evaluate(() => { const c = document.getElementById('toast-container'); if (c) c.innerHTML = ''; });
+  await p.fill('#cart-discount', String(sub));
+  await p.dispatchEvent('#cart-discount', 'input');
+  await p.waitForTimeout(200);
+  const zeroTxt = await p.textContent('#summary-total');
+  t('ส่วนลดเท่าราคารวม → ยอดบนจอบอกว่า "ส่วนลดต้องน้อยกว่าราคารวม"', /ส่วนลดต้องน้อยกว่าราคารวม/.test(zeroTxt), zeroTxt);
+  await p.click('#btn-checkout');
+  await p.waitForTimeout(300);
+  const zeroToast = await p.evaluate(() => { const c = document.getElementById('toast-container'); return c ? c.innerText : ''; });
+  t('ส่วนลดเท่าราคารวม → หน้าชำระเงินไม่เปิด + บอกว่ายอดต้องมากกว่า 0', !(await p.isVisible('#pay-cash-btn')) && /มากกว่า 0 บาท/.test(zeroToast), zeroToast);
+  await p.fill('#cart-discount', String(sub - 1));
+  await p.dispatchEvent('#cart-discount', 'input');
+  await p.waitForTimeout(200);
+  await p.click('#btn-checkout');
+  await p.waitForTimeout(300);
+  t('ส่วนลดน้อยกว่าราคารวม 1 บาท → หน้าชำระเงินเปิดตามปกติ (ยอด 1 บาท)', await p.isVisible('#pay-cash-btn'));
+  await p.evaluate(() => app.closeModal('modal-payment'));
   await p.fill('#cart-discount', '0');
   await p.dispatchEvent('#cart-discount', 'input');
   await p.evaluate(()=>app.clearCart());

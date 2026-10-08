@@ -560,7 +560,7 @@ await section('[17.8]', async () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n[19.1] สองเครื่องต่อชีตเดียวกัน: สรุปรับจากเครื่องหลักเท่านั้น · บิลรายใบส่งได้ทุกเครื่อง');
+console.log('\n[19.1] สองเครื่องต่อชีตเดียวกัน: ยอดขาย/สรุปรับจากเครื่องหลักเท่านั้น · เครื่องรองต้องกู้ข้อมูลครบก่อนย้าย');
 // ═══════════════════════════════════════════════════════════════════════════
 await section('[19.1-19.3]', async () => {
   const gas = createGasEnv();
@@ -577,11 +577,13 @@ await section('[19.1-19.3]', async () => {
   const snap = JSON.stringify(gas.sheet(summaryName)._grid);
 
   const tb = await checkout(B.env, [{ id: 's1', name: 'ตัดผม', price: 500 }], 'cash', 500);
-  B.app.enqueueSummaryRefresh(tb.date); await B.app.flushCloudOutbox(); await settle(60);
+  eq(tb, undefined, 'เครื่องรองต้องไม่สร้างบิลใหม่');
+  B.app.enqueueSummaryRefresh(ta.date); await B.app.saveState(); await B.app.flushCloudOutbox(); await settle(60);
   await t('สรุปจากเครื่อง B (เห็นแค่บิลของตัวเอง) ถูกปฏิเสธ — แท็บสรุปไม่ถูกทับ', () => {
     eq(JSON.stringify(gas.sheet(summaryName)._grid), snap);
-    ok(gas.requests.some(r => r && r.action === 'summary_day' && r.deviceId === B.app.deviceId), '(เงื่อนไข) B ไม่ได้ส่งจริง'); });
-  await t('บิลรายใบของเครื่อง B ยังขึ้นชีตตามปกติ', async () => eq((await rawTx(B.env, tb.id)).syncStatus, 'synced'));
+    eq(B.app.primaryStatus.isPrimary, false); // การยืนยันเครื่องขายถูกปฏิเสธก่อนรับเงิน
+  });
+  await t('เครื่อง B ไม่รับชำระเงินและไม่มีบิลที่ขาดจากสรุป', async () => eq((await B.env.raw('transactions')).length, 0));
   await t('เครื่อง B รู้ตัว (บันทึกในเครื่อง) และพักงานสรุปไว้ในคิว ไม่ทิ้ง', async () => {
     eq((await B.env.raw('primaryStatus')).isPrimary, false); ok((await B.env.raw('cloudOutbox')).some(it => it.needSummary)); });
   const n0 = gas.requests.filter(r => r && r.action === 'summary_day').length;
@@ -610,12 +612,18 @@ await section('[19.1-19.3]', async () => {
   await t('ผู้จัดการกดตั้งเครื่องหลักไม่ได้ (สิทธิ์เจ้าของ)', () => { eq(c1, false); eq(JSON.parse(gas.props.POS_PRIMARY_DEVICE).id, A.app.deviceId); });
   loginAs(B.app, 'owner');
   B.app.askOwnerKey = async () => key;
+  const normalConfirm = B.app.askConfirm;
+  B.app.askConfirm = async msg => !/รับช่วงขายฉุกเฉิน/.test(msg); // Normal transfer still requires complete data.
+  await t('เครื่องใหม่ที่ยังไม่ได้กู้ข้อมูลถูกกันก่อนย้าย', async () => eq(await B.app.claimPrimaryDevice(), false));
+  B.app.askConfirm = normalConfirm;
+  await B.app.applyBackupData(JSON.parse(JSON.stringify(A.app.buildBackupPayload())));
   const c2 = await B.app.claimPrimaryDevice();
   await settle(80);
   await t('เจ้าของยืนยันด้วยรหัส → B เป็นเครื่องหลัก · งานสรุปที่พักไว้ถูกส่งทันที', async () => {
     eq(c2, true); eq(JSON.parse(gas.props.POS_PRIMARY_DEVICE).id, B.app.deviceId);
     ok(!(await B.env.raw('cloudOutbox')).some(it => it.needSummary), 'งานสรุปยังค้าง');
-    ok(JSON.stringify(gas.sheet(summaryName)._grid) !== snap, 'แท็บสรุปไม่ถูกอัปเดต'); });
+    eq(B.app.state.transactions.length, A.app.state.transactions.length);
+    eq(B.app.state.transactions[0].total, ta.total, 'กู้ยอดจากเครื่องเดิมครบก่อนส่งสรุป'); });
   A.app.enqueueSummaryRefresh(ta.date); await A.app.flushCloudOutbox(); await settle(60);
   await t('เครื่องหลักเดิม (A) ส่งสรุปไม่ได้แล้ว และรู้ตัว', () => eq(A.app.primaryStatus.isPrimary, false));
   A.env.dispose(); B.env.dispose();
@@ -624,9 +632,9 @@ await section('[19.1-19.3]', async () => {
 console.log('\n[19.4] แอปรุ่นเก่า (ไม่ส่งรหัสเครื่อง): ยอมเฉพาะตอนยังไม่มีเครื่องหลัก · ข้อมูลเครื่องหลักเสีย = ปิดไว้ก่อน');
 await section('[19.4]', async () => {
   const gas = createGasEnv();
-  const { env, app } = await makeShop({ gas });
+  const { env, app } = await makeShop({ gas, unknownPrimary: true });
   await settle();
-  const legacyPayload = () => { const p = app.buildSummaryPayload([], [], 'day', '2026-09-10'); delete p.deviceId; delete p.deviceLabel; delete p.secret; return p; };
+  const legacyPayload = () => { const p = app.buildSummaryPayload([], [], 'day', '2026-09-10'); p.deviceId = ''; delete p.deviceLabel; delete p.secret; return p; };
   const r0 = gas.post(legacyPayload());
   await t('ยังไม่มีเครื่องหลัก → คำขอแบบเก่ายังรับ (ช่วงอัปเกรด) และไม่ลงทะเบียนใครเป็นเครื่องหลัก', () => {
     eq(r0.status, 'success', JSON.stringify(r0)); eq(gas.props.POS_PRIMARY_DEVICE, undefined); });
@@ -667,7 +675,7 @@ await section('[19.6]', async () => {
   let B = await makeShop({ gas });
   await settle();
   A.app.enqueueSummaryRefresh(Date.now()); await A.app.flushCloudOutbox(); await settle(60);
-  B.app.enqueueSummaryRefresh(Date.now()); await B.app.flushCloudOutbox(); await settle(60);
+  B.app.enqueueSummaryRefresh(Date.now()); await B.app.saveState(); await B.app.flushCloudOutbox(); await settle(60);
   await t('(เงื่อนไข) B ถูกพักงานสรุป', () => eq(B.app.primaryStatus && B.app.primaryStatus.isPrimary, false));
   const idB = B.app.deviceId;
   delete gas.props.POS_PRIMARY_DEVICE;          // เจ้าของล้างการตั้งค่าเครื่องหลักบน Apps Script

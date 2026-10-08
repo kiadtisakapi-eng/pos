@@ -16,7 +16,7 @@ app.saveState=async function(){ if(this.loadFailed) return; saved++; };
 // showConfirm: กด "ตกลง" ทันที
 app.showConfirm=(msg,cb)=>{ app._lastConfirm=msg; app._confirmPromise=cb(); return app._confirmPromise; };
 app.openModal=()=>{}; app.closeModal=(id)=>{app._closed=id;};
-app.exportData=()=>{ app._exported=(app._exported||0)+1; };
+app.downloadExportFile=(data)=>{ app._exported=(app._exported||0)+1; app._exportedData=JSON.parse(data); return true; };
 
 const doRestore=async(...a)=>{ app.restoreFromDriveBackup(...a); await app._confirmPromise; };
 
@@ -70,7 +70,8 @@ t('ชื่อร้านเข้ามา',()=>eq(app.shopName,'ร้าน
 
 console.log('\n--- applyBackupData: เครื่องใหม่ยังไม่ตั้ง URL ---');
 app.googleSheetsUrl='';
-await app.applyBackupData(goodBackup());
+// ตรวจ 8 ต.ค. 2569 ข้อ 3: หลังกู้รอบแรกบิลทุกใบรอส่งซ้ำ (ยังไม่ขึ้นชีต) — กู้ซ้ำต้องยืนยันก่อน · เทสต์นี้ตรวจเรื่อง URL จึงส่งคำยืนยันไปด้วย
+await app.applyBackupData(goodBackup(), { acceptUnsynced: true });
 t('รับ URL จากไฟล์เมื่อเครื่องยังว่าง',()=>eq(app.googleSheetsUrl,'https://OLD-deployment/exec'));
 
 console.log('\n--- applyBackupData: โหลดข้อมูลเดิมพัง ---');
@@ -135,16 +136,19 @@ t('โหลดข้อมูลไม่สำเร็จ ห้ามกู�
 app.loadFailed=false;
 
 console.log('\n--- restoreFromDriveBackup ---');
+// ตรวจ 8 ต.ค. 2569 ข้อ 3: บิลที่ค้างจากการกู้รอบก่อนยังไม่ขึ้นชีต → ทางจริงถามพิมพ์ "ยอมรับ" (เทสต์ของด่านนี้อยู่ใน test_audit_20261008.js) — ที่นี่ตอบยอมรับ
+app.askTypedConfirm=async()=>true;
 let sentBody=null;
 // ชุด F: หลังกู้ข้อมูลสำเร็จ แอปจะชวน "ตรวจความตรงกันกับชีต" ซึ่งยิง list_bills ตามหลัง
 // คำขอนั้นไม่ใช่สิ่งที่บล็อกนี้ตรวจ จึงไม่ให้มันทับ sentBody
 app.fetchWithTimeout=async(url,opt)=>{ const _b=JSON.parse(opt.body); if(_b.action!=='list_bills') sentBody=_b;
   return { ok:true, json:async()=>({status:'success',details:{fileName:'pos_backup_a.json',backupData:goodBackup()}}) }; };
 app._exported=0; saved=0;
+const beforeRestoreBills=JSON.parse(JSON.stringify(app.state.transactions));
 await doRestore('FILEID123','27/7/2569 21:40 น.');
 t('ส่ง action=get_backup + fileId',()=>{eq(sentBody.action,'get_backup');eq(sentBody.fileId,'FILEID123');});
 t('ส่ง secret ไปด้วย',()=>ok(!!sentBody.secret));
-t('เซฟสำเนาข้อมูลปัจจุบันก่อน 1 ครั้ง',()=>eq(app._exported,1));
+t('เซฟสำเนาข้อมูลปัจจุบันก่อน 1 ครั้ง',()=>{ eq(app._exported,1); eq(app._exportedData.transactions,beforeRestoreBills); });
 t('เขียนข้อมูลใหม่ลง DB',()=>eq(saved,1));
 t('ปิด modal หลังสำเร็จ',()=>eq(app._closed,'modal-restore'));
 

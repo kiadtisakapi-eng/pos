@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  ชุด 9 (26 ก.ย. 2569) — แก้จากผลตรวจรอบ 3 ตามที่เจ้าของสั่ง
-//   [N] กติกาตัวเลข: ราคา/ส่วนลด/เงินรับ/ค่าใช้จ่าย/VAT เป็นจำนวนเต็มเท่านั้น · ค่าคอมปัดเป็นบาทเต็ม · บิล 0 บาทจ่ายเงินสดได้ (ข้อ 2, 12)
+//   [N] กติกาตัวเลข: ราคา/ส่วนลด/เงินรับ/ค่าใช้จ่าย/VAT เป็นจำนวนเต็มเท่านั้น · ค่าคอมปัดเป็นบาทเต็ม · (ข้อ 12 บิล 0 บาท — ยกเลิกแล้ว 8 ต.ค. 2569: ลดจนยอดเหลือ 0 ไม่ได้)
 //   [S] ตะกร้าไม่ใส่ผู้ให้บริการให้เอง (ข้อ 5)
 //   [D] กะที่เปิดหลังร้านปิด (03:00–06:00) = วันทำการใหม่ · ปิดกะแล้วไม่เด้งเปิดกะใหม่ (ข้อ 3)
 //   [B] สำรองขึ้น Drive ระหว่างกะทุก 5 บิล (ข้อ 4)
@@ -60,17 +60,11 @@ await section('[N]', async () => {
   await t('ตัวคิดค่าคอม: ปัดครึ่งขึ้น · แบบคงที่ไม่ปัด', () => {
     eq(app.state.transactions.every(x => (x.details || []).every(d => Number.isInteger(d.commissionAmount))), true);
   });
-  // บิล 0 บาท (ลด 100%) จ่ายเงินสด ช่องรับเงินว่าง → ออกบิลได้
+  // ⚠️ กติกาเปลี่ยน (เจ้าของตัดสิน 8 ต.ค. 2569): ลดจนยอดเหลือ 0 ไม่ได้ — เดิมข้อ 12 ให้บิล 0 บาทปิดด้วยเงินสดได้
   const n1 = app.state.transactions.length;
   await checkout(env, null, 'cash', '', '300');
-  const tx0 = app.state.transactions[app.state.transactions.length - 1];
-  await t('บิล 0 บาท (ลด 100%) ปิดด้วยเงินสดได้ แม้ช่องรับเงินว่าง (ข้อ 12)', () => { eq(app.state.transactions.length, n1 + 1); eq(tx0.total, 0); eq(tx0.cashReceived, 0); });
-  // หน้าจอเงินทอน: บิล 0 บาทต้องเปิดปุ่มยืนยัน
-  readyCheckout(env, null, 'cash', '');
-  env.document.getElementById('cart-discount').value = '300';
-  const btn = env.document.getElementById('btn-complete-checkout'); btn.disabled = true;
-  app.recalcCashChange();
-  await t('หน้าชำระเงิน: บิล 0 บาท ปุ่มยืนยันเปิด', () => eq(btn.disabled, false));
+  await t('ลด 100% (ยอด 0) → ออกบิลไม่ได้ ไม่มีบิลเพิ่ม (เดิมข้อ 12 ออกได้)', () => eq(app.state.transactions.length, n1));
+  const btn = env.document.getElementById('btn-complete-checkout');
   env.document.getElementById('cart-discount').value = '0';
   env.document.getElementById('cash-received').value = '300.5';
   app.recalcCashChange();

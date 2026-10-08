@@ -227,7 +227,8 @@ const setupExpense = (amount) => {
   app.currentUser = { name: 'เอ' };
   // ตั้งแต่ ก.ย. 2569 addExpense ตรวจสิทธิ์เอง — ต้องมีตำแหน่งที่ล็อกอินอยู่จริง
   // (ถ้าไม่ตั้ง เทสต์ข้างล่างจะ "ผ่าน" เพราะถูกปฏิเสธที่ด่านสิทธิ์ ไม่ได้ตรวจการบันทึกเลย)
-  app.currentRole = 'staff';
+  // ผู้จัดการ — พนักงานลงค่าใช้จ่ายไม่ได้แล้ว (เจ้าของตัดสิน 8 ต.ค. 2569 · ตรวจหมวด D ข้อ 1)
+  app.currentRole = 'manager';
   app.renderDashboard = () => {};
   h.document.getElementById('expense-type').value = 'other';
   h.document.getElementById('expense-amount').value = String(amount);
@@ -315,6 +316,7 @@ gctx.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props
 gctx.SpreadsheetApp = { flush() {}, getActiveSpreadsheet: () => fakeSS };
 vm.createContext(gctx);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'google_apps_script.js'), 'utf8'), gctx, { filename: 'gas.js' });
+require('./gas_legacy_adapter')(gctx, props);
 
 // ชีตปลอมแบบย่อ พอสำหรับตรวจว่า "แตะข้อมูลหรือเปล่า"
 function FakeSheet(headers, rows) {
@@ -341,9 +343,10 @@ const resetSheets = () => {
     ['TX-1757000000000-AAAAAAAA', '2026-09-01 12:00', 'ลูกค้า', 'ตัดผม', 'เงินสด', 300, 0, 300, 0, 0, 0, 300, 'เอ'],
     ['', '2026-09-01 13:00', 'แถวที่เลขบิลว่าง', 'นวด', 'เงินสด', 500, 0, 500, 0, 0, 0, 500, 'บี']
   ]);
+  gctx.SpreadsheetApp.getActiveSpreadsheet = () => fakeSS;
   fakeSS = { getSheetByName: n => (n === '09-2026' ? billSheet : null), getSheets: () => [billSheet], insertSheet: () => billSheet };
 };
-const post = body => JSON.parse(gctx.doPost({ postData: { contents: JSON.stringify(body) } }));
+const post = body => JSON.parse(gctx.doPost({ postData: { contents: JSON.stringify(Object.assign({ deviceId: 'dev-' + 'a'.repeat(32) }, body)) } }));
 const SECRET = 'T'.repeat(32);
 
 console.log('\n  · คำสั่งที่ไม่รู้จัก');

@@ -271,8 +271,8 @@ t('เปิดแอปใหม่ -> จำผู้จัดการไว�
 // ปลอมสิทธิ์ในตัวเซสชันแล้วต้องไม่ได้ผล — role ต้องมาจากทะเบียนพนักงานเสมอ
 app.state.staff[1].accessLevel = 'staff';
 restored = await app.tryRestoreSession();
-t('ลดสิทธิ์ในทะเบียนพนักงาน -> เซสชันเก่าต้องได้สิทธิ์ใหม่ ไม่ใช่สิทธิ์ที่ค้างในเซสชัน',
-  () => eq(app.currentRole, 'staff'));
+t('ลดสิทธิ์ในทะเบียนพนักงาน -> เซสชันเก่าใช้ไม่ได้ ต้องล็อกอินใหม่ (ไม่ใช้สิทธิ์ที่ค้างในเซสชัน · ข้อ 5)',
+  () => { eq(restored, false); eq(app.currentRole, null); });
 app.state.staff[1].accessLevel = 'manager';
 
 app.state.staff[1].pin = null;
@@ -504,6 +504,7 @@ app.showConfirm = (m, cb) => { app._p = cb(); };
 // แล้วเทสต์ "สลับไป-กลับ" จะไม่ได้ตรวจอะไรเลย
 delete app.saveState; delete app.applyBackupData;
 app.currentUser = { id: '__owner__', name: 'เจ้าของร้าน' };
+app.askTypedConfirm = async () => true;   // ตรวจ 8 ต.ค. 2569 ข้อ 3: บิลในเทสต์ยังไม่ขึ้นชีต → เจ้าของพิมพ์ยอมรับ (เทสต์นี้ตรวจการสลับไป-กลับ)
 await app.undoLastRestore(); await app._p;
 t('ย้อนกลับแล้วได้บิลชุดก่อนกู้คืนมา', () =>
   eq(app.state.transactions.map(x => x.id), ['TX-BEFORE-1','TX-BEFORE-2']));
