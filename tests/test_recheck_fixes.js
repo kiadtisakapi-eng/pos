@@ -173,7 +173,9 @@ function summaryRequests(s) { return s.gas.requests.filter(x => x.action === 'su
       const raw = JSON.stringify(Object.assign({ w: Date.now() - 120 * 86400000 }, bad)); g.props['POSVB_TX-RECHECK'] = raw;
       assert.throws(() => g.ctx.readBillRegistryStrict_('TX-RECHECK'));
       g.ctx.pruneBillRegistry_(); assert.equal(g.props['POSVB_TX-RECHECK'], raw);
-      assert.equal(g.post(bill()).code, 'REGISTRY_UNAVAILABLE'); assert.equal(g.sheet('10-2026')._grid.length, 1);
+      // ตรวจ 14 ต.ค. ข้อ 11: ค่าเสีย (ส่งซ้ำก็ไม่หาย) = REGISTRY_CORRUPT เฉพาะบิลนี้ (เดิม REGISTRY_UNAVAILABLE "ชั่วคราว")
+      const blocked = g.post(bill()); assert.equal(blocked.code, 'REGISTRY_CORRUPT'); assert.equal(blocked.details.scope, 'bill');
+      assert.equal(g.sheet('10-2026')._grid.length, 1);
     });
   }
 

@@ -277,12 +277,14 @@ app.updateUserRoleUI = () => {};
 const settle = () => new Promise(r => setTimeout(r, 0));
 
 await t('หน้าต่างรองห้ามเขียนทับเซสชันของหน้าต่างหลัก (ดูจากผลที่กู้เซสชันได้จริง)', async () => {
-  app.state.staff = [{ id: 'st1', name: 'A', accessLevel: 'staff', pin: 'a'.repeat(64) }];
+  // (ตรวจ 13 ต.ค. 2569: เซสชันเจ้าของไม่ถูกคืนข้ามการเปิดแอปแล้ว — ใช้ผู้จัดการเป็นหน้าต่างหลักแทน วัดเรื่องเดิม)
+  app.state.staff = [{ id: 'st1', name: 'A', accessLevel: 'staff', pin: 'a'.repeat(64) },
+    { id: 'mg1', name: 'M', accessLevel: 'manager', pin: 'b'.repeat(64) }];
 
-  // หน้าต่างหลักล็อกอินเป็นเจ้าของ แล้วจำเซสชันไว้
+  // หน้าต่างหลักล็อกอินเป็นผู้จัดการ แล้วจำเซสชันไว้
   app.isReadOnlyWindow = false;
-  app.currentUser = { id: '__owner__', name: 'เจ้าของ' };
-  app.currentRole = 'owner';
+  app.currentUser = { id: 'mg1', name: 'M' };
+  app.currentRole = 'manager';
   real('saveSession')();
   await settle();
 
@@ -298,8 +300,8 @@ await t('หน้าต่างรองห้ามเขียนทับ�
   app.currentUser = null; app.currentRole = null;
   const okRestore = await real('tryRestoreSession')();
   ok(okRestore, 'ต้องยังมีเซสชันให้กู้');
-  eq(app.currentUser.id, '__owner__', 'เซสชันของหน้าต่างหลักต้องไม่ถูกทับ');
-  eq(app.currentRole, 'owner');
+  eq(app.currentUser.id, 'mg1', 'เซสชันของหน้าต่างหลักต้องไม่ถูกทับ');
+  eq(app.currentRole, 'manager');
 });
 app.isReadOnlyWindow = false;
 

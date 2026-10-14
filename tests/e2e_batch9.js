@@ -159,6 +159,10 @@ async function login(p, uid, pin) {
   t('PIN ถูก → ปิดกะ ลง IndexedDB พร้อมชื่อคนปิด', sh && sh.active === false && sh.history.length === 1 && sh.history[0].closedBy === 'สมหญิง', sh && sh.history);
   await p.waitForTimeout(800);
   t('ปิดกะแล้วไม่เด้งหน้าต่างเปิดกะใหม่', await p.evaluate(()=>!document.getElementById('modal-cash-counter').classList.contains('active')));
+  // ตรวจ 13 ต.ค. 2569 ข้อ 4: ผู้จัดการปิดกะแล้วถูกออกจากระบบ — ล็อกอินใหม่เพื่อดูรายงานต่อ
+  t('ผู้จัดการปิดกะแล้วออกจากระบบ (หน้าล็อกอินขึ้น)', await p.evaluate(()=>app.currentRole === null && document.getElementById('modal-login').classList.contains('active')));
+  await login(p, 'mg-1', '222222');
+  await p.evaluate(()=>app.closeModal('modal-cash-counter'));
 
   console.log('\n[V] ผู้จัดการดูรายงานได้เฉพาะวันนี้');
   await p.evaluate(async () => {

@@ -575,6 +575,25 @@ body {
   font-family: 'Outfit', sans-serif;
 }
 
+/* ตรวจ 13 ต.ค. 2569 ข้อ 11: ตัวเลขยอดขายล้นการ์ดแล้วถูกตัด (iPad 1024: "฿7,945.00" เหลือ "฿7,945")
+   flex item ต้อง min-width:0 จึงจะหดได้ · ตัวเลขย่อตามความกว้างจอ อยู่บรรทัดเดียวเสมอ (ห้ามหักกลางตัวเลข)
+   จอเล็กกว่า 1280 (iPad ของร้าน 1024): ไอคอนขึ้นไปอยู่เหนือตัวเลข ตัวเลขจึงได้ความกว้างทั้งการ์ด (ผู้ตรวจอิสระวัด 45,811–9,999,999 ที่ 1024/1180/820/390 อยู่ในการ์ดบรรทัดเดียวหมด) */
+.kpi-card { min-width: 0; }
+.kpi-info { min-width: 0; flex: 1 1 auto; }
+.kpi-info h3 {
+  font-size: clamp(0.95rem, 1.45vw, 1.55rem);
+  white-space: nowrap;
+  overflow-wrap: normal;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+/* ชื่อบริการฮิต (ข้อความ ไม่ใช่ตัวเลข) ขึ้นบรรทัดได้ตามคำ */
+#report-kpi-popular { white-space: normal; overflow-wrap: break-word; word-break: normal; }
+@media (max-width: 1279px) {
+  .kpi-grid .kpi-card { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .kpi-grid .kpi-icon { width: 40px; height: 40px; }
+}
+
 /* ============================================================
    DASHBOARD GRID & SECTIONS
    ============================================================ */
@@ -798,6 +817,79 @@ body {
   font-family: 'Outfit', sans-serif;
 }
 .tab-btn.active .tab-count { background: rgba(0,0,0,0.2); color: inherit; }
+
+/* บริการ | สินค้า บนหน้าขาย (9 ต.ค. 2569) — แถบนี้แสดงเฉพาะร้านที่มีสินค้า (app.renderPos)
+ * ตั้งใจให้หน้าตาต่างจากแท็บหมวด (กล่องแบ่งสองช่อง ไม่ใช่เม็ดยาเรียงกัน) จะได้ไม่สับสนว่าเป็นหมวดอีกตัว */
+.pos-kind-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+}
+.pos-kind-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 20px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--t-normal) var(--ease);
+}
+.pos-kind-btn:hover { color: var(--text-primary); }
+.pos-kind-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.pos-kind-btn.active {
+  background: linear-gradient(135deg, var(--teal) 0%, var(--teal-dim) 100%);
+  color: #030712;
+}
+.pos-kind-btn.active .tab-count { background: rgba(0,0,0,0.2); color: inherit; }
+.pos-search-note {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+/* ปุ่มล้างคำค้นในบรรทัด "ผลค้นหา … จากทุกหมวด" */
+.pos-search-clear {
+  margin-left: 8px;
+  padding: 4px 10px;
+  min-height: 32px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.pos-search-clear:hover { color: var(--text-primary); }
+.pos-search-clear:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+/* ตะกร้า: สินค้าขายหน้าร้าน (ไม่มีช่องเลือกพนักงาน) = แถวเตี้ย ป้ายเล็กไม่มีกรอบ
+ * เดิมแถวละ ~150px — iPad แนวนอนเห็นไม่ถึง 2 แถว ขายน้ำ 5 ขวดต้องเลื่อนยาว (ตรวจก่อนขึ้นจริง 9 ต.ค. 2569) */
+.cart-item.cart-item--counter { gap: 2px; padding: 10px 14px; }
+.cart-item-staff.cart-item-staff--counter {
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: normal;
+}
+.settings-group-title {
+  margin: 0.4rem 0 0.1rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
 
 /* Service cards grid */
 .services-grid {
@@ -1035,6 +1127,11 @@ body {
 
 .customer-select {
   flex: 1;
+  /* ตรวจ 14 ต.ค. ข้อ 7: min-width:auto = ช่องกว้างตามชื่อลูกค้าที่ยาวสุด ดันปุ่มเพิ่มลูกค้าด่วนออกนอกการ์ดตะกร้า
+   * (การ์ดตั้ง overflow:hidden → iPad แนวนอนมองไม่เห็นปุ่ม) — ให้ช่องหดได้ ชื่อยาวตัดด้วย … แทน */
+  min-width: 0;
+  width: 100%;
+  text-overflow: ellipsis;
   background: rgba(255,255,255,0.02);
   border: 1px solid var(--border-color);
   border-radius: var(--r-sm);
@@ -1239,6 +1336,8 @@ body {
   box-shadow: 0 2px 10px rgba(45,224,201,0.3);
 }
 .btn-small.primary:hover { box-shadow: 0 4px 16px rgba(45,224,201,0.45); transform: translateY(-1px); }
+/* ตรวจ 13 ต.ค. 2569 ข้อ 21: ปุ่มที่กดไม่ได้ต้องดูออกว่ากดไม่ได้ (เดิมปุ่มยืนยันชำระเงินสว่างเหมือนกดได้) */
+.btn-small:disabled, .btn-small[disabled] { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none; }
 
 .btn-small.secondary {
   background: rgba(255,255,255,0.04);
@@ -1777,7 +1876,7 @@ body {
 }
 
 @media (min-width: 1280px) {
-  .kpi-info h3 { font-size: 1.75rem; }
+  .kpi-info h3 { font-size: clamp(1.1rem, 1.5vw, 1.75rem); }
   .hero-shop-name { font-size: 2.5rem; }
 }
 

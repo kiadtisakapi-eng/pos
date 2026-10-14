@@ -163,6 +163,7 @@ const t=(n,c,extra)=>{ if(c){pass++;console.log('  ✅ '+n);} else {fail++;conso
     const id=app.state.transactions[0].id; app.openTransactionEdit(id); });
   await p.waitForTimeout(300);
   await p.selectOption('#void-money-outcome', 'refunded');   // ข้อ 16: ต้องระบุก่อนว่าเงินของบิลเคลื่อนไหวจริงไหม
+  await p.fill('#void-note', 'ลูกค้าเปลี่ยนใจ');   // เหตุผลที่ยกเลิก — บังคับทุกครั้ง (เจ้าของสั่ง 14 ต.ค. 2569)
   await p.evaluate(async ()=>{ await app.voidTransaction(); });
   await p.waitForTimeout(600);
   const voided = await p.evaluate(()=>({ tx:app.state.transactions.length, vl:app.state.voidLog.length,

@@ -220,7 +220,9 @@ await section('[1B-1]', async () => {
   await app.resolveBillConflict(b1.id, 'void-local'); await settle(80); await app._cloudChain; await settle(40);
   await t('เลือก "ยกเลิกในเครื่องตามชีต" → บิลหายจากเครื่อง · ลงประวัติยกเลิกพร้อมเหตุผล · ชีตยังไม่มีแถว', async () => {
     ok(!(await env.raw('transactions')).some(y => y.id === b1.id), 'บิลยังอยู่ในเครื่อง');
-    ok(app.state.voidLog.some(v => v.billId === b1.id && /ตามสถานะบนชีต/.test(v.reason || '')), 'ไม่มีประวัติยกเลิก');
+    // ตรวจ 14 ต.ค. ข้อ 1: การยกเลิกในเครื่องนี้ (ลบแถวสำเร็จแล้ว) พกข้ามการกู้ → ยกเลิกซ้ำแทนแถวเดิม · ผลเรื่องเงิน "คืนแล้ว" ไม่หาย
+    const act = app.state.voidLog.filter(v => v.billId === b1.id && !v.supersededBy);
+    ok(act.length === 1 && /แถวบนชีตถูกลบไปแล้ว/.test(act[0].reason || '') && act[0].moneyOutcome === 'refunded', 'ไม่มีประวัติยกเลิก: ' + JSON.stringify(act.map(v => [v.reason, v.moneyOutcome])));
     eq(sheetRow(gas, mk, b1.id), null);
   });
   await app.resolveBillConflict(b3.id, 'restore-cloud'); await flushSync(app);

@@ -151,12 +151,13 @@ await section('[X]', async () => {
   me('manager');
   const m1 = await add(400, 'drawer', 'ค่าไฟ');
   const m2 = await add(5000, 'drawer', 'ค่าซ่อมแอร์');
-  await t('ผู้จัดการลง 400 แล้ว 5,000 จากลิ้นชัก → บันทึกเลย ไม่ถาม PIN ไม่มีเพดาน (เดิม 400 ต้องใส่ PIN)', () => {
-    ok(m1); ok(m2); eq(asked, 0); eq(m1.byId, 'mg-1'); eq(m1.by, 'บี'); eq(m1.approvedBy, undefined); eq(m1.paidFrom, 'drawer');
+  // ข้อ ก (เจ้าของตัดสิน 14 ต.ค. 2569): จากลิ้นชักเกิน 500 ถาม PIN ของคนที่ลง — 400 ไม่ถาม · 5,000 ถาม 1 ครั้ง (askSecret ของเทสต์ตอบถูก)
+  await t('ผู้จัดการลง 400 (ไม่ถาม PIN) แล้ว 5,000 จากลิ้นชัก (ถาม PIN ตัวเอง 1 ครั้ง) → บันทึก ไม่มีเพดาน', () => {
+    ok(m1); ok(m2); eq(asked, 1); eq(m1.byId, 'mg-1'); eq(m1.by, 'บี'); eq(m1.approvedBy, undefined); eq(m1.paidFrom, 'drawer');
   });
   me('owner');
   const o1 = await add(3000, 'other', 'ค่าน้ำ');
-  await t('เจ้าของลงได้ ไม่ถาม PIN', () => { ok(o1); eq(asked, 0); eq(o1.byId, '__owner__'); });
+  await t('เจ้าของลงได้ ไม่ถาม PIN', () => { ok(o1); eq(asked, 1); eq(o1.byId, '__owner__'); });   // asked 1 = ของ 5,000 ข้างบน
 
   // ── สิทธิ์ลบ ──
   const has = (id) => app.state.shift.expenses.some(x => x.id === id);
@@ -183,7 +184,7 @@ await section('[X]', async () => {
     [m1, m2, o1, old].forEach(x => ok(mgrView.list.includes(`deleteExpense('${x.id}')`), x.id));
   });
   await del(o1.id);
-  await t('ผู้จัดการลบรายการของเจ้าของได้ ไม่ถาม PIN (เดิมต้องใส่ PIN ซ้ำ)', () => { ok(!has(o1.id)); eq(asked, 0); });
+  await t('ผู้จัดการลบรายการของเจ้าของได้ ไม่ถาม PIN (เดิมต้องใส่ PIN ซ้ำ)', () => { ok(!has(o1.id)); eq(asked, 1); });   // 1 = ของ 5,000
   await del(old.id);
   const lastLog = app.state.expenseLog[app.state.expenseLog.length - 1];
   await t('ลบรายการที่เคยอนุมัติ → ประวัติการลบเก็บชื่อ/รหัสผู้อนุมัติไว้ (ตรวจหมวด D ข้อ 2)', () => {
@@ -191,7 +192,7 @@ await section('[X]', async () => {
   });
   me('owner');
   await del(m2.id);
-  await t('เจ้าของลบได้ทุกรายการ ไม่ถาม PIN', () => { ok(!has(m2.id)); eq(asked, 0); });
+  await t('เจ้าของลบได้ทุกรายการ ไม่ถาม PIN', () => { ok(!has(m2.id)); eq(asked, 1); });   // 1 = ของ 5,000
   const logOfM2 = app.state.expenseLog[app.state.expenseLog.length - 1];
   await t('รายการที่ไม่เคยมีผู้อนุมัติ → ประวัติการลบไม่มีช่องผู้อนุมัติ', () => { eq(logOfM2.expenseId, m2.id); ok(!('approvedBy' in logOfM2)); ok(!('approvedById' in logOfM2)); });
   const rawShift = await env.raw('shift');

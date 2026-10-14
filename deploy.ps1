@@ -107,6 +107,28 @@ if ($dirty.Count -eq 0) {
     if ($LASTEXITCODE -eq 0 -and [int]$ahead -gt 0) {
         Write-Host "[1/6] no file changes, but $ahead commit(s) not pushed yet" -ForegroundColor Yellow
         Run-ProjectTests
+        # ตรวจ 13 ต.ค. 2569 ข้อ 12: commit ที่ค้าง push (เช่น commit จาก VS Code / fix-push) แตะไฟล์ของแอปแต่ไม่ได้บวกเลขแคช
+        # = iPad ไม่รู้ว่ามีรุ่นใหม่ ใช้ app.js เก่าไปเรื่อย ๆ → บวกเลขแคชให้ใน commit เพิ่ม 1 ตัวก่อน push
+        # (ถอยรุ่นด้วย git revert ทั้ง commit ตามคู่มือ = sw.js เปลี่ยนอยู่แล้ว ไม่บวกซ้ำ)
+        $aheadRaw = @(git -c core.quotepath=false diff --name-only --no-renames -z '@{u}..HEAD')
+        if ($LASTEXITCODE -ne 0) { Fail "cannot inspect unpushed commits" }
+        $aheadPaths = @(([string]::Join("`n", $aheadRaw)).Split([char]0) | Where-Object { $_ })
+        $aheadApp = @($aheadPaths | Where-Object { @('index.html', 'app.js', 'style_v2.css', 'manifest.json', 'promptpay-qr.js', 'dexie.min.js', 'apple-touch-icon.png') -contains $_ -or $_.StartsWith('vendor/') })
+        if ($aheadApp.Count -gt 0 -and -not ($aheadPaths -contains 'sw.js')) {
+            $swTxt = [System.IO.File]::ReadAllText($swPath)
+            $swM = [regex]::Match($swTxt, "jahn-pos-v(\d+)")
+            if (-not $swM.Success) { Fail "pattern jahn-pos-vN not found in sw.js - users would NOT receive the update" }
+            $swOld = [int]$swM.Groups[1].Value
+            $swNew = $swOld + 1
+            $swTxt = (New-Object System.Text.RegularExpressions.Regex("jahn-pos-v\d+")).Replace($swTxt, "jahn-pos-v$swNew", 1)
+            [System.IO.File]::WriteAllText($swPath, $swTxt, (New-Object System.Text.UTF8Encoding($false)))
+            Write-Host "[3/6] unpushed commits change app files without a cache bump - Service Worker cache: v$swOld -> v$swNew" -ForegroundColor Green
+            git add -- sw.js
+            if ($LASTEXITCODE -ne 0) { Fail "git add sw.js failed" }
+            Assert-SafeIndex
+            git commit -m "deploy v$swNew (cache bump for unpushed commits) $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+            if ($LASTEXITCODE -ne 0) { Fail "git commit (cache bump) failed" }
+        }
         git push
         if ($LASTEXITCODE -ne 0) { Fail "git push failed - check login, or run fix-push.bat" }
         Write-Host "PUSHED -> https://kiadtisakapi-eng.github.io/pos/" -ForegroundColor Green
@@ -145,6 +167,17 @@ function Test-AppPath($p) {
     return $false
 }
 $appChanged = @($dirty | Where-Object { Test-AppPath $_.Substring(3) })
+# ตรวจ 13 ต.ค. 2569 ข้อ 12 (ผู้ตรวจอิสระ): มีไฟล์แก้ (เช่นเอกสาร) + commit ค้าง push ที่แตะไฟล์แอปแต่ไม่ได้บวกเลขแคช
+# เดิมดูแค่ไฟล์ที่แก้ → ขึ้น "only docs changed - cache version kept" แล้ว push app.js ขึ้นไปโดย iPad ไม่รู้ว่ามีรุ่นใหม่
+if ($appChanged.Count -eq 0) {
+    $aheadRaw2 = @(git -c core.quotepath=false diff --name-only --no-renames -z '@{u}..HEAD' 2>$null)
+    if ($LASTEXITCODE -eq 0) {
+        $aheadPaths2 = @(([string]::Join("`n", $aheadRaw2)).Split([char]0) | Where-Object { $_ })
+        if (-not ($aheadPaths2 -contains 'sw.js')) {
+            $appChanged = @($aheadPaths2 | Where-Object { Test-AppPath $_ } | ForEach-Object { '   ' + $_ })
+        }
+    }
+}
 $new = $null
 if ($appChanged.Count -gt 0) {
     $content = [System.IO.File]::ReadAllText($swPath)

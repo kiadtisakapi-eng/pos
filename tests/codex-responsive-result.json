@@ -1,0 +1,1926 @@
+[
+ {
+  "screen": "dashboard",
+  "vw": 390,
+  "vh": 844,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 2214,
+  "device": "iPhone 13 แนวตั้ง"
+ },
+ {
+  "screen": "pos",
+  "vw": 390,
+  "vh": 844,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn.massage-tab",
+    "left": 379,
+    "right": 614
+   },
+   {
+    "el": "i.fa-solid.fa-spa",
+    "left": 398,
+    "right": 414
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1051,
+    "right": 1071
+   },
+   {
+    "el": "button.tab-btn",
+    "left": 893,
+    "right": 1090
+   },
+   {
+    "el": "i.fa-solid.fa-gem",
+    "left": 643,
+    "right": 658
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 912,
+    "right": 927
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 2730,
+  "device": "iPhone 13 แนวตั้ง"
+ },
+ {
+  "screen": "queue",
+  "vw": 390,
+  "vh": 844,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 908,
+  "device": "iPhone 13 แนวตั้ง"
+ },
+ {
+  "screen": "customers",
+  "vw": 390,
+  "vh": 844,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "table#customer-table.customer-table",
+    "left": 21,
+    "right": 575
+   },
+   {
+    "el": "thead",
+    "left": 21,
+    "right": 575
+   },
+   {
+    "el": "tr",
+    "left": 21,
+    "right": 575
+   },
+   {
+    "el": "th",
+    "left": 433,
+    "right": 575
+   },
+   {
+    "el": "tbody#customer-table-body",
+    "left": 21,
+    "right": 575
+   },
+   {
+    "el": "td",
+    "left": 433,
+    "right": 575
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 844,
+  "device": "iPhone 13 แนวตั้ง"
+ },
+ {
+  "screen": "reports",
+  "vw": 390,
+  "vh": 844,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "table.customer-table",
+    "left": 41,
+    "right": 509
+   },
+   {
+    "el": "thead",
+    "left": 41,
+    "right": 509
+   },
+   {
+    "el": "tr",
+    "left": 41,
+    "right": 509
+   },
+   {
+    "el": "th",
+    "left": 442,
+    "right": 509
+   },
+   {
+    "el": "tbody#report-commission-body",
+    "left": 41,
+    "right": 465
+   },
+   {
+    "el": "td",
+    "left": 545,
+    "right": 695
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 6412,
+  "device": "iPhone 13 แนวตั้ง"
+ },
+ {
+  "screen": "settings",
+  "vw": 390,
+  "vh": 844,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 155,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 7247,
+  "device": "iPhone 13 แนวตั้ง"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 844,
+  "vh": 390,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1638,
+  "device": "iPhone 13 แนวนอน"
+ },
+ {
+  "screen": "pos",
+  "vw": 844,
+  "vh": 390,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 941,
+    "right": 1150
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1105,
+    "right": 1125
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 966,
+    "right": 981
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1840,
+  "device": "iPhone 13 แนวนอน"
+ },
+ {
+  "screen": "queue",
+  "vw": 844,
+  "vh": 390,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 592,
+  "device": "iPhone 13 แนวนอน"
+ },
+ {
+  "screen": "customers",
+  "vw": 844,
+  "vh": 390,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 586,
+  "device": "iPhone 13 แนวนอน"
+ },
+ {
+  "screen": "reports",
+  "vw": 844,
+  "vh": 390,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 4682,
+  "device": "iPhone 13 แนวนอน"
+ },
+ {
+  "screen": "settings",
+  "vw": 844,
+  "vh": 390,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 222,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 4750,
+  "device": "iPhone 13 แนวนอน"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 768,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1638,
+  "device": "iPad mini แนวตั้ง"
+ },
+ {
+  "screen": "pos",
+  "vw": 768,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 893,
+    "right": 1090
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1051,
+    "right": 1071
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 912,
+    "right": 927
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1835,
+  "device": "iPad mini แนวตั้ง"
+ },
+ {
+  "screen": "queue",
+  "vw": 768,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1024,
+  "device": "iPad mini แนวตั้ง"
+ },
+ {
+  "screen": "customers",
+  "vw": 768,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1024,
+  "device": "iPad mini แนวตั้ง"
+ },
+ {
+  "screen": "reports",
+  "vw": 768,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 5058,
+  "device": "iPad mini แนวตั้ง"
+ },
+ {
+  "screen": "settings",
+  "vw": 768,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 184,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 4766,
+  "device": "iPad mini แนวตั้ง"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1024,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1512,
+  "device": "iPad mini แนวนอน"
+ },
+ {
+  "screen": "pos",
+  "vw": 1024,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 1182,
+    "right": 1391
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1346,
+    "right": 1366
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 1207,
+    "right": 1222
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1281,
+  "device": "iPad mini แนวนอน"
+ },
+ {
+  "screen": "queue",
+  "vw": 1024,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 768,
+  "device": "iPad mini แนวนอน"
+ },
+ {
+  "screen": "customers",
+  "vw": 1024,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 768,
+  "device": "iPad mini แนวนอน"
+ },
+ {
+  "screen": "reports",
+  "vw": 1024,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 4932,
+  "device": "iPad mini แนวนอน"
+ },
+ {
+  "screen": "settings",
+  "vw": 1024,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 183,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 5201,
+  "device": "iPad mini แนวนอน"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 820,
+  "vh": 1180,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1638,
+  "device": "iPad 10.9\" แนวตั้ง"
+ },
+ {
+  "screen": "pos",
+  "vw": 820,
+  "vh": 1180,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 941,
+    "right": 1150
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1105,
+    "right": 1125
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 966,
+    "right": 981
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1955,
+  "device": "iPad 10.9\" แนวตั้ง"
+ },
+ {
+  "screen": "queue",
+  "vw": 820,
+  "vh": 1180,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1180,
+  "device": "iPad 10.9\" แนวตั้ง"
+ },
+ {
+  "screen": "customers",
+  "vw": 820,
+  "vh": 1180,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1180,
+  "device": "iPad 10.9\" แนวตั้ง"
+ },
+ {
+  "screen": "reports",
+  "vw": 820,
+  "vh": 1180,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 4682,
+  "device": "iPad 10.9\" แนวตั้ง"
+ },
+ {
+  "screen": "settings",
+  "vw": 820,
+  "vh": 1180,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 210,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 4750,
+  "device": "iPad 10.9\" แนวตั้ง"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1180,
+  "vh": 820,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1514,
+  "device": "iPad 10.9\" แนวนอน"
+ },
+ {
+  "screen": "pos",
+  "vw": 1180,
+  "vh": 820,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 1183,
+    "right": 1391
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 1208,
+    "right": 1222
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1346,
+    "right": 1366
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1226,
+  "device": "iPad 10.9\" แนวนอน"
+ },
+ {
+  "screen": "queue",
+  "vw": 1180,
+  "vh": 820,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 820,
+  "device": "iPad 10.9\" แนวนอน"
+ },
+ {
+  "screen": "customers",
+  "vw": 1180,
+  "vh": 820,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 820,
+  "device": "iPad 10.9\" แนวนอน"
+ },
+ {
+  "screen": "reports",
+  "vw": 1180,
+  "vh": 820,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 4192,
+  "device": "iPad 10.9\" แนวนอน"
+ },
+ {
+  "screen": "settings",
+  "vw": 1180,
+  "vh": 820,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 261,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 4172,
+  "device": "iPad 10.9\" แนวนอน"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 834,
+  "vh": 1194,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1638,
+  "device": "iPad Pro 11\" แนวตั้ง"
+ },
+ {
+  "screen": "pos",
+  "vw": 834,
+  "vh": 1194,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 941,
+    "right": 1150
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1105,
+    "right": 1125
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 966,
+    "right": 981
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1933,
+  "device": "iPad Pro 11\" แนวตั้ง"
+ },
+ {
+  "screen": "queue",
+  "vw": 834,
+  "vh": 1194,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1194,
+  "device": "iPad Pro 11\" แนวตั้ง"
+ },
+ {
+  "screen": "customers",
+  "vw": 834,
+  "vh": 1194,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 1194,
+  "device": "iPad Pro 11\" แนวตั้ง"
+ },
+ {
+  "screen": "reports",
+  "vw": 834,
+  "vh": 1194,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 4682,
+  "device": "iPad Pro 11\" แนวตั้ง"
+ },
+ {
+  "screen": "settings",
+  "vw": 834,
+  "vh": 1194,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 217,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": false,
+  "bottomNavVisible": true,
+  "sidebarOverflows": false,
+  "pageScrollH": 4750,
+  "device": "iPad Pro 11\" แนวตั้ง"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1194,
+  "vh": 834,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1515,
+  "device": "iPad Pro 11\" แนวนอน"
+ },
+ {
+  "screen": "pos",
+  "vw": 1194,
+  "vh": 834,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 1182,
+    "right": 1391
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 1207,
+    "right": 1222
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1346,
+    "right": 1366
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1226,
+  "device": "iPad Pro 11\" แนวนอน"
+ },
+ {
+  "screen": "queue",
+  "vw": 1194,
+  "vh": 834,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 834,
+  "device": "iPad Pro 11\" แนวนอน"
+ },
+ {
+  "screen": "customers",
+  "vw": 1194,
+  "vh": 834,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 834,
+  "device": "iPad Pro 11\" แนวนอน"
+ },
+ {
+  "screen": "reports",
+  "vw": 1194,
+  "vh": 834,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 4193,
+  "device": "iPad Pro 11\" แนวนอน"
+ },
+ {
+  "screen": "settings",
+  "vw": 1194,
+  "vh": 834,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 268,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 4072,
+  "device": "iPad Pro 11\" แนวนอน"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1024,
+  "vh": 1366,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1512,
+  "device": "iPad Pro 12.9\" แนวตั้ง"
+ },
+ {
+  "screen": "pos",
+  "vw": 1024,
+  "vh": 1366,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 1182,
+    "right": 1391
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1346,
+    "right": 1366
+   },
+   {
+    "el": "i.fa-solid.fa-mug-hot",
+    "left": 1207,
+    "right": 1222
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1366,
+  "device": "iPad Pro 12.9\" แนวตั้ง"
+ },
+ {
+  "screen": "queue",
+  "vw": 1024,
+  "vh": 1366,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1366,
+  "device": "iPad Pro 12.9\" แนวตั้ง"
+ },
+ {
+  "screen": "customers",
+  "vw": 1024,
+  "vh": 1366,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1366,
+  "device": "iPad Pro 12.9\" แนวตั้ง"
+ },
+ {
+  "screen": "reports",
+  "vw": 1024,
+  "vh": 1366,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 4932,
+  "device": "iPad Pro 12.9\" แนวตั้ง"
+ },
+ {
+  "screen": "settings",
+  "vw": 1024,
+  "vh": 1366,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 183,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 5201,
+  "device": "iPad Pro 12.9\" แนวตั้ง"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1366,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1470,
+  "device": "iPad Pro 12.9\" แนวนอน"
+ },
+ {
+  "screen": "pos",
+  "vw": 1366,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 1239,
+    "right": 1448
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1403,
+    "right": 1423
+   }
+  ],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1050,
+  "device": "iPad Pro 12.9\" แนวนอน"
+ },
+ {
+  "screen": "queue",
+  "vw": 1366,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1024,
+  "device": "iPad Pro 12.9\" แนวนอน"
+ },
+ {
+  "screen": "customers",
+  "vw": 1366,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1024,
+  "device": "iPad Pro 12.9\" แนวนอน"
+ },
+ {
+  "screen": "reports",
+  "vw": 1366,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 3925,
+  "device": "iPad Pro 12.9\" แนวนอน"
+ },
+ {
+  "screen": "settings",
+  "vw": 1366,
+  "vh": 1024,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "input#shop-logo-input",
+    "w": 158,
+    "h": 21
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 3769,
+  "device": "iPad Pro 12.9\" แนวนอน"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1366,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button.btn-small.primary",
+    "w": 275,
+    "h": 38
+   },
+   {
+    "el": "select#expense-type.form-input",
+    "w": 146,
+    "h": 38
+   },
+   {
+    "el": "input#expense-amount.form-input",
+    "w": 122,
+    "h": 38
+   },
+   {
+    "el": "select#expense-staff-id.form-input",
+    "w": 275,
+    "h": 38
+   },
+   {
+    "el": "select#expense-source.form-input",
+    "w": 275,
+    "h": 38
+   },
+   {
+    "el": "button.btn-icon",
+    "w": 20,
+    "h": 22
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1445,
+  "device": "โน้ตบุ๊ก 1366x768"
+ },
+ {
+  "screen": "pos",
+  "vw": 1366,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 1239,
+    "right": 1448
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1403,
+    "right": 1423
+   }
+  ],
+  "tinyTap": [
+   {
+    "el": "button#btn-clear-cart.clear-cart-btn",
+    "w": 78,
+    "h": 25
+   },
+   {
+    "el": "button.remove-item-btn",
+    "w": 23,
+    "h": 25
+   },
+   {
+    "el": "select",
+    "w": 168,
+    "h": 20
+   },
+   {
+    "el": "button#btn-add-customer-quick.btn-add-customer-quick",
+    "w": 40,
+    "h": 40
+   },
+   {
+    "el": "input#cart-discount.discount-input",
+    "w": 90,
+    "h": 32
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 950,
+  "device": "โน้ตบุ๊ก 1366x768"
+ },
+ {
+  "screen": "queue",
+  "vw": 1366,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button.btn-small.danger",
+    "w": 85,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.primary",
+    "w": 100,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 113,
+    "h": 35
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 768,
+  "device": "โน้ตบุ๊ก 1366x768"
+ },
+ {
+  "screen": "customers",
+  "vw": 1366,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button#btn-add-customer.btn-small.primary",
+    "w": 122,
+    "h": 33
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 88,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.danger",
+    "w": 45,
+    "h": 35
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 768,
+  "device": "โน้ตบุ๊ก 1366x768"
+ },
+ {
+  "screen": "reports",
+  "vw": 1366,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "select#report-staff-filter.form-input",
+    "w": 250,
+    "h": 38
+   },
+   {
+    "el": "button",
+    "w": 153,
+    "h": 33
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 3866,
+  "device": "โน้ตบุ๊ก 1366x768"
+ },
+ {
+  "screen": "settings",
+  "vw": 1366,
+  "vh": 768,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button#btn-add-staff.btn-small.primary",
+    "w": 117,
+    "h": 33
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 184,
+    "h": 39
+   },
+   {
+    "el": "button.btn-small.danger",
+    "w": 50,
+    "h": 35
+   },
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "button#btn-add-category.btn-small.primary",
+    "w": 117,
+    "h": 33
+   },
+   {
+    "el": "button#btn-add-service-modal.btn-small.primary",
+    "w": 143,
+    "h": 33
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 3704,
+  "device": "โน้ตบุ๊ก 1366x768"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1280,
+  "vh": 800,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button.btn-small.primary",
+    "w": 247,
+    "h": 38
+   },
+   {
+    "el": "select#expense-type.form-input",
+    "w": 130,
+    "h": 38
+   },
+   {
+    "el": "input#expense-amount.form-input",
+    "w": 108,
+    "h": 38
+   },
+   {
+    "el": "select#expense-staff-id.form-input",
+    "w": 247,
+    "h": 38
+   },
+   {
+    "el": "select#expense-source.form-input",
+    "w": 247,
+    "h": 38
+   },
+   {
+    "el": "button.btn-icon",
+    "w": 20,
+    "h": 22
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1444,
+  "device": "โน้ตบุ๊ก 1280x800"
+ },
+ {
+  "screen": "pos",
+  "vw": 1280,
+  "vh": 800,
+  "overflowX": 0,
+  "tooWide": [
+   {
+    "el": "button.tab-btn",
+    "left": 1239,
+    "right": 1448
+   },
+   {
+    "el": "span.tab-count",
+    "left": 1403,
+    "right": 1423
+   }
+  ],
+  "tinyTap": [
+   {
+    "el": "button#btn-clear-cart.clear-cart-btn",
+    "w": 78,
+    "h": 25
+   },
+   {
+    "el": "button.remove-item-btn",
+    "w": 23,
+    "h": 25
+   },
+   {
+    "el": "select",
+    "w": 224,
+    "h": 20
+   },
+   {
+    "el": "button#btn-add-customer-quick.btn-add-customer-quick",
+    "w": 40,
+    "h": 40
+   },
+   {
+    "el": "input#cart-discount.discount-input",
+    "w": 90,
+    "h": 32
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1228,
+  "device": "โน้ตบุ๊ก 1280x800"
+ },
+ {
+  "screen": "queue",
+  "vw": 1280,
+  "vh": 800,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button.btn-small.danger",
+    "w": 85,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.primary",
+    "w": 100,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 113,
+    "h": 35
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 800,
+  "device": "โน้ตบุ๊ก 1280x800"
+ },
+ {
+  "screen": "customers",
+  "vw": 1280,
+  "vh": 800,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button#btn-add-customer.btn-small.primary",
+    "w": 122,
+    "h": 33
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 88,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.danger",
+    "w": 45,
+    "h": 35
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 800,
+  "device": "โน้ตบุ๊ก 1280x800"
+ },
+ {
+  "screen": "reports",
+  "vw": 1280,
+  "vh": 800,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "select#report-staff-filter.form-input",
+    "w": 250,
+    "h": 38
+   },
+   {
+    "el": "button",
+    "w": 153,
+    "h": 33
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 3937,
+  "device": "โน้ตบุ๊ก 1280x800"
+ },
+ {
+  "screen": "settings",
+  "vw": 1280,
+  "vh": 800,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button#btn-add-staff.btn-small.primary",
+    "w": 117,
+    "h": 33
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 184,
+    "h": 39
+   },
+   {
+    "el": "button.btn-small.danger",
+    "w": 50,
+    "h": 35
+   },
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "button#btn-add-category.btn-small.primary",
+    "w": 117,
+    "h": 33
+   },
+   {
+    "el": "button#btn-add-service-modal.btn-small.primary",
+    "w": 143,
+    "h": 33
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 4011,
+  "device": "โน้ตบุ๊ก 1280x800"
+ },
+ {
+  "screen": "dashboard",
+  "vw": 1920,
+  "vh": 1080,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button.btn-small.primary",
+    "w": 460,
+    "h": 38
+   },
+   {
+    "el": "select#expense-type.form-input",
+    "w": 247,
+    "h": 38
+   },
+   {
+    "el": "input#expense-amount.form-input",
+    "w": 205,
+    "h": 38
+   },
+   {
+    "el": "select#expense-staff-id.form-input",
+    "w": 460,
+    "h": 38
+   },
+   {
+    "el": "select#expense-source.form-input",
+    "w": 460,
+    "h": 38
+   },
+   {
+    "el": "button.btn-icon",
+    "w": 20,
+    "h": 22
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1454,
+  "device": "จอ 1920x1080"
+ },
+ {
+  "screen": "pos",
+  "vw": 1920,
+  "vh": 1080,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button#btn-clear-cart.clear-cart-btn",
+    "w": 78,
+    "h": 25
+   },
+   {
+    "el": "button.remove-item-btn",
+    "w": 23,
+    "h": 25
+   },
+   {
+    "el": "select",
+    "w": 377,
+    "h": 20
+   },
+   {
+    "el": "button#btn-add-customer-quick.btn-add-customer-quick",
+    "w": 40,
+    "h": 40
+   },
+   {
+    "el": "input#cart-discount.discount-input",
+    "w": 90,
+    "h": 32
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1080,
+  "device": "จอ 1920x1080"
+ },
+ {
+  "screen": "queue",
+  "vw": 1920,
+  "vh": 1080,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button.btn-small.danger",
+    "w": 85,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.primary",
+    "w": 100,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 113,
+    "h": 35
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1080,
+  "device": "จอ 1920x1080"
+ },
+ {
+  "screen": "customers",
+  "vw": 1920,
+  "vh": 1080,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button#btn-add-customer.btn-small.primary",
+    "w": 122,
+    "h": 33
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 88,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.danger",
+    "w": 45,
+    "h": 35
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 1080,
+  "device": "จอ 1920x1080"
+ },
+ {
+  "screen": "reports",
+  "vw": 1920,
+  "vh": 1080,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "select#report-staff-filter.form-input",
+    "w": 250,
+    "h": 38
+   },
+   {
+    "el": "button",
+    "w": 153,
+    "h": 33
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 68,
+    "h": 35
+   },
+   {
+    "el": "button.btn-small.primary",
+    "w": 78,
+    "h": 35
+   }
+  ],
+  "tinyText": [],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 3612,
+  "device": "จอ 1920x1080"
+ },
+ {
+  "screen": "settings",
+  "vw": 1920,
+  "vh": 1080,
+  "overflowX": 0,
+  "tooWide": [],
+  "tinyTap": [
+   {
+    "el": "button#btn-add-staff.btn-small.primary",
+    "w": 117,
+    "h": 33
+   },
+   {
+    "el": "button.btn-small.secondary",
+    "w": 184,
+    "h": 39
+   },
+   {
+    "el": "button.btn-small.danger",
+    "w": 50,
+    "h": 35
+   },
+   {
+    "el": "input#vat-enabled",
+    "w": 20,
+    "h": 20
+   },
+   {
+    "el": "button#btn-add-category.btn-small.primary",
+    "w": 117,
+    "h": 33
+   },
+   {
+    "el": "button#btn-add-service-modal.btn-small.primary",
+    "w": 143,
+    "h": 33
+   }
+  ],
+  "tinyText": [
+   {
+    "el": "span",
+    "size": "10.9"
+   }
+  ],
+  "sidebarVisible": true,
+  "bottomNavVisible": false,
+  "sidebarOverflows": false,
+  "pageScrollH": 3256,
+  "device": "จอ 1920x1080"
+ }
+]

@@ -456,6 +456,12 @@ function handleClaimPrimary(data) {
     var voidBefore = prev && prev.recovery ? (Number(prev.recovery.startedAt) || 0) : Date.now();
     var ready = validatePrimaryTransfer_(data.bills, { voidIntents: transferVoidIntents_(data.voidIntents), voidBefore: voidBefore,
       sheetOnly: transferSheetOnly_(data.sheetOnly) });
+    // ตรวจ 14 ต.ค. (รอบ 2): ทะเบียนยกเลิกเสีย = ตอบ REGISTRY_CORRUPT พร้อมสาเหตุ ก่อนแตะชีต/เครื่องหลัก
+    // (เดิมตอบ PRIMARY_TRANSFER_INCOMPLETE "อ่านทะเบียนไม่ได้" แอปจึงเสนอ "รับช่วงฉุกเฉิน" = เครื่องหลักค้างโหมดพักโดยไม่จำเป็น)
+    if (ready.registryCorrupt) {
+      return registryCorruptResponse_(ready.registryCorrupt.error, ready.registryCorrupt.id,
+        prev && prev.recovery ? 'ยังไม่ปลดการพัก (เครื่องหลักยังเป็นแบบเดิม)' : 'ยังไม่ย้ายเครื่องหลัก (เครื่องหลักยังเป็นเครื่องเดิม)');
+    }
     if (!ready.ok) {
       // บิลที่เคยยอมรับว่าหายแล้ว (อยู่ในทะเบียน) แต่เครื่องนี้ยังไม่มี "บิลจากชีต" ของมัน → แอปนำเข้าก่อน ไม่ต้องยอมรับซ้ำ
       // ยอมรับข้อมูลหายใหม่ได้เฉพาะตอนปลดพักฉุกเฉินที่ยืนยันแล้ว และต้องระบุครบทุกเลข (รวมบิลข้อมูลต่าง)
@@ -503,7 +509,7 @@ function handleClaimPrimary(data) {
   }
   for (var i = 0; i < voidPlan.length; i++) {
     var applied = applyTransferVoid_(ss, voidPlan[i]);
-    if (!applied.ok) return json('error', applied.message, { billId: voidPlan[i].id }, applied.code);
+    if (!applied.ok) return applied.response || json('error', applied.message, { billId: voidPlan[i].id }, applied.code);
   }
   var evidenceRows = (acceptedRows || []).concat(pendingVoidRows);
   if (evidenceRows.length) {
@@ -573,7 +579,7 @@ function registrySnapshot_(ss) {
       if (ss.getSheetByName(VOID_ARCHIVE_NAME_)) {
         var sheet = ledgerSheet_(VOID_ARCHIVE_NAME_, ['id', 'voidedAt', 'restoredAt'], ss), n = sheet.getLastRow();
         if (n > 1) sheet.getRange(2, 1, n - 1, 3).getValues().forEach(function(r) {
-          if (archive[String(r[0])]) throw new Error('ทะเบียนยกเลิกถาวรมีเลขบิลซ้ำ: ' + r[0]);
+          if (archive[String(r[0])]) throw registryCorrupt_('ทะเบียนยกเลิกถาวร (' + VOID_ARCHIVE_NAME_ + ') มีเลขบิลซ้ำ: ' + r[0], 'all');
           archive[String(r[0])] = r;
         });
       }
@@ -581,7 +587,9 @@ function registrySnapshot_(ss) {
     var a = archive[id] ? strictVoidEvent_({ v: archive[id][1], r: archive[id][2] }) : { v: 0, r: 0 };
     var raw = props[VOID_REG_PREFIX + id];
     if (raw === undefined || raw === null || raw === '') return a;
-    var e = strictVoidEvent_(JSON.parse(raw));
+    var parsed;
+    try { parsed = JSON.parse(raw); } catch (pe) { throw registryCorrupt_('ทะเบียนยกเลิกของบิลนี้ (' + VOID_REG_PREFIX + id + ') อ่านไม่ได้', 'bill'); }
+    var e = strictVoidEvent_(parsed);
     return strictVoidEvent_({ v: Math.max(a.v, e.v), r: Math.max(a.r, e.r) });
   };
 }
@@ -599,7 +607,11 @@ function transferRowInfo_(id, month, r, hasVat, version, tz) {
 function applyTransferVoid_(ss, plan) {
   var reg;
   try { reg = readBillRegistryStrict_(plan.id); }
-  catch (e) { return { ok: false, code: 'REGISTRY_UNAVAILABLE', message: 'อ่านทะเบียนยกเลิกของบิล ' + plan.id + ' ไม่ได้ — ยังไม่ย้ายเครื่อง' }; }
+  catch (e) {
+    // ตรวจ 14 ต.ค. (รอบ 2): ทะเบียนเสีย = REGISTRY_CORRUPT พร้อมสาเหตุ · บริการล่ม = REGISTRY_UNAVAILABLE ตามเดิม
+    if (e && e.registryCorrupt) return { ok: false, response: registryCorruptResponse_(e, plan.id, 'ยังไม่ย้ายเครื่องหลัก (เครื่องหลักยังเป็นเครื่องเดิม)') };
+    return { ok: false, code: 'REGISTRY_UNAVAILABLE', message: 'อ่านทะเบียนยกเลิกของบิล ' + plan.id + ' ไม่ได้ — ยังไม่ย้ายเครื่อง' };
+  }
   var last = billEventOf_(reg);
   if (last && last.type === 'restored' && !(plan.voidedAt > last.at)) return { ok: true, skipped: true };
   if (!markBillVoided_(plan.id, plan.voidedAt, reg)) return { ok: false, code: 'VOID_REGISTRY_FAILED', message: 'บันทึกการยกเลิกบิล ' + plan.id + ' ไม่สำเร็จ — ยังไม่ย้ายเครื่อง' };
@@ -642,6 +654,11 @@ function validatePrimaryTransfer_(bills, opts) {
     return accepted[id];
   };
   var eventOf = function(id) { if (!registry) registry = registrySnapshot_(ss); return billEventOf_(registry(id)); };
+  // ตรวจ 14 ต.ค. (รอบ 2): อ่านทะเบียนไม่ได้เพราะ "ข้อมูลเสีย" → ผู้เรียกตอบ REGISTRY_CORRUPT (บริการล่ม = ข้อความเดิม)
+  var registryFail = function(err, id) {
+    if (err && err.registryCorrupt) res.registryCorrupt = { error: err, id: id };
+    return fail('อ่านทะเบียนยกเลิกของบิล ' + id + ' ไม่ได้ — ตรวจทะเบียนก่อนย้ายเครื่องหลัก');
+  };
   for (var i = 0; i < sheets.length; i++) {
     var sheet = sheets[i], name = sheet.getName();
     if (!isValidMonthKey_(name) || sheet.getLastRow() < 2) continue;
@@ -650,6 +667,8 @@ function validatePrimaryTransfer_(bills, opts) {
     var hasVat = schema === 'vat', width = hasVat ? 13 : 9, revCol = billRevColumn_(sheet);
     var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getValues();
     var versions = revCol > 0 ? sheet.getRange(2, revCol, sheet.getLastRow() - 1, 1).getDisplayValues() : null;
+    var noteCol = billNoteColumn_(sheet);
+    var notes = noteCol > 0 ? sheet.getRange(2, noteCol, rows.length, 1).getDisplayValues() : null;
     for (var j = 0; j < rows.length; j++) {
       var id = readBillId_(cellText_(rows[j][0]));
       if (!id || !BILL_ID_RE.test(id)) continue;   // แถวที่เจ้าของพิมพ์เอง (รวม/หมายเหตุ) ไม่ใช่บิล
@@ -672,7 +691,7 @@ function validatePrimaryTransfer_(bills, opts) {
           var intentAt = intents[id];
           if (intentAt > 0 && intentAt < voidBefore) {
             var ev;
-            try { ev = eventOf(id); } catch (regErr) { return fail('อ่านทะเบียนยกเลิกของบิล ' + id + ' ไม่ได้ — ตรวจทะเบียนก่อนย้ายเครื่องหลัก'); }
+            try { ev = eventOf(id); } catch (regErr) { return registryFail(regErr, id); }
             if (!(ev && ev.type === 'restored' && ev.at >= intentAt)) { res.voidPlan.push({ id: id, month: name, voidedAt: intentAt }); continue; }
           } else {
             // คำสั่งยกเลิกที่สั่งหลังเริ่มพัก / เวลาเครื่องเดินเร็ว / ไฟล์รุ่นเก่าไม่รู้เวลา — ไม่ลบให้ตอนนี้ (นโยบาย D5)
@@ -692,12 +711,15 @@ function validatePrimaryTransfer_(bills, opts) {
       }
       var v = validateBillPayload_(b);
       if (!v.ok || v.monthKey !== name) return fail("ข้อมูลบิล " + id + " ในเครื่องใหม่ไม่พร้อมย้าย");
+      var localNote = readBillNote_(b);
+      if (localNote.given && noteCol < 0) return fail('หัวคอลัมน์ "' + BILL_NOTE_HEADER + '" ในแท็บ ' + name + ' ซ้ำกัน — ตรวจชีตก่อนย้ายเครื่องหลัก');
       var row = [safeCell(id), v.dateTimeStr, safeCell(b.customerName), safeCell((b.services || []).join(', ')), payLabelFor_(b.paymentMethod, v.payments), v.subtotal, v.discount];
       if (hasVat) row = row.concat([v.nonVatBase, v.vatableBase, v.vatAmount, v.rounding]);
       row = row.concat([v.total, safeCell((b.staffNames || []).join(', '))]);
       var indexed = indexedBills[id], reason = '';
       if (billRowChanges_(rows[j], row, hasVat).length) reason = 'row';
       else if (indexed && /^[a-f0-9]{64}$/.test(String(indexed[3])) && String(indexed[3]) !== canonicalBillHash_(b, v)) reason = 'detail';
+      else if (billNoteChanges_(notes ? notes[j][0] : '', localNote).length) reason = 'note';
       if (reason) {
         res.counts.different++;
         if (res.different.length < TRANSFER_LIST_MAX_) { var di = transferRowInfo_(id, name, rows[j], hasVat, version, tz); di.kind = 'different:' + reason; di.reason = reason; res.different.push(di); }
@@ -708,7 +730,7 @@ function validatePrimaryTransfer_(bills, opts) {
   var extras = Object.keys(local);
   for (var k = 0; k < extras.length; k++) {
     var event;
-    try { event = eventOf(extras[k]); } catch (regErr2) { return fail('อ่านทะเบียนยกเลิกของบิล ' + extras[k] + ' ไม่ได้ — ตรวจทะเบียนก่อนย้ายเครื่องหลัก'); }
+    try { event = eventOf(extras[k]); } catch (regErr2) { return registryFail(regErr2, extras[k]); }
     // เจ้าของเลือก "คืนบิลนี้ขึ้นชีต" แล้ว (restoredAt ใหม่กว่าการยกเลิก) = เจตนาคืนบิล ไม่ใช่ปัญหาของการย้าย
     // ต้องเป็นการเลือกของเจ้าของเท่านั้น (restoreConfirmed) — ไม่ใช่ทุกบิลที่มาจากการกู้ไฟล์ซึ่ง restoredAt = เวลาสร้างไฟล์
     // (ตรวจรอบ Claude รอบ 3 · ผู้ตรวจแยก #3: บิลรอตรวจที่ค้างในไฟล์สำรองกลับขึ้นชีตเองได้)
@@ -1219,6 +1241,11 @@ function validateBillPayload_(data) {
       if (rate !== null && Math.round(sat(vv.vatableBase) * rate / 100) !== sat(vv.vatAmount)) {
         fail("VAT_AMOUNT_MISMATCH", "ภาษีขาย (" + vv.vatAmount + ") ไม่ตรงกับ ฐานภาษี × อัตรา " + rate + "%");
       }
+      // ตรวจ 14 ต.ค. ข้อ 12 (ตรงกับ validateBillRecord ของแอป): มีภาษีขายแต่ไม่มีอัตรา — บิลรุ่นแรกใช้ 7% จึงตรวจด้วย 7%
+      if ((data.vatRate === undefined || data.vatRate === null) && sat(vv.vatAmount) > 0 &&
+          Math.round(sat(vv.vatableBase) * 7 / 100) !== sat(vv.vatAmount)) {
+        fail("VAT_RATE_MISSING", "บิลไม่มีอัตรา VAT และภาษีขาย (" + vv.vatAmount + ") ไม่ตรงกับ ฐานภาษี × 7%");
+      }
       out.nonVatBase = vv.nonVatBase; out.vatableBase = vv.vatableBase; out.vatAmount = vv.vatAmount; out.rounding = vv.rounding;
     }
   } else if (moneyOk && netSat !== sat(total)) {
@@ -1250,7 +1277,8 @@ function validateBillPayload_(data) {
           if (Math.abs(nSat - netSat) > tol) fail("LINES_NET_MISMATCH", "ผลรวมราคาหลังส่วนลด (" + (nSat / 100) + ") ไม่เท่ากับ ราคารวม − ส่วนลด (" + (netSat / 100) + ")");
         }
         if (!legacy && allNet && allFlag && out.vatableBase !== null) {
-          var rateOn = (typeof data.vatRate === "number" && data.vatRate > 0);
+          // บิล VAT รุ่นแรกยังไม่มี vatRate แต่ใช้ 7% เช่นเดียวกับด่าน VAT_RATE_MISSING ด้านบน
+          var rateOn = data.vatRate == null || (typeof data.vatRate === "number" && data.vatRate > 0);
           if ((rateOn ? vSat : 0) !== sat(out.vatableBase)) fail("LINES_VAT_MISMATCH", "ผลรวมรายการที่คิด VAT ไม่เท่ากับฐานภาษี");
         }
       }
@@ -1312,7 +1340,7 @@ function ledgerSheet_(name, headers, ss) {
     if (typeof sheet.hideSheet === 'function') sheet.hideSheet();
   }
   var actual = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
-  if (JSON.stringify(actual) !== JSON.stringify(headers)) throw new Error('ทะเบียน ' + name + ' มีหัวคอลัมน์ผิด — หยุดเพื่อป้องกันข้อมูลเสีย');
+  if (JSON.stringify(actual) !== JSON.stringify(headers)) throw registryCorrupt_('ทะเบียน ' + name + ' มีหัวคอลัมน์ผิด — หยุดเพื่อป้องกันข้อมูลเสีย', 'all');
   return sheet;
 }
 // ช่องข้อความของทะเบียนระบบต้องเป็น Plain text ("@") ก่อนเขียน — Sheets แปลงข้อความหน้าตาเหมือนวันที่/ตัวเลขเอง
@@ -1342,7 +1370,7 @@ function ledgerEntry_(sheet, id, width) {
   var n = sheet.getLastRow(); if (n < 2) return null;
   var values = sheet.getRange(2, 1, n - 1, width).getValues(), found = null;
   for (var i = 0; i < values.length; i++) if (String(values[i][0]) === id) {
-    if (found) throw new Error('ทะเบียนมีเลขบิลซ้ำ: ' + id);
+    if (found) throw registryCorrupt_('ทะเบียนมีเลขบิลซ้ำ: ' + id, 'bill');
     found = { row: i + 2, cells: values[i] };
   }
   return found;
@@ -1372,7 +1400,8 @@ function readBillIndexMarker_(props) {
   return { b: String(raw), n: 1, skip: [] };
 }
 function scanLegacyBills_(ss) {
-  var out = { occ: Object.create(null), badTabs: [], nonBillCount: 0, nonBillExamples: [], badVersions: [], tabs: 0, rows: 0 };
+  var out = { occ: Object.create(null), badTabs: [], nonBillCount: 0, nonBillExamples: [], badVersions: [], tabs: 0, rows: 0,
+    monthMismatch: [], monthMismatchCount: 0, badDates: [] }, tz = spreadsheetTz_(ss);
   ss.getSheets().forEach(function(sheet) {
     var month = sheet.getName();
     if (!isValidMonthKey_(month)) return;
@@ -1381,7 +1410,7 @@ function scanLegacyBills_(ss) {
     var schema = billSheetSchema_(sheet), revCol = schema ? billRevColumn_(sheet) : -1;
     if (!schema || revCol < 0) { out.badTabs.push(month); return; }
     out.tabs++;
-    var ids = sheet.getRange(2, 1, count - 1, 1).getValues();
+    var ids = sheet.getRange(2, 1, count - 1, 2).getValues();   // ช่อง 2 = วันที่-เวลา (ตรวจ 14 ต.ค. ข้อ 6)
     var versions = revCol > 0 ? sheet.getRange(2, revCol, count - 1, 1).getDisplayValues() : null;
     for (var i = 0; i < ids.length; i++) {
       var id = readBillId_(cellText_(ids[i][0]));
@@ -1392,6 +1421,12 @@ function scanLegacyBills_(ss) {
         continue;
       }
       out.rows++;
+      var bizMonth = businessMonthOfCell_(ids[i][1], tz);
+      if (!bizMonth) { if (out.badDates.length < 50) out.badDates.push(month + ' แถว ' + (i + 2) + ' (' + id + ')'); }
+      else if (bizMonth !== month) {
+        out.monthMismatchCount++;
+        if (out.monthMismatch.length < 200) out.monthMismatch.push(month + ' แถว ' + (i + 2) + ' (' + id + ') ควรเป็น ' + bizMonth);
+      }
       var cell = versions ? String(versions[i][0] || '').trim() : '';
       var version = cell ? parseBillVersionCell_(cell) : { epoch: 0, rev: 0 };
       if (!version) { if (out.badVersions.length < 50) out.badVersions.push(id); version = { epoch: 0, rev: 0 }; }
@@ -1509,10 +1544,23 @@ function checkBillIndexUpgrade() {
     'แถวที่ไม่ใช่เลขบิล (ข้าม ไม่นับเป็นบิล): ' + scan.nonBillCount + (scan.nonBillExamples.length ? ' เช่น ' + scan.nonBillExamples.join(' | ') : ''),
     'เลขบิลซ้ำ (บิลเลขนี้จะถูกปฏิเสธจนลบแถวที่ผิด): ' + dups.length + (dups.length ? ' → ' + dups.slice(0, 30).join(' | ') : ''),
     'แท็บที่หัวตารางไม่ตรง (บิลเดือนนี้ถูกปฏิเสธจนแก้หัวตาราง): ' + (scan.badTabs.join(', ') || '-'),
-    'ช่องรุ่นบิลอ่านไม่ได้: ' + scan.badVersions.length + (scan.badVersions.length ? ' → ' + scan.badVersions.slice(0, 20).join(', ') : '')
+    'ช่องรุ่นบิลอ่านไม่ได้: ' + scan.badVersions.length + (scan.badVersions.length ? ' → ' + scan.badVersions.slice(0, 20).join(', ') : ''),
+    // ตรวจ 14 ต.ค. ข้อ 6: แถวที่อยู่คนละแท็บกับ "เดือนทำการ" (ตัดวัน 06:00) — ยกเลิกบิลพวกนี้ ระบบรุ่นนี้ไปหาแถวในแท็บที่ถูกให้เอง
+    'แถวบิลที่อยู่คนละแท็บกับเดือนทำการ (ตัดวันตี 6): ' + scan.monthMismatchCount + ' แถว' +
+      (scan.monthMismatch.length ? ' → ' + scan.monthMismatch.slice(0, 30).join(' | ') : ' (ไม่มี — ปกติ)'),
+    'แถวบิลที่อ่านวันเวลาไม่ได้ (ตรวจเดือนไม่ได้): ' + scan.badDates.length + (scan.badDates.length ? ' → ' + scan.badDates.slice(0, 20).join(' | ') : '')
   ];
   Logger.log(lines.join('\n'));
-  return { tabs: scan.tabs, bills: scan.rows, nonBillRows: scan.nonBillCount, duplicates: dups, badTabs: scan.badTabs, badVersions: scan.badVersions };
+  return { tabs: scan.tabs, bills: scan.rows, nonBillRows: scan.nonBillCount, duplicates: dups, badTabs: scan.badTabs, badVersions: scan.badVersions,
+    monthMismatchCount: scan.monthMismatchCount, monthMismatch: scan.monthMismatch, badDates: scan.badDates };
+}
+// เดือนทำการ (MM-yyyy) จากช่อง "วันที่-เวลา" ของแถวบิล — ตัดวันที่ 06:00 เหมือน validateBillPayload_ · อ่านไม่ได้ = ""
+function businessMonthOfCell_(v, tz) {
+  var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(cellText_(v, tz).trim());
+  if (!m || !isRealCalendarDate_(Number(m[1]), Number(m[2]), Number(m[3]))) return "";
+  var biz = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (Number(m[4]) < BUSINESS_DAY_CUTOFF_HOUR_) biz = new Date(biz.getTime() - 86400000);
+  return ("0" + (biz.getUTCMonth() + 1)).slice(-2) + "-" + biz.getUTCFullYear();
 }
 
 // ── ตรวจ 8 ต.ค. 2569 ข้อ 2: แถวบิลเก่าที่ช่อง VAT ว่าง (รันใน editor · อ่านอย่างเดียว ไม่เขียนอะไร) ─────────────
@@ -1608,11 +1656,23 @@ function archivedVoidEvent_(id) {
   return strictVoidEvent_({ v: found.cells[1], r: found.cells[2] });
 }
 
+// ตรวจ 14 ต.ค. ข้อ 11: ทะเบียน "เสีย" (ส่งซ้ำก็ไม่หาย) ต้องแยกจาก "อ่านไม่ได้ชั่วคราว" — scope 'all' = ทั้งทะเบียน · 'bill' = เฉพาะบิลนั้น
+function registryCorrupt_(message, scope) { var e = new Error(message); e.registryCorrupt = scope === 'all' ? 'all' : 'bill'; return e; }
+// คืน response REGISTRY_CORRUPT ถ้าทะเบียนเสีย · null = ปัญหาชั่วคราว (ผู้เรียกตอบ REGISTRY_UNAVAILABLE ตามเดิม)
+// ข้อความเป็นของเราเอง (ไม่ส่งข้อความ error ดิบของ JSON.parse — ตัวแปลข้อความของแอปจะเข้าใจผิดว่าเป็นหน้าล็อกอิน)
+function registryCorruptResponse_(regErr, billId, notDone) {
+  if (!regErr || !regErr.registryCorrupt) return null;
+  var scope = regErr.registryCorrupt, reason = String(regErr.message || regErr).slice(0, 200);
+  return json("error", "ทะเบียนบิลที่ยกเลิกบนชีตเสีย" + (scope === 'all' ? " (ทั้งทะเบียน)" : " (เฉพาะบิล " + billId + ")") +
+    " จึง" + notDone + " — ส่งซ้ำก็ไม่หาย ให้ผู้ดูแลแก้ในชีต/Script Properties: " + reason,
+    { billId: billId, scope: scope, reason: reason }, "REGISTRY_CORRUPT");
+}
+
 function strictVoidEvent_(event) {
-  if (!event || typeof event !== 'object' || Array.isArray(event)) throw new Error('ทะเบียนยกเลิกอ่านไม่ได้');
+  if (!event || typeof event !== 'object' || Array.isArray(event)) throw registryCorrupt_('ทะเบียนยกเลิกอ่านไม่ได้', 'bill');
   function time(n) { return typeof n === 'number' && isFinite(n) && n >= 0 && n % 1 === 0 && n <= 9007199254740991; }
   if (!time(event.v) || !time(event.r) || (event.w !== undefined && !time(event.w)) ||
-      (event.v > 0 && event.v === event.r)) throw new Error('เวลาในทะเบียนยกเลิกเสีย — ต้องตรวจข้อมูลต้นทาง');
+      (event.v > 0 && event.v === event.r)) throw registryCorrupt_('เวลาในทะเบียนยกเลิกเสีย — ต้องตรวจข้อมูลต้นทาง', 'bill');
   return { v: event.v, r: event.r };
 }
 
@@ -1701,6 +1761,12 @@ function handleTransaction(data, ss) {
   if (revCol < 0) {
     return json("error", "หัวคอลัมน์ \"" + BILL_REV_HEADER + "\" ในแท็บ " + monthYear + " ซ้ำกัน — ยังไม่ได้บันทึก", null, "SCHEMA_MISMATCH");
   }
+  // หมายเหตุบิล (14 ต.ค. 2569) — หัวคอลัมน์ซ้ำ = ไม่รู้จะเขียนช่องไหน → หยุดก่อนแตะอะไร (ไม่เงียบ · แก้หัวแล้วแอปส่งใหม่เอง)
+  // บิลที่ไม่มีหมายเหตุไม่สนใจคอลัมน์นี้เลย จึงไม่ติดด่านนี้
+  var billNote = readBillNote_(data), billNoteCol = billNote.given ? billNoteColumn_(sheet) : 0;
+  if (billNoteCol < 0) {
+    return json("error", "หัวคอลัมน์ \"" + BILL_NOTE_HEADER + "\" ในแท็บ " + monthYear + " ซ้ำกัน — ยังไม่ได้บันทึก", null, "SCHEMA_MISMATCH");
+  }
   var foundRow = rows.length ? rows[0] : -1;
   if (foundRow > -1) {
     var stored = { epoch: 0, rev: 0 };
@@ -1727,12 +1793,14 @@ function handleTransaction(data, ss) {
   // จะได้ error เรื่องทะเบียนแทนเหตุผลจริง แล้วเจ้าของไล่ปัญหาผิดทาง
   // ── บิลที่ถูกยกเลิกไปแล้ว ห้ามกลับขึ้นชีตอีก ────────────────────────
   // คำขอที่ client หมดเวลารอไปแล้วยังเดินทางมาถึงได้ ปลายทางจึงต้องเป็นคนตัดสินใจสุดท้าย
-  var regEntry;
+  var regEntry, pendingRestoreMark = null;   // ข้อ 15: การกู้บิลที่ยกเลิกแล้ว จดทะเบียนหลังผ่านด่านปฏิเสธทุกด่าน
   try {
     regEntry = readBillRegistryStrict_(billId);
   } catch (regErr) {
     // ⚠️ อ่านทะเบียนไม่ได้ = "ไม่รู้" ว่าบิลนี้ถูกยกเลิกไปแล้วหรือยัง → ปฏิเสธไว้ก่อน (แอปลองใหม่เอง)
     Logger.log("readBillRegistry failed: " + regErr);
+    var corruptTx = registryCorruptResponse_(regErr, billId, "ยังไม่บันทึกบิลใบนี้");   // ตรวจ 14 ต.ค. ข้อ 11
+    if (corruptTx) return corruptTx;
     return json("error",
       "ตรวจทะเบียนบิลที่ยกเลิกไม่ได้ชั่วคราว จึงยังไม่บันทึกบิลใบนี้ — ระบบจะลองใหม่ให้เอง",
       { billId: billId }, "REGISTRY_UNAVAILABLE");
@@ -1754,11 +1822,10 @@ function handleTransaction(data, ss) {
     }
     // ⚠️ บันทึกสถานะกู้คืน **ก่อน** เขียนแถว — ถ้าเขียนแถวก่อนแล้วบันทึกทะเบียนไม่ได้
     // จะได้ "บิลอยู่บนชีตแต่ทะเบียนบอกว่าถูกยกเลิก" ซึ่งเปิดทางให้คำสั่งยกเลิกเก่ากลับมาลบบิลนั้นได้อีก
-    if (!markBillRestored_(billId, restoredAt, regEntry)) {
-      return json("error",
-        "บันทึกสถานะกู้คืนบิลไม่สำเร็จ จึงยังไม่เขียนแถว — ระบบจะลองใหม่ให้เอง",
-        { billId: billId }, "RESTORE_REGISTRY_FAILED");
-    }
+    // ตรวจ 13 ต.ค. 2569 ข้อ 15: แต่ต้อง "หลังด่านปฏิเสธทุกด่าน" (STALE_REVISION / REVISION_CONFLICT / RECOVERY_BILL_PROTECTED)
+    // เดิมบันทึกตรงนี้ก่อนด่านเหล่านั้น — คำขอที่ถูกปฏิเสธทิ้งทะเบียนว่า "กู้แล้ว" ไว้ แล้วคำสั่งยกเลิกที่ค้างได้
+    // VOID_SUPERSEDED_BY_RESTORE แอปทิ้งงานลบ แถวบิลที่ยกเลิกแล้วค้างบนชีต · ย้ายไปทำก่อนจองทะเบียนบิลด้านล่าง
+    pendingRestoreMark = { restoredAt: restoredAt, regEntry: regEntry };
   }
 
   var payText = payLabelFor_(data.paymentMethod, v.payments);
@@ -1791,7 +1858,7 @@ function handleTransaction(data, ss) {
   // แอปส่ง restoreBase = รุ่นของบิลตามที่ไฟล์สำรองรู้จัก (ก่อนกู้จะยกยุคให้ชนะคำขอเก่าที่ค้างในเน็ต)
   // ⚠️ เดิมการกู้ "ชนะเสมอ" — เจ้าของแก้บิล 300 → 200 แล้วเครื่องพัง กู้ไฟล์ที่ทำก่อนแก้
   //    ชีตกลับเป็น 300 เงียบ ๆ และปุ่มตรวจความตรงกันก็จับไม่ได้ (เครื่องกับชีตตรงกันแล้ว ผิดทั้งคู่)
-  // ตอนนี้: ชีตมีรุ่นใหม่กว่าที่ไฟล์รู้จัก "และ" ค่าที่มีผลกับเงินต่างจากที่จะเขียน → ไม่เขียนทับ
+  // ชีตมีรุ่นใหม่กว่าที่ไฟล์รู้จัก และยอด/ช่องทาง/พนักงาน/หมายเหตุบิลต่างจากที่จะเขียน → ไม่เขียนทับ
   //        ตอบ STALE_REVISION ให้เจ้าของเลือกที่แอป (ใช้ข้อมูลในเครื่องทับ / แก้บิลในเครื่องให้ตรงกับชีต)
   //        ค่าเหมือนกันทุกช่อง (เช่นกู้ไฟล์เดิมซ้ำ หรือรุ่นเปลี่ยนเพราะการกู้รอบก่อน) = เขียนต่อตามปกติ
   // แอปรุ่นก่อนไม่ส่ง restoreBase = กติกาเดิมทุกอย่าง
@@ -1800,6 +1867,7 @@ function handleTransaction(data, ss) {
     if (restoreBase && compareBillVersion_(stored, restoreBase) > 0) {
       var current = sheet.getRange(foundRow, 1, 1, row.length).getValues()[0];
       var changes = billRowChanges_(current, row, hasVat);
+      changes = changes.concat(billNoteChanges_(billNoteCol > 0 ? sheet.getRange(foundRow, billNoteCol).getDisplayValue() : '', billNote));
       if (changes.length) {
         var shown = changes.slice(0, 3).map(function (c) {
           return c.field + " บนชีต " + c.sheet + " · ในไฟล์ที่กู้ " + c.local;
@@ -1831,11 +1899,17 @@ function handleTransaction(data, ss) {
       String(indexed.cells[3]) === digest && !!reservedVersion && compareBillVersion_(incoming, reservedVersion) === 0;
     if (!repairingNewSale) {
       if (!persisted || billRowChanges_(persisted, row, hasVat).length ||
-          (indexed && indexed.cells[3] !== 'legacy' && String(indexed.cells[3]) !== digest)) {
+          (indexed && indexed.cells[3] !== 'legacy' && String(indexed.cells[3]) !== digest) ||
+          billNoteChanges_(billNoteCol > 0 ? sheet.getRange(foundRow, billNoteCol).getDisplayValue() : '', billNote).length) {
         return json('error', 'รับช่วงฉุกเฉิน: ไม่แก้หรือคืนบิลเดิมจนกู้ข้อมูลครบ', { billId: billId }, 'RECOVERY_BILL_PROTECTED');
       }
       return json('success', 'บิลเดิมบนชีตตรงกัน — คงข้อมูลไว้ระหว่างกู้ฉุกเฉิน', { billId: billId, sheet: monthYear });
     }
+  }
+  if (pendingRestoreMark && !markBillRestored_(billId, pendingRestoreMark.restoredAt, pendingRestoreMark.regEntry)) {
+    return json("error",
+      "บันทึกสถานะกู้คืนบิลไม่สำเร็จ จึงยังไม่เขียนแถว — ระบบจะลองใหม่ให้เอง",
+      { billId: billId }, "RESTORE_REGISTRY_FAILED");
   }
   var indexRow = [billId, monthYear, 'v1:' + incoming.epoch + ':' + incoming.rev, digest, 0];
   if (indexed) ledgerWriteRow_(index, indexed.row, indexRow, 4);
@@ -1853,6 +1927,10 @@ function handleTransaction(data, ss) {
     }
     sheet.getRange(foundRow, 1, 1, row.length).setValues([row]);
     sheet.getRange(foundRow, 6, 1, moneyCols).setNumberFormat("#,##0.00");
+    // หมายเหตุ: ส่งมา = เขียน/ล้างช่องของแถวนี้ · ไม่ส่ง = ไม่แตะ · ล้างหมายเหตุในเดือนที่ยังไม่มีคอลัมน์ = ไม่ต้องสร้างคอลัมน์
+    if (billNote.given && (billNote.text || billNoteCol > 0)) {
+      sheet.getRange(foundRow, ensureBillNoteColumn_(sheet)).setValue(safeCell(billNote.text));
+    }
     index.getRange(indexed.row, 5).setValue(1);
     return json("success", "อัปเดตข้อมูลบิลแล้ว", { billId: billId, sheet: monthYear, updated: true, version: incoming });
   } else {
@@ -1862,6 +1940,12 @@ function handleTransaction(data, ss) {
       revCol = ensureBillRevColumn_(sheet);
       while (full.length < revCol - 1) full.push("");
       full[revCol - 1] = verCell;
+    }
+    // หมายเหตุ: ใส่ไปใน appendRow ครั้งเดียวกัน · บิลไม่มีหมายเหตุ = ไม่สร้างคอลัมน์
+    if (billNote.given && billNote.text) {
+      var noteCol = ensureBillNoteColumn_(sheet);
+      while (full.length < noteCol) full.push("");
+      full[noteCol - 1] = safeCell(billNote.text);
     }
     sheet.appendRow(full);
     var lr = sheet.getLastRow();
@@ -1904,11 +1988,14 @@ function handleListBills(data, ss) {
   var vat = (schema === "vat");
   var width = vat ? BILL_HEADERS.length : BILL_LEGACY_HEADERS.length;
   var revCol = billRevColumn_(sheet);
+  var noteCol = billNoteColumn_(sheet);
+  if (noteCol < 0) return json('error', 'หัวคอลัมน์ "' + BILL_NOTE_HEADER + '" ในแท็บ ' + monthYear + ' ซ้ำกัน จึงตรวจหมายเหตุไม่ได้', null, 'SCHEMA_MISMATCH');
   var lastRow = sheet.getLastRow();
   var bills = [], truncated = false, rowsTotal = 0, acceptedLedgerError = '';
   if (lastRow > 1) {
     var values = sheet.getRange(2, 1, lastRow - 1, width).getValues();
     var revs = revCol > 0 ? sheet.getRange(2, revCol, lastRow - 1, 1).getDisplayValues() : null;
+    var notes = noteCol > 0 ? sheet.getRange(2, noteCol, lastRow - 1, 1).getDisplayValues() : null;
     // ⚠️ ช่อง "วันที่-เวลา" ถูก Sheets แปลงเป็นค่าวันที่ตั้งแต่ตอนเขียน — อ่านด้วย str() ตรง ๆ จะได้
     // "Thu Sep 10 2026 21:30:00 GMT+0700" แล้วหน้าตรวจความตรงกันฟ้องว่า "วันเวลาไม่ตรง" ทุกบิล
     var tz = spreadsheetTz_(ss);
@@ -1930,7 +2017,8 @@ function handleListBills(data, ss) {
         // ⚠️ แถวบนชีตแก้ด้วยมือได้ เลขที่บิลจึงไม่การันตีรูปแบบเหมือน ID ที่ระบบสร้าง
         idOk: BILL_ID_RE.test(id),
         when: str(r[1]), customer: str(r[2]), services: str(r[3]), payment: str(r[4]),
-        subtotal: num(r[5]), discount: num(r[6])
+        subtotal: num(r[5]), discount: num(r[6]),
+        billNote: notes ? String(notes[i][0]) : ''
       };
       if (vat) {
         b.nonVatBase = num(r[7]); b.vatableBase = num(r[8]); b.vatAmount = num(r[9]); b.rounding = num(r[10]);
@@ -1984,8 +2072,9 @@ function migrateVoidRegistryIfNeeded_() {
   var raw = props.getProperty(VOIDED_BILLS_PROPERTY);
   if (!raw) return;   // ไม่มีทะเบียนรุ่นเก่า = ไม่มีอะไรต้องย้าย (ไม่ต้องเขียนอะไรเลย)
   {
-    var legacy = JSON.parse(raw);
-    if (!legacy || typeof legacy !== "object" || Array.isArray(legacy)) throw new Error("ทะเบียนบิลที่ยกเลิก (รุ่นเก่า) อ่านไม่ได้");
+    var legacy;
+    try { legacy = JSON.parse(raw); } catch (pe) { legacy = null; }
+    if (!legacy || typeof legacy !== "object" || Array.isArray(legacy)) throw registryCorrupt_("ทะเบียนบิลที่ยกเลิก (รุ่นเก่า POS_VOIDED_BILLS) อ่านไม่ได้", 'all');
     var ids = Object.keys(legacy);
     for (var i = 0; i < ids.length; i++) {
       if (!BILL_ID_RE.test(ids[i])) continue;
@@ -2011,7 +2100,8 @@ function readBillRegistryStrict_(billId) {
   var raw = PropertiesService.getScriptProperties().getProperty(VOID_REG_PREFIX + billId);
   var archived = archivedVoidEvent_(billId);
   if (raw === null || raw === undefined || raw === "") return archived;
-  var o = JSON.parse(raw);
+  var o;
+  try { o = JSON.parse(raw); } catch (pe) { throw registryCorrupt_('ทะเบียนยกเลิกของบิลนี้ (' + VOID_REG_PREFIX + billId + ') อ่านไม่ได้', 'bill'); }
   var event = strictVoidEvent_(o);
   return strictVoidEvent_({ v: Math.max(archived.v, event.v), r: Math.max(archived.r, event.r) });
 }
@@ -2167,7 +2257,9 @@ function billRowChanges_(current, row, hasVat) {
   var out = [];
   var text = function (v) {
     var s = (v == null) ? "" : String(v);
-    if (s.charAt(0) === "'") s = s.slice(1);          // ตัวกันแปลงชนิดของ safeCell ไม่ใช่ส่วนของข้อความ
+    // ตัวกันแปลงชนิดของ safeCell ไม่ใช่ส่วนของข้อความ — ตัด ' นำหน้า "ทั้งหมด" ทั้งสองฝั่ง (ตรวจ 13 ต.ค. 2569 ข้อ 20:
+    // safeCell เติม ' ให้ชื่อที่ขึ้นต้นด้วย ' เอง → ชีตเก็บ 'Jane แต่ค่าที่จะเขียนเป็น ''Jane · ตัดตัวเดียวแล้วฟ้องว่าต่างกันผิด ๆ)
+    s = s.replace(/^'+/, "");
     return s.replace(/\s+/g, " ").trim();
   };
   var sat = function (v) { var n = Number(v === "" ? 0 : v); return isFinite(n) ? Math.round(n * 100) : null; };
@@ -2221,6 +2313,58 @@ function ensureBillRevColumn_(sheet) {
   return col;
 }
 
+// ── หมายเหตุบิล (เจ้าของสั่ง 14 ต.ค. 2569) ──────────────────────────────────────
+// คอลัมน์ท้ายแท็บบิล หัวชื่อ BILL_NOTE_HEADER — หาจากชื่อหัวตารางเท่านั้น (แบบเดียวกับคอลัมน์รุ่นบิล)
+//   · 13 คอลัมน์หลักไม่ขยับ · อ่านหมายเหตุแยกจากคอลัมน์หลักเพื่อใช้ตรวจความตรงกัน/กู้ไฟล์/ย้ายเครื่อง
+//   · สร้างคอลัมน์เมื่อมีบิลที่มีหมายเหตุใบแรกของเดือนนั้นเท่านั้น — เดือนที่ไม่มีหมายเหตุ แท็บหน้าตาเหมือนเดิมทุกอย่าง
+//   · ⚠️ ไม่อยู่ใน canonicalBillHash_ (ลายนิ้วมือบิล) โดยตั้งใจ — หมายเหตุไม่ใช่เงิน และถ้าใส่เข้าไป
+//     บิลเก่าที่จดลายนิ้วมือไว้แล้วจะส่งซ้ำไม่ผ่าน (REVISION_CONFLICT) · แก้หมายเหตุในแอป = รุ่นบิลขึ้นอยู่แล้ว
+//   · แอปไม่ส่ง billNote เลย (บิลไม่เคยมีหมายเหตุ / แอปรุ่นก่อน) = ไม่แตะช่องนี้ · ส่ง '' = ล้างช่อง (ลบหมายเหตุในแอป)
+//   · ชื่อมี "(POS)" กันชนคอลัมน์ "หมายเหตุ" ที่เจ้าของอาจเติมเองแล้วพิมพ์มือ (ระบบจะเขียนทับช่องของตัวเองเท่านั้น)
+var BILL_NOTE_HEADER = "หมายเหตุ (POS)";
+var NOTE_MAX_CHARS_ = 500;   // แอปตัดที่ 200 อยู่แล้ว — ตรงนี้กันคำขอผิดรูปไม่ให้ยัดข้อความยาวลงชีต
+// ข้อความหมายเหตุ: ไม่ใช่ข้อความ = ว่าง · อักขระควบคุม/ขึ้นบรรทัด → ช่องว่าง · ตัดตาม "ตัวอักษร" (ไม่ตัดกลางอีโมจิ)
+function noteText_(v) {
+  if (typeof v !== "string") return "";
+  var s = v.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
+  var chars = Array.from(s);
+  return chars.length > NOTE_MAX_CHARS_ ? chars.slice(0, NOTE_MAX_CHARS_).join("").trim() : s;
+}
+// { given: แอปส่งช่องนี้มาไหม, text: ข้อความที่ทำความสะอาดแล้ว }
+function readBillNote_(data) {
+  var given = !!data && typeof data.billNote === "string";
+  return { given: given, text: given ? noteText_(data.billNote) : "" };
+}
+// ไม่ส่งช่องนี้ = ไม่เขียนทับ จึงไม่สร้างข้อขัดแย้งกับแอป/ไฟล์รุ่นก่อน
+// เก็บเครื่องหมาย ' จริงไว้ เพราะ safeCell ถูก Sheets ถอดตัวกันสูตรออกแล้วตอนอ่าน
+function billNoteChanges_(current, note) {
+  if (!note.given) return [];
+  var stored = String(current == null ? '' : current).replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return stored === note.text ? [] : [{ field: 'หมายเหตุบิล', sheet: stored, local: note.text }];
+}
+// ตำแหน่งคอลัมน์หมายเหตุ: ซ้ำ = -1 (ผู้เรียกต้องหยุด) · ไม่มี = 0
+function billNoteColumn_(sheet) {
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return 0;
+  var h = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0], at = 0;
+  for (var i = 0; i < h.length; i++) {
+    if (String(h[i] || "").trim() === BILL_NOTE_HEADER) { if (at) return -1; at = i + 1; }
+  }
+  return at;
+}
+// สร้างคอลัมน์หมายเหตุต่อท้าย "หลังคอลัมน์สุดท้ายที่มีข้อมูล" (แบบเดียวกับ ensureBillRevColumn_) — ไม่ซ่อน
+function ensureBillNoteColumn_(sheet) {
+  var col = billNoteColumn_(sheet);
+  if (col !== 0) return col;
+  col = sheet.getLastColumn() + 1;
+  var maxCols = sheet.getMaxColumns();
+  if (col > maxCols) sheet.insertColumnsAfter(maxCols, col - maxCols);
+  sheet.getRange(1, col).setValue(BILL_NOTE_HEADER)
+    .setBackground("#1e293b").setFontColor("white").setFontWeight("bold").setHorizontalAlignment("center");
+  try { sheet.setColumnWidth(col, 240); } catch (e) {}
+  return col;
+}
+
 function handleVoidTransaction(data, ss) {
   // ⚠️ ตรวจเลขที่บิลให้จบก่อนแตะชีตใด ๆ
   // เดิมเทียบ ids[i][0] === data.id ตรง ๆ โดยไม่ตรวจอะไรเลย
@@ -2261,6 +2405,8 @@ function handleVoidTransaction(data, ss) {
     // ⚠️ เดิมใช้ตัวอ่านที่ "อ่านไม่ได้ = ถือว่าไม่มีทะเบียน" → ข้ามด่านกู้คืน แล้วลบบิลที่เพิ่งกู้คืนได้
     // อ่านไม่ได้ = ยืนยันลำดับเหตุการณ์ไม่ได้ → ไม่ลบอะไร (แอปเก็บงานไว้ลองใหม่)
     Logger.log("readBillRegistry failed: " + regErr);
+    var corruptVoid = registryCorruptResponse_(regErr, billId, "ยังไม่ลบแถว");   // ตรวจ 14 ต.ค. ข้อ 11
+    if (corruptVoid) return corruptVoid;
     return json("error", "ตรวจทะเบียนบิลที่ยกเลิกไม่ได้ชั่วคราว จึงยังไม่ลบแถว — ระบบจะลองใหม่ให้เอง",
       { billId: billId }, "REGISTRY_UNAVAILABLE");
   }
@@ -2281,34 +2427,61 @@ function handleVoidTransaction(data, ss) {
   }
 
   var sheet = ss.getSheetByName(monthYear);
-  if (!sheet) {
-    // ไม่มีแท็บเดือนนี้ = ไม่เคยมีแถวให้ลบตั้งแต่แรก ปลายทางถือว่า "ลบแล้ว"
-    return json("error", "ไม่พบแผ่นงานของเดือนนี้", null, "NOT_FOUND");
+  // ── ตรวจ 14 ต.ค. ข้อ 6: แถวของบิลอาจอยู่คนละแท็บกับเดือนที่แอปส่งมา ─────────────────────────
+  // บิล 00:00–05:59 วันที่ 1 ที่ Apps Script รุ่นก่อน monthKey (ก่อน 19 ก.ค. 2569) เขียนลงแท็บเดือนตามปฏิทิน
+  // เดิมหาเฉพาะแท็บที่แอปบอก → NOT_FOUND → แอปถือว่าลบแล้ว แถวบิลที่ยกเลิกค้างบนชีตถาวร
+  // ตอนนี้ดู "เดือนที่แอปส่ง + เดือนในทะเบียนเลขบิล + เดือนก่อน/หลัง" (อ่านอย่างเดียว ไม่สร้าง/ไม่อัปเกรดทะเบียน)
+  // เจอแถวมากกว่า 1 ที่ = ไม่เดา (DUPLICATE_BILL_ID) · แท็บที่แอปส่ง/แท็บตามทะเบียนหัวตารางผิด = SCHEMA_MISMATCH เหมือนเดิม
+  var indexedMonth = voidIndexedMonth_(ss, billId);
+  var months = [monthYear];
+  if (indexedMonth && months.indexOf(indexedMonth) < 0) months.push(indexedMonth);
+  adjacentMonthKeys_(monthYear).forEach(function (m) { if (months.indexOf(m) < 0) months.push(m); });
+  var places = [], scanned = [];
+  for (var mi = 0; mi < months.length; mi++) {
+    var sh = ss.getSheetByName(months[mi]);
+    if (!sh || scanned.indexOf(sh) >= 0) continue;   // แท็บเดียวกันห้ามนับแถวซ้ำ
+    scanned.push(sh);
+    // ── โครงตารางต้องเป็นแบบที่รู้จัก ก่อนลบอะไรทั้งสิ้น (ฝั่งเขียนตรวจอยู่แล้ว ฝั่งลบต้องตรวจเหมือนกัน) ──
+    // แท็บที่หัวตารางถูกสลับ/ลบหัวทิ้ง → คอลัมน์แรกอาจไม่ใช่เลขที่บิล = ลบแถวผิดได้
+    if (!billSheetSchema_(sh)) {
+      if (billSheetIsBlank_(sh)) continue;
+      if (months[mi] === monthYear || months[mi] === indexedMonth) {
+        return json("error",
+          "โครงสร้างคอลัมน์ของแท็บ " + months[mi] + " ไม่ตรงกับที่ระบบรู้จัก จึงยังไม่ลบแถวใด — ตรวจหัวตารางแถวแรกก่อน " +
+          "(ทะเบียนยกเลิกบันทึกแล้ว บิลนี้จะไม่ถูกเขียนกลับขึ้นมา)", { billId: billId }, "SCHEMA_MISMATCH");
+      }
+      continue;   // แท็บเดือนข้างเคียงที่อ่านไม่ได้ ไม่ใช่หลักฐานว่าบิลอยู่ที่นั่น
+    }
+    findBillRows_(sh, billId).forEach(function (r) { places.push({ month: months[mi], row: r, sheet: sh }); });
   }
-
-  // ── โครงตารางต้องเป็นแบบที่รู้จัก ก่อนลบอะไรทั้งสิ้น (ฝั่งเขียนตรวจอยู่แล้ว ฝั่งลบต้องตรวจเหมือนกัน) ──
-  // เดิมค้นเลขที่บิลใน "คอลัมน์แรก" ของแท็บอะไรก็ได้ แล้วลบทั้งแถวทันที
-  // แท็บที่หัวตารางถูกสลับ/ลบหัวทิ้ง → คอลัมน์แรกอาจไม่ใช่เลขที่บิล = ลบแถวผิดได้
-  var schema = billSheetSchema_(sheet);
-  if (!schema) {
-    if (billSheetIsBlank_(sheet)) return json("error", "แท็บเดือนนี้ยังว่าง", null, "NOT_FOUND");
-    return json("error",
-      "โครงสร้างคอลัมน์ของแท็บ " + monthYear + " ไม่ตรงกับที่ระบบรู้จัก จึงยังไม่ลบแถวใด — ตรวจหัวตารางแถวแรกก่อน " +
-      "(ทะเบียนยกเลิกบันทึกแล้ว บิลนี้จะไม่ถูกเขียนกลับขึ้นมา)", { billId: billId }, "SCHEMA_MISMATCH");
-  }
-  var rows = findBillRows_(sheet, billId);
-  if (rows.length > 1) {
+  if (places.length > 1) {
     // ไม่เดาว่าแถวไหนคือบิลจริง — ลบผิดแถวย้อนกลับไม่ได้
     return json("error",
-      "พบบิลเลขที่ " + billId + " ซ้ำ " + rows.length + " แถว (แถว " + rows.join(", ") + ") จึงยังไม่ลบแถวใด — ให้ตรวจแถวซ้ำในชีตก่อน",
-      { billId: billId, rows: rows }, "DUPLICATE_BILL_ID");
+      "พบบิลเลขที่ " + billId + " ซ้ำ " + places.length + " แถว (" + places.map(function (p) { return p.month + " แถว " + p.row; }).join(", ") +
+      ") จึงยังไม่ลบแถวใด — ให้ตรวจแถวซ้ำในชีตก่อน",
+      { billId: billId, rows: places.map(function (p) { return p.row; }), months: places.map(function (p) { return p.month; }) }, "DUPLICATE_BILL_ID");
   }
-  if (rows.length === 1) {
-    sheet.deleteRow(rows[0]);
-    return json("success", "ลบบิลออกจาก Sheets แล้ว", { billId: billId });
+  if (places.length === 1) {
+    places[0].sheet.deleteRow(places[0].row);
+    return json("success", "ลบบิลออกจาก Sheets แล้ว", { billId: billId, sheet: places[0].month });
   }
+  if (!sheet) {
+    // ไม่มีแท็บเดือนนี้ (และไม่พบในเดือนอื่นที่เป็นไปได้) = ปลายทางถือว่า "ลบแล้ว"
+    return json("error", "ไม่พบแผ่นงานของเดือนนี้", null, "NOT_FOUND");
+  }
+  if (!billSheetSchema_(sheet)) return json("error", "แท็บเดือนนี้ยังว่าง", null, "NOT_FOUND");
   // ไม่มีแถวนี้แล้ว = ลบไปก่อนหน้าแล้ว ฝั่งแอปต้องถือว่าสำเร็จ ไม่ใช่วนลองใหม่ตลอดกาล
   return json("error", "ไม่พบบิลเลขที่ " + billId + " ใน Sheets", null, "NOT_FOUND");
+}
+
+// เดือนของบิลตามทะเบียนเลขบิล (อ่านอย่างเดียว) — ไม่มีแท็บ/ไม่มีเลขนี้/อ่านไม่ได้ = "" (ใช้วิธีไล่เดือนข้างเคียงแทน)
+function voidIndexedMonth_(ss, billId) {
+  try {
+    if (!ss.getSheetByName(BILL_INDEX_NAME_)) return "";
+    var e = ledgerEntry_(ledgerSheet_(BILL_INDEX_NAME_, ['id', 'month', 'version', 'hash', 'applied'], ss), billId, 5);
+    var m = e ? String(e.cells[1]) : "";
+    return isValidMonthKey_(m) ? m : "";
+  } catch (err) { Logger.log("voidIndexedMonth_: " + err); return ""; }
 }
 
 // ─────────────────────────────────────────────
@@ -2358,9 +2531,27 @@ var SUMMARY_STAMP_COL = 26;   // Z1 — นอกพื้นที่ราย�
 // จึงถูกคำขอเก่าเขียนทับได้เงียบ ๆ ตอนนี้แยกสองกรณีให้ชัด:
 //   ไม่มีแท็บ / แท็บรุ่นเก่าที่ไม่เคยมีรหัส (ช่องว่าง) = ไม่มีรุ่นเดิม → เขียนได้
 //   มีค่าแต่อ่านไม่ได้ / บริการอ่านล่ม              = ไม่รู้ → หยุด (SUMMARY_VERSION_UNAVAILABLE) แอปลองใหม่เอง
+// ตรวจ 13 ต.ค. 2569 ข้อ 9: แท็บสรุปรายวันที่เก่ากว่า DAILY_SHEET_RETENTION_DAYS ถูกลบทิ้ง (pruneOldDailySheets)
+// รหัสรุ่นที่อยู่ในแท็บจึงหายไปด้วย → คำขอรุ่นเก่าที่มาถึงทีหลังเขียนทับแถวของวันนั้นใน "สรุปรายเดือน" ได้
+// ตอนนี้: สรุปของวันที่เลยระยะเก็บแท็บ จดรหัสรุ่นไว้ใน Script Properties ด้วย (เฉพาะวันเก่า — จำนวนจำกัดตามการแก้บิลย้อนหลัง)
+function summaryStampPropKey_(sheetName) { return "POS_SUMSTAMP_" + sheetName; }
+function isDailyKeyBeyondRetention_(dateKey, keepDays) {
+  var m = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m || !keepDays || keepDays <= 0) return false;
+  var cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - keepDays);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) < cutoff;
+}
 function readSummaryStamp_(ss, sheetName) {
   var sh = ss.getSheetByName(sheetName);
-  if (!sh) return 0;
+  if (!sh) {
+    var p = PropertiesService.getScriptProperties().getProperty(summaryStampPropKey_(sheetName));
+    if (p === null || p === undefined || p === "") return 0;
+    var pn = Number(p);
+    if (!isFinite(pn) || pn <= 0) throw new Error("รหัสรุ่นที่จดไว้ของ " + sheetName + " อ่านไม่ได้ (" + String(p).slice(0, 30) + ")");
+    return pn;
+  }
   var v = sh.getRange(SUMMARY_STAMP_ROW, SUMMARY_STAMP_COL, 1, 1).getValues()[0][0];
   if (v === "" || v === null || v === undefined) return 0;
   var n = Number(v);
@@ -2415,10 +2606,20 @@ function handleDailySummary(data, ss) {
   var staleDay = checkSummaryStale_(ss, sheetName, data);
   if (staleDay) return staleDay;
   replaceSummarySheet_(ss, sheetName, data, "รายวัน: " + dateKey, "day", dateKey);
-  pruneOldDailySheets(ss, DAILY_SHEET_RETENTION_DAYS);
+  // ข้อ 9: วันที่เลยระยะเก็บแท็บ — จดรหัสรุ่นไว้ก่อนแท็บถูกลบ (กันคำขอเก่าทับ) · ไม่ลบแท็บที่เพิ่งเขียนในรอบนี้
+  var beyond = isDailyKeyBeyondRetention_(dateKey, DAILY_SHEET_RETENTION_DAYS);
+  var stampN = Number(data.generatedAt);
+  if (beyond && isFinite(stampN) && stampN > 0) {
+    // บันทึกไม่ได้ (โควตา Script Properties เต็ม) ไม่ใช่เหตุให้สรุปที่เขียนเสร็จแล้วล้ม — แท็บนี้ไม่ถูกลบในคำขอนี้ ยังกันคำขอเก่าได้
+    try { PropertiesService.getScriptProperties().setProperty(summaryStampPropKey_(sheetName), String(stampN)); }
+    catch (propErr) { Logger.log("save summary stamp failed: " + propErr); }
+  }
+  pruneOldDailySheets(ss, DAILY_SHEET_RETENTION_DAYS, sheetName);
   pruneOrphanSwapSheets_(ss);
 
-  return json("success", "บันทึกสรุปรายวันแล้ว", { sheet: sheetName });
+  return json("success", beyond
+    ? "บันทึกสรุปรายวันแล้ว (วันนี้เก่ากว่า " + DAILY_SHEET_RETENTION_DAYS + " วัน — แท็บรายวันจะถูกลบในรอบถัดไป ยอดอยู่ในแถวของสรุปรายเดือน)"
+    : "บันทึกสรุปรายวันแล้ว", { sheet: sheetName });
 }
 
 // ─────────────────────────────────────────────
@@ -2733,10 +2934,15 @@ function normalizeStaffCommissions_(list) {
     if (sales < 0) throw new Error(tag + ".salesSum ต้องไม่ติดลบ");
     // ค่าคอมคำนวณจาก netPrice × อัตรา ซึ่งไม่มีทางติดลบ — ถ้าติดลบแปลว่าข้อมูลเพี้ยน
     if (comm < 0)  throw new Error(tag + ".commission ต้องไม่ติดลบ");
+    // ข้อ 22 (ตรวจ 13 ต.ค. 2569): จำนวนชิ้นสินค้าที่ขาย — แอปรุ่นก่อนไม่ส่ง = 0
+    var pc = (st.productCount === undefined || st.productCount === null) ? 0 : readFiniteNumber_(st.productCount, tag + ".productCount", false);
+    if (pc < 0 || Math.floor(pc) !== pc) throw new Error(tag + ".productCount ต้องเป็นจำนวนเต็มไม่ติดลบ");
     out.push({
-      name: safeCell(st.name || "ไม่ระบุ"),
-      role: safeCell(st.role || "-"),
-      count: count, salesSum: sales, commission: comm
+      // ข้อความดิบ — กันสูตร/แปลงชนิดตอนเขียนลงช่องที่ writeSummarySheet ที่เดียว (ผู้ตรวจอิสระ 13 ต.ค. 2569:
+      // เดิมผ่าน safeCell สองรอบ พอ safeCell กัน ' นำหน้าด้วย ชื่อ "-"/"+Bob" ขึ้นบนชีตเป็น '- / '+Bob)
+      name: String(st.name || "ไม่ระบุ"),
+      role: String(st.role || "-"),
+      count: count, productCount: pc, salesSum: sales, commission: comm
     });
   }
   return out;
@@ -2761,7 +2967,7 @@ function normalizeServiceRows_(list) {
     if (count < 0 || Math.floor(count) !== count)
       throw new Error(tag + ".count ต้องเป็นจำนวนเต็มไม่ติดลบ");
     if (rev < 0) throw new Error(tag + ".revenue ต้องไม่ติดลบ");
-    out.push({ name: safeCell(svc.name || "ไม่ระบุชื่อบริการ"), count: count, revenue: rev });
+    out.push({ name: String(svc.name || "ไม่ระบุชื่อบริการ"), count: count, revenue: rev });   // safeCell ตอนเขียน (ดูข้างบน)
   }
   return out;
 }
@@ -2791,7 +2997,8 @@ function writeSummarySheet(sheet, data, periodLabel) {
   r++;
 
   sheet.getRange(r, 1, 1, 5).merge()
-    .setValue("Erotica Barber & Massage POS  |  สร้างเมื่อ: " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm"))
+    .setValue(safeCell((typeof data.shopName === "string" && data.shopName.trim() ? data.shopName.trim().slice(0, 80) : "Erotica Barber & Massage") +
+      " POS  |  สร้างเมื่อ: " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm")))
     .setBackground("#334155").setFontColor("#94a3b8")
     .setFontSize(9).setHorizontalAlignment("center");
   r++;
@@ -2856,6 +3063,8 @@ function writeSummarySheet(sheet, data, periodLabel) {
 
     var sumExpected = 0, sumCounted = 0, sumDiff = 0;
     var sumStart = 0, sumSales = 0, sumExp = 0, sumAdj = 0, sumOther = 0, sumOver = 0;
+    // ตรวจ 14 ต.ค. ข้อ 14 (รอบ 2): ยอดเกินลิ้นชักแยกตามต้นเหตุ — แอปรุ่นเก่าไม่ส่ง overspendCause = ป้ายเดิม "ค่าใช้จ่ายเกินลิ้นชัก"
+    var sumOverRefund = 0, sumOverMixed = 0;
     shiftRows.forEach(function(sh) {
       var d   = Number(sh.difference) || 0;
       var bg  = "#f0fdfa";
@@ -2876,8 +3085,19 @@ function writeSummarySheet(sheet, data, periodLabel) {
       sumAdj      += Number(sh.cashAdjust) || 0;
       // ค่าใช้จ่ายที่จ่ายทางอื่น (ไม่หักลิ้นชัก) + ค่าใช้จ่ายจากลิ้นชักที่เกินเงินในลิ้นชัก (นับเป็นเงินขาดแล้ว) — แอปรุ่น 1.7.1 ขึ้นไป
       sumOther    += Number(sh.expensesOther) || 0;
-      sumOver     += Number(sh.overspend) || 0;
+      if (sh.overspendCause === "refund") sumOverRefund += Number(sh.overspend) || 0;
+      else if (sh.overspendCause === "mixed") sumOverMixed += Number(sh.overspend) || 0;
+      else sumOver += Number(sh.overspend) || 0;
       r++;
+      // หมายเหตุปิดกะ (เจ้าของสั่ง 14 ต.ค. 2569) — แถวใต้กะนั้น กว้างเต็ม 5 คอลัมน์ · แอปรุ่นก่อน/กะที่ไม่มี = ไม่มีแถวนี้
+      // ขึ้นต้นด้วย 📝 เสมอ (ป้ายห้ามขึ้นต้นด้วย = + - @) · ยังผ่าน safeCell กันไว้อีกชั้น
+      var cn = noteText_(sh.closeNote);
+      if (cn) {
+        sheet.getRange(r, 1, 1, 5).merge()
+          .setValue(safeCell("📝 หมายเหตุปิดกะ: " + cn))
+          .setBackground(bg).setFontColor("#0f766e").setFontSize(9).setWrap(true).setHorizontalAlignment("left");
+        r++;
+      }
     });
 
     var tBg  = sumDiff < 0 ? LRED : (sumDiff > 0 ? LGREEN : "#f1f5f9");
@@ -2887,7 +3107,9 @@ function writeSummarySheet(sheet, data, periodLabel) {
         (Math.round(sumAdj * 100) !== 0 ? " · คืน/เก็บส่วนต่าง " + (sumAdj > 0 ? "+" : "-") + numFmt(Math.abs(sumAdj)) : "") +
         " · ค่าใช้จ่ายจากลิ้นชัก " + numFmt(sumExp) +
         (Math.round(sumOther * 100) !== 0 ? " · จ่ายทางอื่น " + numFmt(sumOther) + " (ไม่หักลิ้นชัก)" : "") +
-        (Math.round(sumOver * 100) !== 0 ? " · ค่าใช้จ่ายเกินลิ้นชัก " + numFmt(sumOver) + " (นับเป็นเงินขาด)" : ""))
+        (Math.round(sumOver * 100) !== 0 ? " · ค่าใช้จ่ายเกินลิ้นชัก " + numFmt(sumOver) + " (นับเป็นเงินขาด)" : "") +
+        (Math.round(sumOverRefund * 100) !== 0 ? " · เงินคืนลูกค้าเกินลิ้นชัก " + numFmt(sumOverRefund) + " (นับเป็นเงินขาด)" : "") +
+        (Math.round(sumOverMixed * 100) !== 0 ? " · ค่าใช้จ่าย+เงินคืนเกินลิ้นชัก " + numFmt(sumOverMixed) + " (นับเป็นเงินขาด)" : ""))
       .setBackground(LTEAL).setFontColor("#0f766e").setFontWeight("bold").setFontSize(9);
     sheet.getRange(r,3).setValue(sumExpected).setBackground(LTEAL).setFontColor("#0f766e").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
     sheet.getRange(r,4).setValue(sumCounted).setBackground(LTEAL).setFontColor("#0f766e").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
@@ -3040,7 +3262,7 @@ function writeSummarySheet(sheet, data, periodLabel) {
     .setValue("ค่าคอมมิชชั่นพนักงานรายบุคคล")
     .setBackground(DARK).setFontColor("white").setFontWeight("bold");
   r++;
-  var comHeaders = ["ชื่อพนักงาน","ตำแหน่ง","จำนวนงาน","ยอดขาย (฿)","ค่าคอม (฿)"];
+  var comHeaders = ["ชื่อพนักงาน","ตำแหน่ง","จำนวนงาน","ยอดขาย (฿)","ค่าคอม (฿)"];   // ยอดขายรวมสินค้า — จำนวนงานแสดง "งาน · สินค้า" เมื่อมีสินค้า
   styleHeaderRow(sheet, r, comHeaders, "#1e293b", "#e2e8f0");
   r++;
   var staff = data.staffCommissions || [];
@@ -3053,7 +3275,9 @@ function writeSummarySheet(sheet, data, periodLabel) {
     var stComm  = Number(st.commission) || 0;
     sheet.getRange(r,1).setValue(safeCell(st.name || "ไม่ระบุ")).setBackground(bg).setFontWeight("bold");
     sheet.getRange(r,2).setValue(safeCell(st.role || "-")).setBackground(bg).setFontColor("#64748b");
-    sheet.getRange(r,3).setValue(stCount).setBackground(bg).setHorizontalAlignment("center");
+    // ข้อ 22: คนที่ขายสินค้าด้วย แสดง "งาน · สินค้า" คู่กัน (ยอดขายรวมสินค้า — เดิมจำนวนนับแค่งานบริการ อ่านแล้วไม่ตรงกัน)
+    var stProd = Number(st.productCount) || 0;
+    sheet.getRange(r,3).setValue(stProd > 0 ? safeCell(stCount + " งาน · " + stProd + " สินค้า") : stCount).setBackground(bg).setHorizontalAlignment("center");
     sheet.getRange(r,4).setValue(stSales).setBackground(bg).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
     sheet.getRange(r,5).setValue(stComm).setBackground(bg).setFontColor("#0f766e").setFontWeight("bold").setNumberFormat("#,##0.00").setHorizontalAlignment("right");
     totalCom += stComm;
@@ -3381,6 +3605,10 @@ function payLabelFor_(method, parts) {
 function safeCell(v) {
   var s = (v == null) ? "" : String(v);
   if (/^[=+\-@]/.test(s)) return "'" + s;
+  // ตรวจ 13 ต.ค. 2569 ข้อ 20: ขึ้นต้นด้วย ' เอง — Sheets กิน ' ตัวแรกทิ้ง (ชื่อ 'Tom กลายเป็น Tom)
+  if (s.charAt(0) === "'") return "'" + s;
+  // ช่องว่าง/ขึ้นบรรทัดนำหน้าสูตร (" =1+1") — กันไว้ด้วย ไม่เสียอะไร
+  if (/^\s+[=+\-@]/.test(s)) return "'" + s;
   if (looksCoercible_(s)) return "'" + s;
   return s;
 }
@@ -3444,7 +3672,7 @@ function json(status, message, details, code) {
 }
 
 // ลบแท็บสรุปรายวันที่เก่า (กันแท็บบวม)
-function pruneOldDailySheets(ss, keepDays) {
+function pruneOldDailySheets(ss, keepDays, keepName) {
   if (!keepDays || keepDays <= 0) return;
   var cutoff = new Date();
   cutoff.setHours(0, 0, 0, 0);
@@ -3454,8 +3682,22 @@ function pruneOldDailySheets(ss, keepDays) {
     var name = sheets[i].getName();
     var m = name.match(/^สรุป-(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) continue;
+    if (keepName && name === keepName) continue;   // ข้อ 9: แท็บที่เพิ่งเขียนในคำขอนี้ — ไม่ลบทันที
     var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     if (d < cutoff) {
+      // ข้อ 9 (ผู้ตรวจอิสระ): ย้ายรหัสรุ่นของแท็บไปเก็บใน Script Properties "ก่อน" ลบ — แท็บที่เขียนตอนอายุ 61–62 วันไม่มีรหัสใน properties
+      // ถ้าเก็บไม่ได้ = ยังไม่ลบแท็บนี้ (กันคำขอเก่าทับยอดใหม่) — ลองใหม่รอบหน้า
+      try {
+        var z = sheets[i].getRange(SUMMARY_STAMP_ROW, SUMMARY_STAMP_COL, 1, 1).getValues()[0][0];
+        var zn = Number(z);
+        if (z !== "" && z !== null && z !== undefined) {
+          // มีรหัสรุ่นแต่อ่านไม่ได้ = ยังลบไม่ได้ มิฉะนั้นด่าน STALE_SUMMARY จะเหลือรุ่น 0
+          if (!isFinite(zn) || zn <= 0) throw new Error("unreadable summary stamp: " + name);
+          var props = PropertiesService.getScriptProperties(), pk = summaryStampPropKey_(name);
+          var cur = Number(props.getProperty(pk));
+          if (!(isFinite(cur) && cur >= zn)) props.setProperty(pk, String(zn));
+        }
+      } catch (stampErr) { Logger.log("keep stamp before prune failed: " + stampErr); continue; }
       try { ss.deleteSheet(sheets[i]); } catch (e) {}
     }
   }

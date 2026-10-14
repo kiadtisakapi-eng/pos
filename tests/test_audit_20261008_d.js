@@ -71,16 +71,17 @@ const zeroCart = (s) => {
     } finally { s.dispose(); }
   });
 
-  await test('D1 ผู้จัดการลง 400 + 5,000 จากลิ้นชัก → บันทึกลงเครื่องทันที ไม่มีเพดาน ไม่ถาม PIN ไม่มีผู้อนุมัติ', async () => {
+  // ข้อ ก (เจ้าของตัดสิน 14 ต.ค. 2569): จากลิ้นชักเกิน 500 ถาม PIN ของคนที่ลง (confirmPinStepUp) — 400 ไม่ถาม · 5,000 ถาม 1 ครั้ง
+  await test('D1 ผู้จัดการลง 400 (ไม่ถาม) + 5,000 จากลิ้นชัก (ถาม PIN ตัวเอง) → บันทึกลงเครื่อง ไม่มีเพดาน ไม่มีผู้อนุมัติ', async () => {
     const s = await shop({ role: 'manager' });
     try {
       let asked = 0; s.app.askSecret = async () => { asked++; return null; };
-      s.app.confirmPinStepUp = async () => { asked++; return false; };
+      s.app.confirmPinStepUp = async () => { asked++; return true; };
       fillExpense(s, 400, 'ค่าไฟ'); await s.app.addExpense(); await settle();
       fillExpense(s, 5000, 'ค่าซ่อม'); await s.app.addExpense(); await settle();
       const raw = (await s.raw('shift')).expenses;
       assert.deepEqual(raw.map(e => [e.amount, e.byId, e.paidFrom, e.approvedBy]), [[400, 'mg-1', 'drawer', undefined], [5000, 'mg-1', 'drawer', undefined]]);
-      assert.equal(asked, 0);
+      assert.equal(asked, 1);
     } finally { s.dispose(); }
   });
 

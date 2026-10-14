@@ -384,7 +384,7 @@ await section('[7]', async () => {
     const comm = doc.getElementById('report-commission-body').innerHTML;
     ok(!/ไม่ได้ระบุ/.test(comm), comm.slice(0, 400));
     ok(doc.getElementById('report-services-breakdown-body').innerHTML.includes('ค่าธรรมเนียมบัตร'));
-    ok(doc.getElementById('report-transactions-body').innerHTML.includes('เงินสด 400 + Credit 660'));
+    ok(doc.getElementById('report-transactions-body').innerHTML.includes('เงินสด 400 + บัตร 660')   /* ป้ายไทย (ตรวจ 13 ต.ค. 2569 ข้อ 21) */);
     eq(doc.getElementById('report-kpi-popular').innerText, 'ตัดผม');
   });
 

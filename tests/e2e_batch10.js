@@ -151,8 +151,11 @@ async function addExpense(p, amount, note) {
   t('ผู้จัดการลง 400 จากลิ้นชัก → บันทึกเลย ไม่มีหน้าต่างถาม PIN (เดิมรวมเกิน 300 ต้องขอ PIN)',
     await p.evaluate(() => app.state.shift.expenses.some(e => e.amount === 400 && e.byId === 'mg-1' && !e.approvedBy) &&
       !document.getElementById('modal-prompt').classList.contains('active')));
+  // ข้อ ก (เจ้าของตัดสิน 14 ต.ค. 2569): จากลิ้นชักเกิน 500 → ถาม PIN ของผู้จัดการที่ลง แล้วบันทึก (ไม่มีเพดาน)
   await addExpense(p, 5000, 'ค่าซ่อมแอร์');
-  t('ลงเพิ่ม 5,000 → บันทึกเลย ไม่มีเพดาน', await p.evaluate(() => app.state.shift.expenses.some(e => e.amount === 5000) &&
+  const askedPin = await p.evaluate(() => document.getElementById('modal-prompt').classList.contains('active'));
+  if (askedPin) { await p.fill('#prompt-modal-input', '222222'); await p.click('#modal-prompt button.primary'); await p.waitForTimeout(500); }
+  t('ลงเพิ่ม 5,000 → ถาม PIN ของผู้จัดการ · ใส่ถูกแล้วบันทึก ไม่มีเพดาน', askedPin && await p.evaluate(() => app.state.shift.expenses.some(e => e.amount === 5000) &&
     !document.getElementById('modal-prompt').classList.contains('active')));
   // ลบรายการเก่าของพนักงาน (ที่มีผู้อนุมัติ) ผ่านปุ่มบนจอ
   await p.click(`#expense-list button[onclick*="exp_old_1"]`);

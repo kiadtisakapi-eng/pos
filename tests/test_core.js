@@ -296,7 +296,8 @@ const putSession = async (role, uid, ageMs) => {
 app.currentUser = { id:'__owner__', name:'เจ้าของร้าน' }; app.currentRole = 'owner'; app.saveSession();
 await new Promise(r => setTimeout(r, 3));
 restored = await app.tryRestoreSession();
-t('เจ้าของเพิ่งใช้งาน -> เซสชันยังใช้ได้', () => { ok(restored); eq(app.currentRole, 'owner'); });
+// ตรวจ 13 ต.ค. 2569 ข้อ 5(ก): เจ้าของไม่ถูกคืนการล็อกอินข้ามการเปิดแอปใหม่อีกแล้ว (ตั้งนาฬิกาย้อน = ได้สิทธิ์เจ้าของโดยไม่ใส่ PIN)
+t('เจ้าของเพิ่งใช้งาน -> เปิดแอปใหม่ต้องใส่ PIN ใหม่ (ไม่คืนเซสชันเจ้าของ · ตรวจ 13 ต.ค. 2569)', () => { eq(restored, false); });
 
 console.log('\n--- เตะออกอัตโนมัติเมื่อไม่ได้ใช้งาน (เฉพาะเจ้าของ) ---');
 app.currentUser = { id:'__owner__', name:'เจ้าของร้าน' }; app.currentRole = 'owner';

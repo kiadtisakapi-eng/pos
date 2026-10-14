@@ -174,7 +174,7 @@ const clickConflict = (p, id, label) => p.evaluate(({ id, label }) => {
   const file = await p.evaluate(() => JSON.parse(JSON.stringify(app.buildBackupPayload())));
   await settle(p, 50);
   // ยกเลิก x1 (คืนเงิน) และแก้ส่วนลด x2 หลังไฟล์สำรอง
-  await p.evaluate((id) => { document.getElementById('edit-tx-id').value = id; document.getElementById('void-money-outcome').value = 'refunded'; app.voidTransaction(); }, x1);
+  await p.evaluate((id) => { document.getElementById('edit-tx-id').value = id; document.getElementById('void-money-outcome').value = 'refunded'; document.getElementById('void-note').value = 'เทสต์: บิลจากไฟล์เก่า'; app.voidTransaction(); }, x1);
   await confirmYes(p); await settle(p, 600);
   await p.evaluate(async (id) => { app.openTransactionEdit(id); document.getElementById('edit-tx-discount').value = '50'; await app.saveTransactionEdit(); app.closeModal('modal-edit-transaction'); }, x2);
   await syncNow(p); await settle(p, 600);

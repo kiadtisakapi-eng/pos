@@ -12,6 +12,15 @@ function makeEl(id){
   return el;
 }
 const els={};
+// หมายเหตุปิดกะ (14 ต.ค. 2569): เงินขาด/เกินต้องกรอกก่อนปิดกะ — เทสต์เดิมที่ปิดกะแบบมีผลต่างเขียนก่อนกติกานี้
+// จึงตั้งค่าเริ่มต้นไว้ (= พนักงานพิมพ์สาเหตุแล้ว) · กติกาเองถูกตรวจตรง ๆ ใน test_notes_20261014.js (ล้างช่องเป็นค่าว่าง)
+els['closing-note']=makeEl('closing-note'); els['closing-note'].value='เทสต์: พนักงานพิมพ์สาเหตุแล้ว';
+// เหตุผลที่ยกเลิกบิล (14 ต.ค. 2569): บังคับทุกครั้ง และแอปล้างช่องทุกครั้งที่เปิดหน้าต่างบิล (openTransactionEdit)
+// เทสต์เดิมที่ยกเลิกบิลเขียนก่อนกติกานี้ → ช่องนี้ "คืนค่าเริ่มต้นเมื่อถูกล้าง" (= พนักงานพิมพ์เหตุผลทุกครั้ง)
+// เทสต์ของกติกาเองตั้ง el._noDefault = true เพื่อให้ช่องว่างจริง (ดู test_notes_20261014.js)
+{ const el=makeEl('void-note'); let v='เทสต์: เหตุผลที่ยกเลิก';
+  Object.defineProperty(el,'value',{ get(){ return (v===''&&!el._noDefault)?'เทสต์: เหตุผลที่ยกเลิก':v; }, set(x){ v=String(x); }, enumerable:true, configurable:true });
+  els['void-note']=el; }
 const document={
   _els:els,
   getElementById(id){ if(!els[id]) els[id]=makeEl(id); return els[id]; },

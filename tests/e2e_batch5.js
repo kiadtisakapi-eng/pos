@@ -93,11 +93,16 @@ async function loginOwner(p) {
   t('ยอดที่ควรมีในลิ้นชักยังเป็น 1,300 (ไม่หักเองเหมือนคืนเงินแล้ว)', await p.evaluate(()=>app.computeShiftDrawer(app.state.shift).expected===1300),
     await p.evaluate(()=>app.computeShiftDrawer(app.state.shift).expected));
 
-  console.log('\n[3] เจ้าของกด "คืน/เก็บเงินจริงตอนนี้" → ยืนยันในกล่องยืนยันจริง');
-  await p.click('#edit-tx-money-box button:has-text("คืน/เก็บเงินจริงตอนนี้")');
+  console.log('\n[3] เจ้าของกด "คืนเงินให้ลูกค้าจริงตอนนี้ — คืนทางไหน?" → เลือก "เงินสด" → ยืนยันในกล่องยืนยันจริง');
+  // 11 ต.ค. 2569 (เจ้าของเลือกแบบ ก): ต้องเลือกทางที่คืนจริง — ไม่มีปุ่ม "คืน/เก็บ" ที่เดาช่องทางให้แล้ว
+  const pick = await p.evaluate(()=>{ const el=document.getElementById('edit-tx-money-box');
+    return { q: /คืนเงินให้ลูกค้าจริงตอนนี้ ฿100\.00 — คืนทางไหน\?/.test(el.innerText),
+             btns: [...el.querySelectorAll('button[data-settle^="moved-"]')].map(b=>b.getAttribute('data-settle')+':'+b.innerText.trim()) }; });
+  t('หน้าบิลถามว่าคืนทางไหน + ปุ่มเงินสด/โอน/บัตร', pick.q && pick.btns.join(',')==='moved-cash:เงินสด,moved-promptpay:โอน/QR,moved-credit:บัตร', pick);
+  await p.click('#edit-tx-money-box button[data-settle="moved-cash"]');
   await p.waitForTimeout(300);
   const confirmMsg = await p.textContent('#confirm-modal-msg');
-  t('กล่องยืนยันบอกจำนวนและผลต่อลิ้นชัก', /คืนเงินให้ลูกค้าแล้ว/.test(confirmMsg) && /ลิ้นชัก/.test(confirmMsg), confirmMsg);
+  t('กล่องยืนยันบอกจำนวน ทางที่คืน และผลต่อลิ้นชัก', /คืนเงินให้ลูกค้าแล้ว ฿100\.00 \(เงินสด\)/.test(confirmMsg) && /ออกจากลิ้นชัก/.test(confirmMsg), confirmMsg);
   await p.click('#btn-confirm-yes');
   await p.waitForTimeout(700);
   t('หน้าต่างแสดงว่าบันทึกส่วนต่างครบแล้ว', await p.evaluate(()=>/บันทึกครบแล้ว/.test(document.getElementById('edit-tx-money-box').innerText)));

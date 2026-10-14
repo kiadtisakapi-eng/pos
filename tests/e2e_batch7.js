@@ -135,6 +135,8 @@ async function typePrompt(p, value) {
   t('หน้าปิดกะ: ควรมี ฿0 · บรรทัด "ค่าใช้จ่ายเกินเงินในลิ้นชัก" ฿600', panel2.over !== 'none' && /600/.test(panel2.overAmt) && /฿0\.00/.test(panel2.expected), panel2);
   t('ผลต่างขึ้น "เงินขาด" 600 (เดิมขึ้น "เงินเกิน")', /-600.*เงินขาด/.test(panel2.diff), panel2.diff);
   t('มีคำอธิบายให้แก้รายการที่จ่ายด้วยเงินอื่นก่อนปิดกะ', /จ่ายทางอื่น/.test(panel2.notes), panel2.notes);
+  // หมายเหตุปิดกะ (14 ต.ค. 2569): เงินขาด/เกินต้องกรอกก่อนปิดกะ — กรอกเหมือนพนักงานจริง
+  await p.fill('#closing-note', 'ค่าเช่าจ่ายเกินลิ้นชัก');
   await p.click('#btn-confirm-cash-counter');
   await p.waitForTimeout(800);
   const sh = await readKey(p, 'shift');

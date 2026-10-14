@@ -16,7 +16,7 @@ const server = http.createServer((q, s) => {
     const gas = createGasEnv(), ownerKey = gas.setupOwnerKey();
     assert.equal(gas.post({ action: 'transaction', id: 'TX-UI-MISSING', date: Date.parse('2026-10-07T12:00:00+07:00'),
       monthKey: '10-2026', dateTimeStr: '2026-10-07 12:00:00', services: ['Cut'], staffNames: ['A'], subtotal: 300, discount: 0, total: 300, paymentMethod: 'cash', rev: 1 }).status, 'success');
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, executablePath: '/opt/pw-browsers/chromium' }).catch(() => chromium.launch({ headless: true }));   // ตรวจ 14 ต.ค. ข้อ 21
     const context = await browser.newContext({ viewport: { width: 1024, height: 768 }, hasTouch: true, serviceWorkers: 'block' });
     await context.route('https://script.google.com/**', async route => route.fulfill({ status: 200, contentType: 'application/json',
       headers: { 'Access-Control-Allow-Origin': '*' }, body: String(gas.ctx.doPost({ postData: { contents: route.request().postData() } })) }));
