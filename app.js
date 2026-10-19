@@ -90,7 +90,7 @@ function isAppsScriptExecUrl(u) {
 const BACKUP_SCHEMA_VERSION = 3;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.11.0 (2026-10-15)';
+const APP_VERSION = '1.11.1 (2026-10-19)';
 
 // ═══ กติกาตัวเลข (เจ้าของสั่ง 26 ก.ย. 2569 — ห้ามแก้กลับ) ═══════════════════════════
 // ตัวเลขทุกตัวที่ "คนกรอก" ต้องเป็นจำนวนเต็มเท่านั้น ห้ามทศนิยมเด็ดขาด:
@@ -157,9 +157,9 @@ const CHANGE_BACKUP_DELAY_MS = 2 * 60 * 1000;
 // = DAILY_SHEET_RETENTION_DAYS ของ Apps Script (62 — แท็บสรุปรายวันที่เก่ากว่านี้ถูกลบทิ้งทันทีหลังเขียน) + เผื่อขอบ 2 วัน
 // วันที่เก่ากว่านี้ส่งแค่สรุปเดือน (ยอดรวมยังครบในแท็บสรุปเดือน/สรุปรายเดือน) · ถ้าแก้ค่าใน Apps Script ให้แก้ตามกัน
 const RESTORE_DAILY_SUMMARY_DAYS = 64;
-// จำนวนไฟล์สูงสุดที่ Apps Script ส่งรายชื่อมาให้หน้ากู้ข้อมูล (handleListBackups ตัดที่ 50 ไฟล์ล่าสุด)
-// ร้านออกไฟล์ราววันละ 3 ไฟล์ = ย้อนได้ราว 2 สัปดาห์ · ไฟล์ที่เก่ากว่านั้นยังอยู่บน Drive 90 วัน (รอบตรวจ 6 ข้อ 5)
-const DRIVE_BACKUP_LIST_MAX = 50;
+// ค่าตั้งค่าข้อความที่กู้ได้: ชนิดอื่นต้องตัดทิ้ง ห้ามเดาเลขพร้อมเพย์ที่เสียเลข 0 นำหน้า
+const BACKUP_TEXT_SETTINGS = ['shopName', 'shopTagline', 'shopAddress', 'shopPhone', 'shopLogo', 'theme',
+  'shopPromptPayId', 'googleSheetsUrl', 'telegramChatId'];
 // บิลที่ส่งขึ้นชีตไม่ผ่าน "ทั้งรอบ" — เว้นระยะลองใหม่เพิ่มขึ้นเรื่อย ๆ (รอบตรวจ 5 ข้อ 2)
 // เดิมลองทุก 1 นาทีตายตัว รหัสเชื่อมต่อผิดค้างข้ามวัน = ยิงซ้ำทุกบิลทั้งวัน
 const BILL_RETRY_STEPS_MS = [60e3, 120e3, 300e3, 600e3, 1800e3];
@@ -173,8 +173,9 @@ const OWNER_KEY_CHECKED_CODES = Object.freeze(['PRIMARY_TRANSFER_INCOMPLETE', 'R
 //    (เช่นแท็บนั้นถูกล็อก/ถูกแก้โครง) ถ้านับเป็นชั่วคราว บิลเดือนนั้นที่เรียงติดกันจะหยุดรอบทุกรอบ
 //    แล้วบิลเดือนอื่นที่อยู่ถัดไปไม่มีวันได้ส่ง — ให้นับเป็นเรื่องเฉพาะใบเหมือนเดิม (รอบยังเว้นระยะเมื่อไม่ผ่านเลยสักใบ)
 const CLOUD_TRANSIENT_ERROR_CODES = ['BUSY', 'REGISTRY_UNAVAILABLE'];
-// งานคลาวด์ที่ล้มเหลวติดต่อกันนานเกินนี้ = หยุดยิงเอง รอเจ้าของกด "ลองใหม่" หรือ "ทิ้งงานนี้" (ข้อ 16)
+// งานคลาวด์หยุดเมื่อเกินอายุนี้และล้มครบจำนวนครั้งขั้นต่ำ รอเจ้าของกด "ลองใหม่" หรือ "ทิ้งงานนี้"
 const CLOUD_JOB_MAX_FAIL_DAYS = 7;
+const CLOUD_JOB_MIN_FAIL_TRIES = 10;
 // withMutation คืน false "โดยไม่รันงาน" ได้ (กำลังสำรอง/ล้างข้อมูล หรือผู้ใช้เปลี่ยนระหว่างรอคิว — ข้อ 6/17)
 // ทางกู้/นำเข้า/ย้อนข้อมูลต้องถือเป็นความล้มเหลว ไม่ใช่ขึ้นว่าสำเร็จ (ตรวจรอบ Claude 7 ต.ค. 2569)
 const MUTATION_REFUSED_MSG = 'ระบบยังไม่ได้แทนข้อมูล เพราะมีงานดูแลข้อมูลอยู่หรือผู้ใช้เปลี่ยนระหว่างรอคิว — ลองใหม่อีกครั้ง';
@@ -198,6 +199,11 @@ function utf8ByteLength(str) {
 
 // ชื่อล็อก "หน้าต่างหลัก" — ต้องไม่ซ้ำกับอย่างอื่นใน origin เดียวกัน (ดู claimWriterLock)
 const WRITER_LOCK_NAME = 'jahn-pos-writer';
+// ตรวจ 18 ต.ค. 2569 (F01): เลขรุ่นของข้อมูลร้านในเครื่อง — ด่านที่สองหลัง Web Locks
+// saveState เขียนข้อมูลทั้งร้านทับ ถ้ามีสองหน้าต่างเขียนได้พร้อมกัน (เบราว์เซอร์ไม่มี Web Locks / ขอล็อกพัง)
+// หน้าต่างที่ถือข้อมูลเก่าจะเขียนทับบิลที่อีกหน้าต่างเพิ่งขาย · ตอนนี้ทุกการบันทึกตรวจ "รุ่นในเครื่อง"
+// ใน transaction เดียวกับการเขียน — มีหน้าต่างอื่นเขียนไปแล้ว = ปฏิเสธ แล้วพักหน้าต่างนี้เป็นอ่านอย่างเดียว
+const STATE_REVISION_KEY = 'stateRevision';
 
 // รอผลว่า "หน้าต่างนี้ได้สิทธิ์เขียนไหม" ได้นานสุดเท่าไรตอนเปิดแอป
 // ปกติเบราว์เซอร์ตอบภายในไม่กี่มิลลิวินาที — ถ้าเกินนี้ให้เปิดแอปแบบอ่านอย่างเดียวไปก่อน
@@ -896,6 +902,16 @@ class PosApp {
     return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
   }
 
+  // ใช้ hash แบบเดียวกับล็อกอิน; รองรับ PIN ข้อความของข้อมูลเก่าที่ยังไม่ผ่าน migration ด้วย
+  async pinUsedByOtherAccount(hash, exceptId) {
+    const matches = async pin => !!pin && (this.isHashed(pin) ? pin : await this.hashPin(pin)) === hash;
+    if (exceptId !== '__owner__' && await matches(this.ownerPin)) return true;
+    for (const st of (this.state.staff || [])) {
+      if (st && st.id !== exceptId && await matches(st.pin)) return true;
+    }
+    return false;
+  }
+
   // Migration: แปลง PIN plain text เป็น hash ในครั้งแรกที่รัน
   async migratePinIfNeeded() {
     if (this.ownerPin && !this.isHashed(this.ownerPin)) {
@@ -1077,12 +1093,15 @@ class PosApp {
       const KEYS = ['services', 'categories', 'staff', 'customers', 'queue', 'transactions', 'voidLog',
         'expenseLog', 'editLog', 'quarantine', 'cloudOutbox', 'shift', 'shopPromptPayId', 'shopName', 'shopTagline',
         'shopAddress', 'shopPhone', 'shopLogo', 'theme', 'ownerPin', 'googleSheetsUrl', 'googleSheetsApiToken',
-        'telegramToken', 'telegramChatId', 'vatEnabled', 'vatRate', 'cardFeeRate', 'backupStatus', 'deviceId', 'primaryStatus', 'cloudBackendId'];
+        'telegramToken', 'telegramChatId', 'vatEnabled', 'vatRate', 'cardFeeRate', 'backupStatus', 'deviceId', 'primaryStatus', 'cloudBackendId',
+        STATE_REVISION_KEY];
       const rec = {};
       await db.transaction('r', db.state, async () => {
         const rows = await db.state.bulkGet(KEYS);
         rows.forEach((r, i) => { rec[KEYS[i]] = r; });
       });
+      // F01: จำว่าข้อมูลชุดที่โหลดมาเป็นรุ่นไหน — อ่านใน transaction เดียวกับข้อมูล จึงตรงกันแน่นอน
+      this._stateRev = this.parseStateRevision(rec[STATE_REVISION_KEY]);
       const has = k => !!rec[k];
       const val = k => (rec[k] ? rec[k].value : undefined);
 
@@ -1348,15 +1367,68 @@ class PosApp {
       // ผลคือ "บิลลงเครื่อง แต่กะ/ลูกค้า/คิวงานคลาวด์ไม่ลง" แล้วผู้เรียกคืนค่าในหน่วยความจำ
       // ทั้งที่ในเครื่องมีของครึ่งเดียวค้างอยู่ — เปิดแอปใหม่ได้ข้อมูลที่ไม่เคยมีอยู่จริง
       // ห่อด้วย transaction แล้วปล่อย error ทะลุออกมา = IndexedDB ยกเลิกทั้งชุดให้เอง
-      await db.transaction('rw', db.state, async () => {
-        await db.state.bulkPut(rows);
-      });
+      await this.writeStateRowsCAS(rows);
       return true;
     } catch (e) {
+      if (e && e.staleState) { this.onStaleStateWrite(); return false; }
       console.error('IndexedDB save failure!', e);
       this.showToast('บันทึกข้อมูลหน้าร้านล้มเหลว!', 'error');
       return false;
     }
+  }
+
+  // ── F01: เขียนแถวข้อมูลร้านแบบ compare-and-swap ─────────────────────────────
+  // ตรวจรุ่นข้อมูลในเครื่อง "ใน transaction เดียวกับการเขียน" — ตรวจข้างนอกแล้วค่อยเขียน = มีช่องให้อีกหน้าต่างแทรก
+  // ใช้ทั้ง saveState (ทั้งร้าน) และ saveKeys (บางคีย์) — ตรวจ 18 ต.ค. 2569 รอบ 2 (C01): เดิม saveKeys ไม่ร่วมกลไกนี้
+  // หน้าต่าง B เปลี่ยน PIN เจ้าของผ่าน saveKeys (ไม่ขยับรุ่น) → หน้าต่าง A ที่ถือ PIN เก่าขายบิล = saveState เขียน PIN เก่ากลับทับ
+  // ตอนนี้การเขียนบางคีย์ก็ขยับรุ่น → หน้าต่างที่ถือข้อมูลเก่าถูกปฏิเสธ ไม่ว่าอีกฝั่งเขียนทั้งร้านหรือบางคีย์
+  // โยน err.staleState เมื่อมีหน้าต่างอื่นเขียนไปก่อน · error อื่นโยนต่อตามเดิม · ตั้งรุ่นที่จำไว้หลัง commit เท่านั้น
+  async writeStateRowsCAS(rows) {
+    let next = null;
+    await db.transaction('rw', db.state, async () => {
+      const stored = this.parseStateRevision(await db.state.get(STATE_REVISION_KEY));
+      if (!this.stateRevisionMatches(stored)) {
+        const err = new Error('STALE_STATE_WRITE');
+        err.staleState = true;
+        throw err;
+      }
+      next = { rev: (stored ? stored.rev : 0) + 1, by: this.windowToken(), at: Date.now() };
+      await db.state.bulkPut(rows.concat([{ key: STATE_REVISION_KEY, value: next }]));
+    });
+    // commit ล้ม = ไม่ถึงบรรทัดนี้ รุ่นที่จำไว้ยังเป็นรุ่นเดิม (ไม่งั้นการบันทึกครั้งหน้าถูกปฏิเสธผิด ๆ)
+    this._stateRev = next;
+    return true;
+  }
+  onStaleStateWrite() {
+    console.error('[GUARD] ปฏิเสธการบันทึก — มีหน้าต่างอื่นบันทึกข้อมูลร้านไปแล้ว ข้อมูลในหน้าต่างนี้เก่ากว่าในเครื่อง');
+    this.setReadOnlyWindow(true);
+    this.showToast('ยังไม่ได้บันทึก — มีหน้าต่างอื่นของแอปบันทึกข้อมูลไปก่อนแล้ว หน้าต่างนี้ถูกพักเป็นอ่านอย่างเดียว ' +
+      'ให้ปิดหน้าต่างอื่นแล้วกดปุ่มสีแดงด้านล่าง (ระบบจะโหลดข้อมูลล่าสุดให้ก่อน)', 'error', 12000);
+  }
+
+  // ── F01: รุ่นของข้อมูลร้านในเครื่อง ─────────────────────────────────────
+  // ค่าในเครื่อง { rev, by } — by = รหัสหน้าต่างที่เขียนล่าสุด (สุ่มใหม่ทุกครั้งที่เปิดหน้า ไม่ใช่ของร้าน)
+  windowToken() {
+    if (!this._windowToken) this._windowToken = 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    return this._windowToken;
+  }
+  parseStateRevision(row) {
+    const v = row && row.value;
+    if (!v || typeof v !== 'object') return null;
+    const rev = Number(v.rev);
+    if (!Number.isSafeInteger(rev) || rev < 0) return null;
+    return { rev, by: typeof v.by === 'string' ? v.by : '' };
+  }
+  // เขียนได้เมื่อ "ไม่มีใครเขียนข้อมูลร้านหลังจากที่หน้าต่างนี้เห็นล่าสุด"
+  //   · ครั้งล่าสุดเป็นหน้าต่างนี้เขียนเอง → ข้อมูลในหน่วยความจำใหม่กว่าหรือเท่ากับในเครื่องเสมอ (รวมกรณีบันทึกซ้อนในหน้าต่างเดียว)
+  //   · รุ่นในเครื่องยังเป็นรุ่นที่หน้าต่างนี้โหลดมา → ยังไม่มีใครแทรก
+  //   · ไม่มีรุ่นในเครื่อง (เครื่องที่อัปเดตจากรุ่นก่อนมีด่านนี้ / หลังรีเซ็ต) → ได้เฉพาะหน้าต่างที่โหลดตอนยังไม่มีรุ่น
+  //     หน้าต่างที่เคยเห็นรุ่น > 0 แต่ตอนนี้ไม่มี = มีคนล้างฐานข้อมูลไปแล้ว ห้ามเขียนข้อมูลเก่าทับ
+  stateRevisionMatches(stored) {
+    const known = this._stateRev || null;
+    if (!stored) return !known || known.rev === 0;
+    if (stored.by && stored.by === this.windowToken()) return true;
+    return !!known && stored.rev === known.rev && stored.by === known.by;
   }
 
   // ทุกคีย์ของข้อมูลร้านที่ saveState เขียน — แยกออกมาให้ทุกทางใช้ชุดเดียวกัน
@@ -1405,9 +1477,10 @@ class PosApp {
   async saveKeys(rows) {
     if (this.loadFailed || this.isReadOnlyWindow) return false;
     try {
-      await db.transaction('rw', db.state, async () => { await db.state.bulkPut(rows); });
+      await this.writeStateRowsCAS(rows);   // C01: ร่วมด่านรุ่นข้อมูลเดียวกับ saveState
       return true;
     } catch (e) {
+      if (e && e.staleState) { this.onStaleStateWrite(); return false; }
       console.error('IndexedDB partial save failure', e);
       return false;
     }
@@ -1734,25 +1807,53 @@ class PosApp {
     document.body.appendChild(el);
 
     const btn = document.getElementById('read-only-retry-btn');
-    if (btn) btn.addEventListener('click', () => {
-      btn.disabled = true;
-      btn.innerText = 'กำลังตรวจสอบ...';
-      const locks = (typeof navigator !== 'undefined' && navigator) ? navigator.locks : null;
-      if (!locks || typeof locks.request !== 'function') { this.setReadOnlyWindow(false); return; }
-      locks.request(WRITER_LOCK_NAME, { ifAvailable: true }, async (lock) => {
-        if (!lock) {
-          btn.disabled = false;
-          btn.innerText = 'ยังเปิดอยู่อีกหน้าต่าง — ลองใหม่';
-          this.showToast('ยังมีอีกหน้าต่างเปิดแอปนี้อยู่ — ปิดให้หมดก่อนแล้วกดใหม่', 'warning', 6000);
-          return;
-        }
-        await this.takeOverAsWriter();
-        return new Promise(() => {});
-      }).catch(err => {
-        console.warn('[Writer] ลองขอสิทธิ์ใหม่ไม่สำเร็จ', err);
-        btn.disabled = false;
-        btn.innerText = 'ลองใหม่อีกครั้ง';
-      });
+    if (btn) btn.addEventListener('click', () => { this.retryWriterFromBanner(btn); });
+  }
+
+  // ปุ่ม "ปิดหน้าต่างอื่นแล้ว — ใช้หน้าต่างนี้" — คืน Promise<boolean> (true = เป็นหน้าต่างหลักแล้ว) เมื่อรู้ผล
+  // ตรวจ 18 ต.ค. 2569 รอบ 2 (C05): เดิมจัดการแค่ "ไม่มี Web Locks" · ถ้า locks.request โยน error ทันที ปุ่มค้าง "กำลังตรวจสอบ..."
+  // (มี page error) · ถ้า Promise ถูก reject หน้าต่างค้างอ่านอย่างเดียวตลอด กดซ้ำก็ไม่หาย
+  // ตอนนี้: ขอล็อกไม่ได้ด้วยเหตุใดก็ตาม = ใช้ทางเดียวกับเบราว์เซอร์ที่ไม่มี Web Locks คือโหลดข้อมูลล่าสุดก่อนแล้วจึงรับสิทธิ์
+  // ปลอดภัยเพราะทุกการบันทึกตรวจรุ่นข้อมูล (writeStateRowsCAS) — อีกหน้าต่างที่ยังเปิดอยู่ถือข้อมูลเก่าจะถูกปฏิเสธเอง
+  // ห้ามปลดโหมดอ่านอย่างเดียวโดยไม่โหลดข้อมูลใหม่ · ทุกทางที่ไม่สำเร็จต้องคืนปุ่มให้กดใหม่ได้
+  retryWriterFromBanner(btn) {
+    const reset = (text) => { if (btn) { btn.disabled = false; btn.innerText = text; } };
+    if (btn) { btn.disabled = true; btn.innerText = 'กำลังตรวจสอบ...'; }
+    const viaReload = async () => {
+      try { await this.takeOverAsWriter(); }
+      catch (e) { console.warn('[Writer] รับสิทธิ์แบบโหลดข้อมูลใหม่ไม่สำเร็จ', e); }
+      if (this.isReadOnlyWindow) {
+        reset('โหลดข้อมูลไม่สำเร็จ — ลองใหม่');
+        this.showToast('โหลดข้อมูลล่าสุดไม่สำเร็จ — ยังบันทึกไม่ได้ ลองกดใหม่ หรือปิดแอปแล้วเปิดใหม่', 'error', 8000);
+        return false;
+      }
+      return true;
+    };
+    const locks = (typeof navigator !== 'undefined' && navigator) ? navigator.locks : null;
+    if (!locks || typeof locks.request !== 'function') return viaReload();
+    return new Promise(resolve => {
+      let settled = false;
+      const done = v => { if (!settled) { settled = true; resolve(v); } };
+      const fallback = (err) => {
+        console.warn('[Writer] ขอสิทธิ์ผ่าน Web Locks ไม่ได้ — โหลดข้อมูลล่าสุดแล้วรับสิทธิ์แทน', err);
+        viaReload().then(done, () => done(false));
+      };
+      let req;
+      try {
+        req = locks.request(WRITER_LOCK_NAME, { ifAvailable: true }, async (lock) => {
+          if (!lock) {
+            reset('ยังเปิดอยู่อีกหน้าต่าง — ลองใหม่');
+            this.showToast('ยังมีอีกหน้าต่างเปิดแอปนี้อยู่ — ปิดให้หมดก่อนแล้วกดใหม่', 'warning', 6000);
+            done(false);
+            return;
+          }
+          const ok = await viaReload();
+          done(ok);
+          if (!ok) return;                 // ปล่อยล็อก — ยังเป็นหน้าต่างอ่านอย่างเดียว
+          return new Promise(() => {});    // ถือล็อกไว้จนหน้าต่างนี้ปิด
+        });
+      } catch (err) { fallback(err); return; }
+      Promise.resolve(req).catch(err => { if (!settled) fallback(err); });
     });
   }
 
@@ -2969,6 +3070,8 @@ class PosApp {
       sheetOnly: { acceptedAt, month, version: String(r.version || '').trim(), payment: String(r.payment || ''),
         services: String(r.services || ''), cardFeeLabel: feeLabels.join(', ') || undefined }
     };
+    const billNote = this.normalizeNote(r.billNote);
+    if (billNote) tx.billNote = billNote;
     if (r.subtotal === null || r.subtotal === undefined || r.subtotal === '') tx.subtotal = total + tx.discount;
     if (pay.payments) tx.payments = pay.payments;
     const vk = ['nonVatBase', 'vatableBase', 'vatAmount', 'rounding'];
@@ -3730,7 +3833,7 @@ class PosApp {
     }
 
     // 5. แสดงอันดับบริการยอดนิยมวันนี้
-    const todayServices = {};
+    const todayServices = Object.create(null);
 
     // บริการยอดนิยม = บริการเท่านั้น (เหมือน "บริการฮิต" ในหน้ารายงาน) — น้ำ 20 ขวดไม่ขึ้นอันดับหนึ่งแทนตัดผม
     todayTxs.forEach(tx => {
@@ -3804,7 +3907,7 @@ class PosApp {
       if (expenses.length === 0) {
         expenseList.innerHTML = `
           <div class="empty-state" style="padding: 10px 0;">
-            <p style="font-size: 0.8rem; color: var(--text-muted);">ไม่มีรายการค่าใช้จ่ายวันนี้</p>
+            <p style="font-size: 0.8rem; color: var(--text-muted);">ยังไม่มีค่าใช้จ่ายในกะนี้</p>
           </div>
         `;
       } else {
@@ -5881,14 +5984,21 @@ class PosApp {
     const feeNet = feeLine ? (Number(feeLine.price) || 0) : 0;
     const receiptSubtotal = (Math.round((hasDetails ? (Number(tx.subtotal) || 0) : (legacySub === null ? (Number(tx.subtotal) || 0) : legacySub)) * 100) - Math.round(feeNet * 100)) / 100;
     let legacyLines = [];
+    let legacyNote = '';
     if (!hasDetails) {
+      // ตรวจ 18 ต.ค. 2569 (F09): บิลรุ่นเก่า/บิลจากชีตไม่มีรายการย่อย — รู้แค่ชื่อบริการ ยอดรวม และรายชื่อพนักงาน
+      // เดิมเฉลี่ยราคาเท่ากันทุกบรรทัด (101 → 50.5 × 2) และจับคู่พนักงานตามลำดับเอง แล้วพิมพ์เหมือนเป็นข้อเท็จจริง
+      // ตอนนี้: บริการเดียว = ราคา = ยอดรวมจริง · หลายบริการ = ไม่พิมพ์ราคา/ผู้ดูแลรายบรรทัด บอกตรง ๆ ว่าไม่มีข้อมูล
       const names = Array.isArray(tx.services) ? tx.services : [];
-      const shares = this.allocateSatang(Math.round(receiptSubtotal * 100), names.map(() => 1));
-      legacyLines = names.map((name, i) => ({
-        name,
-        price: shares[i] / 100,
-        staffName: Array.isArray(tx.staffNames) ? (tx.staffNames[i] || tx.staffNames[0]) : 'ไม่ระบุ'
-      }));
+      const staffList = Array.isArray(tx.staffNames) ? tx.staffNames.filter(n => n !== undefined && n !== null && String(n).trim() !== '').map(String) : [];
+      const uniqStaff = staffList.filter((n, i) => staffList.indexOf(n) === i);
+      if (names.length === 1) {
+        legacyLines = [{ name: names[0], price: receiptSubtotal, staffName: uniqStaff.length ? uniqStaff.join(', ') : 'ไม่ระบุ' }];
+      } else if (names.length > 1) {
+        legacyLines = names.map(name => ({ name, price: null, legacyUnknown: true }));
+        legacyNote = `<div class="receipt-item-staff">ผู้ดูแล: ${escapeHtml(uniqStaff.length ? uniqStaff.join(', ') : 'ไม่ระบุ')}</div>` +
+          '<div class="receipt-item-staff" style="font-size:0.7rem;">บิลรุ่นเก่า: ไม่มีรายละเอียดราคาและผู้ดูแลแยกรายบริการ (มีเฉพาะยอดรวม)</div>';
+      }
     }
     const vatAmt = Number(tx.vatAmount) || 0;
     const rnd    = Number(tx.rounding) || 0;
@@ -5912,7 +6022,7 @@ class PosApp {
         </div>` : '') +
         (vatAmt > 0 ? `
         <div class="receipt-row">
-          <span>VAT ${Number(tx.vatRate) || 0}%:</span>
+          <span>VAT ${this.billVatRateOf(tx) || 0}%:</span>
           <span>฿${money(vatAmt)}</span>
         </div>` : '') +
         (rnd > 0 ? `
@@ -5952,10 +6062,37 @@ class PosApp {
       payBlock += rrow(tenderDiffers ? 'เงินทอน (ตอนขาย):' : 'เงินทอน:', `฿${money(tnd.change)}`);
     }
     if (mst) {
+      // ตรวจ 18 ต.ค. 2569 (F10): "ไม่มีเงินเคลื่อนไหว" หลังเปลี่ยนช่องทางโดยยอดเท่าเดิม บันทึกเป็นสองรายการที่หักล้างกัน
+      // (ช่องทางเก่า −300 · ช่องทางใหม่ +300) เดิมพิมพ์ทั้ง "ไม่ได้คืน ฿300" และ "ไม่ได้เก็บเพิ่ม ฿300" ทั้งที่ยอดสุทธิไม่ต่าง
+      // ตอนนี้: รายการ waive ที่บันทึกพร้อมกันแล้วรวมกันได้ 0 = พิมพ์บรรทัดเดียว "ปรับช่องทางชำระ เก่า → ใหม่"
+      // waive ที่ยอดสุทธิไม่เป็นศูนย์ (ไม่ได้คืน/ไม่ได้เก็บเงินจริง) ยังพิมพ์ตามเดิม ห้ามซ่อน
+      const waiveGroups = new Map();
+      mst.settlements.forEach(x => {
+        if (!x || x.kind !== 'waive' || x.swap === true) return;
+        const k = String(x.at);
+        if (!waiveGroups.has(k)) waiveGroups.set(k, []);
+        waiveGroups.get(k).push(x);
+      });
+      const channelOnly = new Set();
+      waiveGroups.forEach((g, k) => {
+        const net = g.reduce((acc, x) => acc + Math.round((Number(x.amount) || 0) * 100), 0);
+        if (net === 0 && g.some(x => Number(x.amount) < 0) && g.some(x => Number(x.amount) > 0)) channelOnly.add(k);
+      });
+      const printedGroups = new Set();
       mst.settlements.forEach(x => {
         const a = Number(x.amount) || 0;
         // ส่วนต่างช่องทางจากการคืน/เก็บคนละทางกับบิล — เรื่องบัญชีภายใน ไม่ใช่เงินที่ลูกค้าต้องรู้ (บรรทัดคืน/รับเงินบอกทางจริงแล้ว)
         if (x.kind === 'waive' && x.swap === true) return;
+        if (x.kind === 'waive' && channelOnly.has(String(x.at))) {
+          const k = String(x.at);
+          if (printedGroups.has(k)) return;
+          printedGroups.add(k);
+          const g = waiveGroups.get(k);
+          const names = list => list.map(y => payLabelR(y.method)).filter((n, i, arr) => arr.indexOf(n) === i).join(' + ');
+          payBlock += rrow('ปรับช่องทางชำระ:', `${names(g.filter(y => Number(y.amount) < 0))} → ${names(g.filter(y => Number(y.amount) > 0))}`);
+          payBlock += rrow('', 'ไม่มีเงินเคลื่อนไหว', 'font-size:0.7rem;');
+          return;
+        }
         if (x.kind === 'waive') {
           payBlock += rrow(a < 0 ? 'ส่วนต่างที่ไม่ได้คืน:' : 'ส่วนต่างที่ไม่ได้เก็บเพิ่ม:', `฿${money(Math.abs(a))}`);
         } else {
@@ -6001,11 +6138,12 @@ class PosApp {
             <div class="receipt-item-row">
               <div class="receipt-item-details">
                 <span>${escapeHtml(item.name)}${vatAmt > 0 && item.vatable === true ? ' *' : ''}</span>
-                <span>฿${(item.price || 0).toLocaleString('th-TH')}</span>
+                <span>${item.legacyUnknown ? '—' : `฿${(item.price || 0).toLocaleString('th-TH')}`}</span>
               </div>
-              ${this.receiptStaffHtml(item)}
+              ${item.legacyUnknown ? '' : this.receiptStaffHtml(item)}
             </div>
           `).join('')}
+          ${legacyNote}
         </div>
         
         <div class="receipt-divider"></div>
@@ -6232,6 +6370,11 @@ class PosApp {
         return;
       }
       pinHash = await this.hashPin(pinRaw);
+      if (await this.pinUsedByOtherAccount(pinHash, editingId)) {
+        this.showToast('PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น', 'warning');
+        if (pinInput) pinInput.focus();
+        return false;
+      }
     } else if (privileged && existing && existing.pin && !PRIVILEGED_LEVELS.includes(existing.accessLevel)) {
       // เลื่อนพนักงานขึ้นเป็นเจ้าของ/ผู้จัดการ — PIN เดิมอาจสั้น ต้องตั้ง 6 หลักใหม่ตอนนี้เลย
       this.showToast('เลื่อนเป็นสิทธิ์เจ้าของ/ผู้จัดการ ต้องตั้ง PIN ใหม่ 6 หลักด้วย', 'warning', 6000);
@@ -6242,6 +6385,9 @@ class PosApp {
 
     return this.withMutation('ข้อมูลพนักงาน', async () => {
       if (!this.authorize('settings.write', 'บันทึกการตั้งค่า')) return false;
+      if (pinHash && await this.pinUsedByOtherAccount(pinHash, editingId)) {
+        this.showToast('PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น', 'warning'); return false;
+      }
       // สแนปช็อตทั้งชุด — การแก้พนักงานแตะทั้งชื่อ บทบาท สิทธิ์ และ PIN พร้อมกัน
       const prevStaff = this.cloneForRollback(this.state.staff);
       if (editingId) {
@@ -6678,7 +6824,7 @@ class PosApp {
       vat    += txVat;
       rnd    += num(tx.rounding);
 
-      const txRate = num(tx.vatRate);
+      const txRate = this.billVatRateOf(tx);
       if (txRate > 0) rates.add(txRate);
 
       // ── เกลี่ยภาษีของบิล "ใบนี้" ลงหมวดของมันเอง ────────────────────────
@@ -6793,7 +6939,8 @@ class PosApp {
   // ใช้กันเงินรับตอนขาย/ส่วนต่างที่ใหญ่เกินจริงจากไฟล์ที่ถูกแก้ · ไม่มีราคารวม = null (ไม่ตรวจ)
   billVatRateOf(tx) {
     const rate = this.toFiniteNumber(tx && tx.vatRate);
-    // VAT รุ่นแรกใช้อัตรา 7% และยังไม่ได้เก็บ vatRate; บิลก่อนมี VAT ยังคงเป็น 0%
+    // v51 เก็บ vatRate แล้ว; 7% เป็นทางรองรับข้อมูลเก่า/ไฟล์ที่ช่องอัตราหาย ไม่ใช่รูปแบบปกติของ v51
+    // บิลก่อนมี VAT ยังคงเป็น 0% และตัวตรวจสมการภาษีต้องยืนยันข้อมูลที่ใช้ fallback นี้ด้วย
     return rate !== null ? rate : (tx && tx.vatRate == null && !this.isLegacyBill(tx) ? 7 : 0);
   }
   billMoneyCapSat(tx) {
@@ -6808,6 +6955,51 @@ class PosApp {
   settlementWithinCap(tx, amt) {
     const cap = this.billMoneyCapSat(tx);
     return cap === null || Math.abs(Math.round(Number(amt) * 100)) <= cap;
+  }
+
+  // แก้ตามผลตรวจ 16 ต.ค. 2569 (Codex): เงินจริงคงเพดานเดิม แต่ประวัติปรับช่องทางอาจสะสมเกินราคาบิล
+  // ตรวจทุกกลุ่ม รวมรายการหมดผล โดยอ่านอย่างเดียว (บิล v64 ที่ค้างต้องกลับมาอ่านได้โดยไม่แก้ประวัติ)
+  billSettlementsValid(tx) {
+    const list = tx && tx.settlements;
+    if (list === undefined || list === null) return true;
+    if (!Array.isArray(list)) return false;
+    if (!list.length) return true;
+    const tender = this.tenderOf(tx);
+    if (!tender.valid) return false;
+    let movement = Math.round(tender.amount * 100), group = null;
+    const cap = this.billMoneyCapSat(tx);
+    const dueTotal = this.toFiniteNumber(tx.total);
+    const waiveBase = Math.max(cap === null ? 0 : cap, dueTotal === null ? 0 : Math.round(dueTotal * 100));
+    const balanced = () => !group || (group.methods.size >= 2 && group.net === 0 && group.positive <= group.budget);
+    for (const s of list) {
+      if (!s || typeof s !== 'object' || Array.isArray(s) || !PAYMENT_METHODS.includes(s.method) || !SETTLEMENT_KINDS.includes(s.kind)) return false;
+      const amount = this.toFiniteNumber(s.amount);
+      if (amount === null || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6) return false;
+      const n = Math.round(amount * 100);
+      if (s.due !== undefined && s.due !== null && !this.moneySatByMethod(s.due)) return false;
+      if (s.swap === true) {
+        if (s.kind !== 'waive') return false;
+        const key = JSON.stringify([s.at, s.by, s.via, s.due, s.supersededAt || 0]);
+        if (!group || group.key !== key) {
+          if (!balanced()) return false;
+          group = { key, net: 0, positive: 0, budget: movement, methods: new Set() };
+        }
+        if (group.methods.has(s.method) || Math.abs(n) > group.budget) return false;
+        group.methods.add(s.method); group.net += n; group.positive += Math.max(0, n);
+      } else {
+        if (!balanced()) return false;
+        group = null;
+        if (s.kind === 'waive') {
+          // ส่วนต่างช่องทาง = ยอดที่ควรรับ - ยอดสะสมจริง อาจมีเครื่องหมายตรงข้ามกันหลังคืนข้ามช่องทาง
+          // จึงต้องเผื่อราคาบิล + |เงินจริงทั้งหมด|; waive ไม่เพิ่ม movement ให้ตัวเอง
+          if (Math.abs(n) > waiveBase + movement) return false;
+        } else {
+          if (!this.settlementWithinCap(tx, amount)) return false;
+          movement += Math.abs(n); // รับตอนขาย + |refund| + |collect| + |correction|
+        }
+      }
+    }
+    return balanced();
   }
 
   tenderOf(tx) {
@@ -7036,12 +7228,12 @@ class PosApp {
     tender.parts.forEach(p => { acc[p.method] += sat(p.amount); });   // บิลแบ่งจ่าย = หลายก้อน
     const list = tx.settlements;
     if (list !== undefined && list !== null && !Array.isArray(list)) { out.invalid = true; return out; }
+    if (!this.billSettlementsValid(tx)) { out.invalid = true; return out; }
     const dueParts = this.paymentPartsOf(tx);   // บิลช่องทางเดียว = [{ ช่องทาง, ยอดบิล }] · แบ่งจ่าย = ก้อนตามบิล
     const due = dueParts ? this.moneySatByMethod(dueParts) : null;
     (list || []).forEach(s => {
       const amt = (s && typeof s === 'object') ? this.toFiniteNumber(s.amount) : null;
       if (amt === null || !PAYMENT_METHODS.includes(s.method) || !SETTLEMENT_KINDS.includes(s.kind)) { out.invalid = true; return; }
-      if (!this.settlementWithinCap(tx, amt)) { out.invalid = true; return; }   // ตรวจ 14 ต.ค. ข้อ 12
       if (s.kind === 'waive' && Number(s.supersededAt) > 0) { out.inactive.push(s); return; }
       if (s.kind === 'waive' && s.due !== undefined && s.due !== null) {
         const snap = this.moneySatByMethod(s.due);
@@ -7531,7 +7723,7 @@ class PosApp {
     const netIncome = (totalSat - sat(totalExpenses)) / 100;
 
     // 4. ค่าคอมมิชชั่นรายบุคคล
-    const staffMap = {};
+    const staffMap = Object.create(null);
     this.state.staff.forEach(st => {
       staffMap[st.id] = { name: st.name, role: st.role, count: 0, productCount: 0, salesSum: 0, commission: 0 };
     });
@@ -8813,6 +9005,11 @@ class PosApp {
       const total = drawer.total;
       const details = drawer.details;
       const mode = this.cashCounterMode;
+      if (total > BILL_MAX_BAHT) {
+        this.showToast(`ยอดนับเงินต้องไม่เกิน ${BILL_MAX_BAHT.toLocaleString('th-TH')} บาท — ยังไม่ได้บันทึก กรุณาตรวจจำนวนธนบัตร`, 'warning', 8000);
+        if (btnConfirm) btnConfirm.disabled = false;
+        return;
+      }
       
       if (mode === 'open') {
         // ด่านสิทธิ์อยู่ที่ตัวบันทึก ไม่ใช่แค่ที่ปุ่ม
@@ -9094,9 +9291,8 @@ class PosApp {
     // (ระหว่างรอ ผู้ใช้อาจพิมพ์รายการถัดไปแล้ว จะได้ยอดของอีกรายการมาบันทึกแทน)
     const type = document.getElementById('expense-type').value;
     const amountInput = document.getElementById('expense-amount');
-    // ค่าดิบในช่องตอนกด — ตอนบันทึกเสร็จใช้ตัดสินว่าฟอร์มยังเป็นรายการนี้อยู่ไหม (ดูการล้างฟอร์มท้ายฟังก์ชัน)
-    const noteElAtClick = document.getElementById('expense-note');
-    const rawAtClick = { amount: String(amountInput.value), note: noteElAtClick ? String(noteElAtClick.value) : '' };
+    // ตรวจ 18 ต.ค. 2569 (F03): ค่าทุกช่องตอนกด (ประเภท/ยอด/จ่ายจาก/พนักงาน/รายละเอียด) — ใช้ตัดสินตอนล้างฟอร์มท้ายฟังก์ชัน
+    const formAtClick = this.expenseFormSignature();
     // กติกาตัวเลข: ค่าใช้จ่ายเป็นจำนวนเต็มบาทเท่านั้น
     const amount = parseWholeNumberInput(amountInput.value, 0);
     if (amount === null) {
@@ -9105,6 +9301,10 @@ class PosApp {
     }
     if (amount <= 0) {
       this.showToast('กรุณาระบุจำนวนเงินที่ถูกต้อง!', 'info');
+      return;
+    }
+    if (amount > BILL_MAX_BAHT) {
+      this.showToast(`ค่าใช้จ่ายต้องไม่เกิน ${BILL_MAX_BAHT.toLocaleString('th-TH')} บาท — ยังไม่ได้บันทึก กรุณาตรวจยอดอีกครั้ง`, 'warning', 8000);
       return;
     }
     
@@ -9190,6 +9390,10 @@ class PosApp {
         this.state.shift.expenses = [];
       }
       this.state.shift.expenses.push(expenseItem);
+      // ตรวจ 18 ต.ค. 2569 (R01): สั่งสำรองขึ้น Drive พร้อมการบันทึกนี้ — เดิมค่าใช้จ่ายรอสำรองจนครบ 5 บิล/ปิดกะ
+      // (ระหว่างนั้น iPad เสีย = ค่าใช้จ่ายหาย แล้วปิดกะขาดหาที่มาไม่ได้) · บันทึกล้ม = คืนคิว
+      const restoreOutbox = this.snapshotOutboxForRollback();
+      this.planChangeBackup('expense');
 
       // ⚠️ ค่าใช้จ่ายคือเงินที่หายออกจากลิ้นชักจริง — ต้องใช้มาตรฐานเดียวกับ checkout/ยกเลิกบิล/ลบค่าใช้จ่าย
       // เดิมเรียก saveState() เปล่า ๆ ไม่ดูค่าที่คืนมา แล้วล้างฟอร์มเดินต่อทันที
@@ -9202,6 +9406,7 @@ class PosApp {
         // ถอนรายการที่เพิ่งใส่ออกจากหน่วยความจำ ไม่งั้นหน้าจอจะโชว์รายการที่ไม่ได้ถูกบันทึกลงเครื่อง
         const idx = this.state.shift.expenses.indexOf(expenseItem);
         if (idx > -1) this.state.shift.expenses.splice(idx, 1);
+        restoreOutbox();
         // คงค่าที่กรอกไว้ให้ครบ ผู้ใช้จะได้กดซ้ำได้เลยโดยไม่ต้องพิมพ์ใหม่ (และไม่เกิดรายการซ้ำ เพราะของเดิมถูกถอนแล้ว)
         console.error('addExpense save failed', err);
         this.showToast(err.message || 'บันทึกค่าใช้จ่ายไม่สำเร็จ', 'error', 7000);
@@ -9216,16 +9421,18 @@ class PosApp {
     // และเฉพาะถ้ายอด "และ" รายละเอียดยังเป็นค่าที่บันทึกไป — ผู้ใช้อาจเริ่มพิมพ์/กดรายการถัดไปแล้วระหว่างรอ
     // (รอบตรวจ 6 ข้อ 4: เดิมเทียบแค่ยอดแล้วล้างช่องรายละเอียดทิ้งเสมอ — รายการถัดไปที่ยังไม่ได้บันทึก
     //  เหลือแต่ยอด พอกดบันทึกอีกครั้ง รายละเอียดที่พิมพ์ไว้หาย กลายเป็น "ค่าใช้จ่ายอื่นๆ")
-    const noteInput = document.getElementById('expense-note');
-    const noteNow = noteInput ? String(noteInput.value) : '';
-    if (amountInput && String(amountInput.value) === rawAtClick.amount && noteNow === rawAtClick.note) {
-      amountInput.value = '';
+    // F03 (ตรวจ 18 ต.ค. 2569): เดิมเทียบแค่ยอด+รายละเอียด แต่รีเซ็ต "จ่ายจาก" และพนักงานเสมอ
+    // → ร่างรายการถัดไปที่เลือก "จ่ายทางอื่น" ไว้แล้ว ถูกเปลี่ยนกลับเป็นลิ้นชักเงียบ ๆ (ยอดที่ควรมีในลิ้นชักผิดเท่ายอดนั้น)
+    // ตอนนี้: ฟอร์ม "ทุกช่อง" ยังเป็นค่าที่เพิ่งบันทึก = ล้างกลับค่าเริ่มต้นทั้งหมด · ผู้ใช้แก้ช่องไหนไปแล้ว = ไม่แตะเลยสักช่อง
+    if (this.expenseFormSignature() === formAtClick) {
+      const noteInput = document.getElementById('expense-note');
+      if (amountInput) amountInput.value = '';
       if (noteInput) noteInput.value = '';
+      // กลับไปค่าเริ่มต้น — กัน "จ่ายทางอื่น" ค้างไปติดรายการถัดไปที่จ่ายจากลิ้นชักจริง
+      if (sourceEl) sourceEl.value = 'drawer';
+      // ผู้ตรวจอิสระ 13 ต.ค. 2569: ล้างพนักงานที่เลือกด้วย — เดิมค้างคนก่อน กด Enter รายการถัดไปแล้วไปลงชื่อคนก่อนเงียบ ๆ
+      { const ss = document.getElementById('expense-staff-id'); if (ss) ss.value = ''; }
     }
-    // กลับไปค่าเริ่มต้นทุกครั้ง — กัน "จ่ายทางอื่น" ค้างไปติดรายการถัดไปที่จ่ายจากลิ้นชักจริง
-    if (sourceEl) sourceEl.value = 'drawer';
-    // ผู้ตรวจอิสระ 13 ต.ค. 2569: ล้างพนักงานที่เลือกด้วย — เดิมค้างคนก่อน กด Enter รายการถัดไปแล้วไปลงชื่อคนก่อนเงียบ ๆ
-    { const ss = document.getElementById('expense-staff-id'); if (ss) ss.value = ''; }
 
     this.renderDashboard();
     this.vibrateDevice(50);
@@ -9279,12 +9486,17 @@ class PosApp {
         if (target.approvedById) logEntry.approvedById = String(target.approvedById);
       }
       this.state.expenseLog.push(logEntry);
+      // ตรวจ 18 ต.ค. 2569 (R01): ค่าใช้จ่ายอยู่ในเครื่องที่เดียวจนกว่าจะสำรอง — เดิมไม่สั่งสำรอง (ต่างจากแก้บิล/คืนเงิน/ยกเลิก)
+      // ลงคิวพร้อมการบันทึกนี้ (รวมรอบเดียวกับงานเปลี่ยนแปลงอื่นภายใน 2 นาที) · บันทึกล้ม = คืนคิว
+      const restoreOutbox = this.snapshotOutboxForRollback();
+      this.planChangeBackup('expense');
 
       try {
         await this.saveStateOrThrow('การลบค่าใช้จ่าย');
       } catch (err) {
         this.state.shift.expenses = prevExpenses;
         this.state.expenseLog = prevLog;
+        restoreOutbox();
         console.error('deleteExpense failed:', err);
         this.showToast('ลบค่าใช้จ่ายไม่สำเร็จ — ระบบคืนรายการกลับมาให้แล้ว', 'error', 6000);
         this.renderDashboard();
@@ -9635,6 +9847,25 @@ class PosApp {
     if (el.style) el.style.display = text ? '' : 'none';
   }
 
+  // ตรวจ 18 ต.ค. 2569 (F06): ล้างช่องวันที่/เดือนจนว่าง — เดิม filterReports return ทันที ตัวเลขรายงานชุดเก่าค้างบนจอ
+  // โดยไม่มีวันที่ให้อ่านว่าเป็นยอดของวันไหน · ตอนนี้ช่องว่างไม่ได้: คืนค่าที่แสดงอยู่ล่าสุด (หรือวัน/เดือนทำการปัจจุบัน) แล้วบอกผู้ใช้
+  // ตัวเลขบนจอจึงตรงกับวันที่ที่เห็นในช่องเสมอ
+  restoreEmptyReportPeriod() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const fix = (id, lastKey, fallback, label) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const v = String(el.value || '').trim();
+      if (v) { this[lastKey] = v; return; }
+      const back = this[lastKey] || fallback;
+      el.value = back;
+      this.showToast(`ช่อง${label}ว่างไม่ได้ — แสดง${label} ${back} ตามเดิม (เลือก${label}อื่นแทนการลบ)`, 'info', 5000);
+    };
+    const type = this.state.selectedReportType;
+    if (type === 'monthly') fix('report-month-input', '_lastReportMonth', this.getBusinessISOMonth(new Date()), 'เดือน');
+    else if (this.canViewPastSales()) fix('report-date-input', '_lastReportDate', this.getBusinessISODate(new Date()), 'วันที่');
+  }
+
   filterReports() {
     // ด่านชั้นที่สอง — ค่า "รายเดือน" อาจค้างมาจากเซสชันของเจ้าของคนก่อน
     // หรือมีใครเรียกฟังก์ชันนี้ตรง ๆ ข้ามปุ่มบนหน้าจอ ให้ตกกลับเป็นรายวันเสมอ
@@ -9644,6 +9875,7 @@ class PosApp {
     // ผู้จัดการดูได้เฉพาะวันทำการนี้ — ล็อกช่องวันและบังคับค่าเป็นวันนี้เสมอ
     // (ค่าอาจค้างจากตอนเจ้าของใช้เครื่อง หรือถูกแก้ผ่านทางอื่นที่ไม่ใช่ปุ่ม)
     this.applyReportDateLock();
+    this.restoreEmptyReportPeriod();
     this.renderPendingSettleBox();
     const type = this.state.selectedReportType;
     const dateVal = this.reportDateValue();
@@ -9754,7 +9986,7 @@ class PosApp {
     let commissionSum = 0;
 
     // คำนวณความถี่บริการยอดฮิต
-    let serviceFreq = {};
+    let serviceFreq = Object.create(null);
     displayItems.forEach(item => {
       if (item.isProduct) return;   // "บริการฮิต" นับเฉพาะบริการ — สินค้ามีตารางของตัวเอง (renderProductReport)
       serviceFreq[item.name] = (serviceFreq[item.name] || 0) + 1;
@@ -9824,7 +10056,7 @@ class PosApp {
     this.renderReportsChart(chartPoints, type, dateVal, monthVal);
 
     // 2.5 คำนวณค่าคอมมิชชั่นพนักงาน (ของตารางเปรียบเทียบ)
-    const staffCommissions = {};
+    const staffCommissions = Object.create(null);
     // เตรียมข้อมูลตั้งต้นสำหรับพนักงานทุกคนที่มีในระบบ
     this.state.staff.forEach(st => {
       staffCommissions[st.id] = {
@@ -9891,7 +10123,7 @@ class PosApp {
     }
 
     // คำนวณยอดขายแยกตามรายการบริการ
-    const serviceSales = {};
+    const serviceSales = Object.create(null);
     displayItems.forEach(item => {
       const sName = item.name;
       if (!serviceSales[sName]) {
@@ -11169,11 +11401,17 @@ class PosApp {
       this.showToast('ต้องเปิดกะก่อน — เงินสดที่คืน/เก็บเพิ่มต้องเข้า/ออกลิ้นชักของกะที่เปิดอยู่', 'warning', 7000);
       return false;
     }
+    // ตรวจ 18 ต.ค. 2569 (F02): ด่านเครื่องหลักเดียวกับแก้/ยกเลิกบิล — เดิมไม่มี เครื่องรอง/ยังไม่รู้สถานะ/พักกู้ฉุกเฉิน
+    // บันทึกคืนเงินได้ ทั้งที่เครื่องหลักยังเห็นบิลนี้ "รอคืนเงิน" (หลักฐาน settlement ไม่ขึ้นชีต อีกเครื่องไม่มีทางรู้) = เสี่ยงคืนซ้ำ
+    // เครื่องหลักที่ยืนยันแล้วทำได้แม้ออฟไลน์ · ไม่ได้ตั้ง Google Sheets = กติกาเครื่องเดียวเดิม
+    const context = await this.ensurePrimaryForFinancialMutation('บันทึกเงินส่วนต่างของบิล');
+    if (!context) return false;
     const expect = JSON.stringify(st.diffs);
     const yes = await this.askConfirm(this.describeSettlementPlan(tx, st, mode, via, partial));
     if (!yes) return false;
     if (!await this.confirmPinStepUp('การบันทึกเงินส่วนต่างของบิล')) return false;   // ข้อ 8
-    const done = await this.withMutation('การบันทึกเงินส่วนต่างของบิล', () => this._recordBillSettlementLocked(txId, mode, expect, via, partial));
+    const done = await this.withMutation('การบันทึกเงินส่วนต่างของบิล', () =>
+      this.isCloudContextCurrent(context) && this._recordBillSettlementLocked(txId, mode, expect, via, partial));
     if (done) {
       this.showToast('บันทึกเงินส่วนต่างของบิลแล้ว', 'success');
       const idEl = document.getElementById('edit-tx-id');
@@ -11186,6 +11424,8 @@ class PosApp {
   async _recordBillSettlementLocked(txId, mode, expectDiffs, via, partial) {
     if (!this.authorize('bill.settle', 'การบันทึกเงินส่วนต่างของบิล')) return false;
     if (this.refuseOnClockProblem('บันทึกเงินส่วนต่าง')) return false;
+    // F02: ระหว่างรอยืนยัน/PIN อาจรู้ผลว่าเครื่องนี้ถูกย้ายสิทธิ์ไป หรือเข้าโหมดกู้ฉุกเฉิน — ตรวจซ้ำ ณ จุดเขียนจริง
+    if (this.refuseOnSecondary('บันทึกเงินส่วนต่างของบิล')) return false;
     const tx = (this.state.transactions || []).find(t => t && t.id === txId);
     if (!tx) { this.showToast('บิลใบนี้ไม่อยู่ในข้อมูลปัจจุบันแล้ว', 'warning'); return false; }
     if (this.billAccessFor(tx) === 'none') { this.showToast('บิลของวันก่อน — ดูย้อนหลังได้เฉพาะเจ้าของร้าน', 'warning'); return false; }
@@ -11236,6 +11476,12 @@ class PosApp {
       entries.push({ id: `stl-${now}-r${j}-${Math.random().toString(36).slice(2, 7)}`, kind: 'waive', partialRest: true, via: plan.via, method: d.method,
         amount: d.amount, at: now, by, shiftStart: null, due: dueSnap.map(p => ({ method: p.method, amount: p.amount })) });
     });
+    // ตรวจแผนบนสำเนาก่อนเปลี่ยนบิล กะ ประวัติ หรือ outbox — ห้ามขึ้นสำเร็จแล้วสร้างบิล invalid
+    const candidate = Object.assign({}, tx, { settlements: (Array.isArray(tx.settlements) ? tx.settlements : []).concat(entries) });
+    if (this.billMoneyStatus(candidate).invalid) {
+      this.showToast('ยังไม่บันทึกเงินส่วนต่าง — แผนนี้ทำให้ประวัติเงินของบิลไม่ถูกต้อง ให้เจ้าของตรวจสอบก่อน', 'error', 10000);
+      return false;
+    }
     const drawer = entries.filter(e => e.method === 'cash' && e.kind !== 'waive' && e.shiftStart !== null && e.shiftStart === startTime);
 
     const hadSettlements = Object.prototype.hasOwnProperty.call(tx, 'settlements');
@@ -11337,6 +11583,10 @@ class PosApp {
   //                 refunded = หักเงินสดสุทธิที่ลูกค้าจ่ายมา (paid) เป็นเงินออกของกะนี้ · none/unknown = ไม่แตะ
   // คืน { shiftOpen, inShift, held, paid, cashEffect, push, unattributed, reverseAdjustments, text }
   planVoidCash(tx, outcome) {
+    if (outcome === 'refunded' && this.billMoneyStatus(tx).invalid) {
+      return { blocked: true, cashEffect: 0, paid: 0, push: null, reverseAdjustments: false,
+        text: 'ประวัติเงินของบิลเสีย — ยังยกเลิกแบบคืนเงินแล้วไม่ได้ ให้เจ้าของตรวจสอบหลักฐานเงินจริงก่อน' };
+    }
     const plan = this._planVoidCashCore(tx, outcome);
     // ส่วนที่รูดบัตร (บิลบัตร/แบ่งจ่าย) ไม่เคยอยู่ในลิ้นชัก — คืนเงินต้องยกเลิกรายการที่เครื่องรูดบัตร ระบบทำให้ไม่ได้
     if (outcome === 'refunded') {
@@ -11483,7 +11733,9 @@ class PosApp {
     const voidNote = voidNoteRead.value;
     const baht = v => '฿' + Math.abs(Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     // ตัวคำนวณเดียวกับที่ _voidBillLocked ใช้บันทึกจริง — ข้อความที่คนยืนยัน = สิ่งที่ระบบจะทำ
-    const effect = this.planVoidCash(tx, outcome).text;
+    const voidPlan = this.planVoidCash(tx, outcome);
+    if (voidPlan.blocked) { this.showToast(voidPlan.text, 'error', 10000); return false; }
+    const effect = voidPlan.text;
     const msg = `ยกเลิกบิล ${tx.id} ยอด ${baht(tx.total)}\n` +
       (outcome === 'refunded' ? 'เงิน: คืนให้ลูกค้าแล้ว\n' : 'เงิน: ไม่มีเงินเคลื่อนไหว\n') +
       (voidNote ? `เหตุผล: ${voidNote}\n` : '') +
@@ -11552,6 +11804,7 @@ class PosApp {
     // บิลของกะก่อน: ห้ามกลับรายการ — เงินที่คืน/เก็บในกะนี้เคลื่อนไหวจริงแล้ว (ดูหมายเหตุที่ planVoidCash)
     const outcome = (opts && opts.moneyOutcome) || 'unknown';
     const plan = this.planVoidCash(tx, outcome);
+    if (plan.blocked) { this.showToast(plan.text, 'error', 10000); return false; }
     const shNow = this.state.shift;
     const hadAdjKey = !!shNow && Object.prototype.hasOwnProperty.call(shNow, 'cashAdjustments');
     const prevAdj = hadAdjKey ? (Array.isArray(shNow.cashAdjustments) ? shNow.cashAdjustments.slice() : shNow.cashAdjustments) : null;
@@ -12243,11 +12496,13 @@ class PosApp {
       if (p2 === null) break;
       if (p2 !== p1) { why = 'PIN สองครั้งไม่ตรงกัน'; continue; }
       const hash = await this.hashPin(p1);
+      if (await this.pinUsedByOtherAccount(hash, st.id)) { why = 'PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น'; continue; }
       let saved = false;
       try {
         saved = await this.withMutation('ตั้ง PIN ใหม่', async () => {
           const cur = (this.state.staff || []).find(s => s.id === st.id);
           if (!cur) return false;
+          if (await this.pinUsedByOtherAccount(hash, st.id)) { this.showToast('PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น', 'warning'); return false; }
           const prevPin = cur.pin;
           cur.pin = hash;
           return this.persistOrRollback('ตั้ง PIN ใหม่', () => { cur.pin = prevPin; });
@@ -12298,9 +12553,11 @@ class PosApp {
       if (p2 === null) return false;
       if (p2 !== p1) { why = 'PIN สองครั้งไม่ตรงกัน'; continue; }
       const hash = await this.hashPin(p1);
+      if (await this.pinUsedByOtherAccount(hash, '__owner__')) { why = 'PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น'; continue; }
       let saved = false;
       try {
         saved = await this.withMutation('เปลี่ยน PIN เจ้าของ', async () => {
+          if (await this.pinUsedByOtherAccount(hash, '__owner__')) { this.showToast('PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น', 'warning'); return false; }
           const ok = await this.saveKeys([{ key: 'ownerPin', value: hash }]);
           if (ok) this.ownerPin = hash;   // เปลี่ยนในหน่วยความจำเฉพาะเมื่อลงเครื่องสำเร็จแล้ว
           return ok;
@@ -12335,9 +12592,11 @@ class PosApp {
       if (p2 === null) break;
       if (p2 !== p1) { why = 'PIN สองครั้งไม่ตรงกัน'; continue; }
       const hash = await this.hashPin(p1);
+      if (await this.pinUsedByOtherAccount(hash, '__owner__')) { why = 'PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น'; continue; }
       let saved = false;
       try {
         saved = await this.withMutation('ตั้ง PIN เจ้าของใหม่', async () => {
+          if (await this.pinUsedByOtherAccount(hash, '__owner__')) { this.showToast('PIN นี้มีผู้ใช้แล้ว กรุณาตั้ง PIN อื่น', 'warning'); return false; }
           const ok = await this.saveKeys([{ key: 'ownerPin', value: hash }]);
           if (ok) this.ownerPin = hash;   // เปลี่ยนในหน่วยความจำเฉพาะเมื่อลงเครื่องสำเร็จแล้ว
           return ok;
@@ -12947,7 +13206,8 @@ class PosApp {
     // ตรวจโครงสร้างอย่างเดียวไม่พอ เพราะ id แบบนั้นก็ยังเป็น "สตริง" ที่ถูกต้องตามชนิด
     //
     // ตั้งใจไม่ตรวจ transactions ที่นี่ — ประวัติบิลมีได้เป็นหมื่นใบและเป็นของจริงที่กู้กลับไม่ได้ถ้าถูกปฏิเสธทั้งไฟล์
-    // บิลที่ id แปลกจะถูกกันที่ชั้น safeId() ตอนแสดงผลแทน (ปุ่มกดแล้วไม่ทำอะไร) และขึ้นในผลตรวจไฟล์
+    // เลขบิลตรวจแยกรายใบใน validateBillRecord — รหัสผิดรูปแบบเป็น fatal และเข้า quarantine โดยเก็บต้นฉบับไว้
+    // checkIds:false ข้ามเฉพาะด่านรหัสบัญชีตั้งค่าด้านล่าง ไม่เปลี่ยนเลขบิลและไม่ข้ามการตรวจบิลรายใบ
     // ส่วน 5 รายการนี้เป็นบัญชีตั้งค่าที่มีไม่กี่สิบรายการ — id แปลกที่นี่แปลว่าไฟล์ถูกแก้ ไม่ใช่ข้อมูลเก่า
     const idLists = checkIds ? [
       ['categories', parsed.categories],
@@ -13014,7 +13274,8 @@ class PosApp {
       if (Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) return null;   // ละเอียดเกินสตางค์ = ไม่ใช่ยอดเงินจริง
       return n;
     };
-    if (typeof tx.id !== 'string' || !tx.id.trim()) fatal('no-id', 'ไม่มีเลขที่บิล');
+    if (typeof tx.id !== 'string' || !tx.id) fatal('no-id', 'ไม่มีเลขที่บิล');
+    else if (!/^[A-Za-z0-9_-]{6,64}$/.test(tx.id)) fatal('bad-id', 'เลขที่บิลผิดรูปแบบ — ต้องมี 6–64 ตัว ใช้ตัวอักษรอังกฤษ ตัวเลข ขีดกลาง หรือขีดล่างเท่านั้น');
     if (!this.isValidDateKey(this.getBusinessISODate(tx.date))) fatal('bad-date', 'วันที่ของบิลใช้ไม่ได้');
     else if (opts && opts.rejectFuture && new Date(tx.date).getTime() > Date.now() + 24 * 3600e3) fatal('future-date', 'วันที่ของบิลอยู่ในอนาคต');
 
@@ -13072,7 +13333,7 @@ class PosApp {
           fatal('vat-amount-mismatch', 'ภาษีขายไม่ตรงกับ ฐานภาษี × อัตรา');
         }
         // ตรวจ 14 ต.ค. ข้อ 12: มีภาษีขายแต่ไม่มีอัตรา — เดิมไม่ตรวจภาษีเลย (ภาษี 50 บนฐาน 100 ผ่าน)
-        // แอปบันทึก vatRate ทุกบิลตั้งแต่มี VAT · บิลที่ไม่มีอัตราเป็นรุ่นแรกซึ่งใช้ 7% (ค่าตั้งต้นของแอป) → ตรวจด้วย 7%
+        // v51 เก็บ vatRate แล้ว · ข้อมูลที่ช่องอัตราหายต้องผ่านสมการ 7% ก่อนจึงยอมรับตามทางรองรับเดิม
         // (ภาษี 0 ไม่มีอัตรา = ยังรับ · ไฟล์จริง 25 ก.ย. ไม่มีบิลที่โดนกฎนี้)
         if ((tx.vatRate === undefined || tx.vatRate === null) && sat(v.vatAmount) > 0 &&
             Math.round(sat(v.vatableBase) * 7 / 100) !== sat(v.vatAmount)) {
@@ -13188,9 +13449,7 @@ class PosApp {
     // ผิดรูป = เตือน (ยอดขายของบิลยังเชื่อได้) แต่ตัวนับลิ้นชักจะไม่นับและแจ้งให้เห็นแทน (ดู computeShiftDrawer)
     if (tx.tender !== undefined && tx.tender !== null && !this.tenderOf(tx).valid) note('bad-tender', 'ข้อมูลเงินที่รับจริงตอนขายของบิลเสีย');
     if (tx.settlements !== undefined && tx.settlements !== null) {
-      const okList = Array.isArray(tx.settlements) && tx.settlements.every(x => x && typeof x === 'object' &&
-        PAYMENT_METHODS.includes(x.method) && SETTLEMENT_KINDS.includes(x.kind) && this.toFiniteNumber(x.amount) !== null &&
-        this.settlementWithinCap(tx, x.amount));   // ตรวจ 14 ต.ค. ข้อ 12: ยอดเกินเพดานของบิล
+      const okList = this.billSettlementsValid(tx);
       if (!okList) note('bad-settlement', 'ประวัติคืน/เก็บเงินส่วนต่างของบิลเสีย');
     }
     return P;
@@ -13212,7 +13471,8 @@ class PosApp {
     try {
       const dry = JSON.parse(JSON.stringify({
         transactions: parsed.transactions, services: parsed.services, shift: parsed.shift, vatRate: parsed.vatRate,
-        cardFeeRate: parsed.cardFeeRate   // ตรวจ 14 ต.ค. ข้อ 20: เดิมไม่ซ้อมตรวจ — อัตราบัตรเสียผ่านว่า "สะอาด"
+        cardFeeRate: parsed.cardFeeRate,
+        ...Object.fromEntries(BACKUP_TEXT_SETTINGS.map(k => [k, parsed[k]]))
       }));
       this.sanitizeBackupData(dry);
       records = Array.isArray(this._lastSanitizeQuarantine) ? this._lastSanitizeQuarantine : [];
@@ -13315,7 +13575,7 @@ class PosApp {
     if (a.badServices) lines.push(`• ${a.badServices} รายการบริการที่ราคาใช้ไม่ได้ → ขายไม่ได้จนกว่าจะแก้ราคาที่หน้าตั้งค่า (ไม่ตั้งเป็นขายฟรี)`);
     if (a.badLists)    lines.push(`• ${a.badLists} จุดที่รายการย่อยเสีย (เช่นรายการบริการในคิว) → จะถูกล้างเป็นรายการว่าง ข้อมูลส่วนนั้นหายไป`);
     if (a.badActiveShift) lines.push(`• กะที่เปิดอยู่ในไฟล์ไม่มีเวลาเริ่มที่ใช้ได้ → กะนี้จะถูกปิดไว้ ต้องนับเงินเปิดกะใหม่ (ค่าเดิมเก็บไว้ตรวจสอบ)`);
-    if (a.badSettings) lines.push(`• ${a.badSettings} ค่าตั้งค่าที่ผิดช่วง (เช่นอัตรา VAT) → คงค่าเดิมของเครื่องไว้`);
+    if (a.badSettings) lines.push(`• ${a.badSettings} ค่าตั้งค่าที่ผิดช่วงหรือผิดชนิด (เช่นอัตรา VAT/ค่าข้อความ) → คงค่าเดิมของเครื่องไว้`);
     if (a.badShifts)   lines.push(`• ${a.badShifts} รอบกะที่ "เงินเปิดร้าน" หายไป → แสดงเป็น 0 บาท (ไม่ใช่ยอดจริง — ค่าเดิมเก็บไว้ในรายการที่แยกตรวจสอบ)`);
     const sample = (a.problemSamples && a.problemSamples.length)
       ? `\n\nตัวอย่าง:\n${a.problemSamples.slice(0, 5).join('\n')}` : '';
@@ -13508,8 +13768,12 @@ class PosApp {
       if (typeof x.name !== 'string') { x.name = (x.name === undefined || x.name === null) ? '' : String(x.name); fixed++; }
       if (k !== 'categories' && x.id !== undefined && x.id !== null && typeof x.id !== 'string') { x.id = String(x.id); fixed++; }
     }));
-    ['shopName', 'shopTagline'].forEach(k => {
-      if (parsed[k] !== undefined && parsed[k] !== null && typeof parsed[k] !== 'string') { delete parsed[k]; fixed++; }
+    BACKUP_TEXT_SETTINGS.forEach(k => {
+      if (Object.prototype.hasOwnProperty.call(parsed, k) && typeof parsed[k] !== 'string') {
+        quarantined.push({ kind: 'setting', id: k, reasons: ['bad-setting-type'],
+          message: `ค่าตั้งค่า ${k} ต้องเป็นข้อความ — คงค่าเดิมของเครื่องไว้`, original: copy(parsed[k]), quarantinedAt: stamp });
+        delete parsed[k]; fixed++;
+      }
     });
 
     // ── บริการ: ราคาที่ใช้ไม่ได้ = ขายไม่ได้จนกว่าเจ้าของจะแก้ ไม่ใช่ "ขายฟรี" ─────────
@@ -14270,17 +14534,29 @@ class PosApp {
   }
 
   // ดึงรายชื่อไฟล์สำรองจาก Drive มาแสดง (ยังไม่ดาวน์โหลดเนื้อไฟล์ — เร็วแม้ไฟล์เยอะ)
-  async loadDriveBackups() {
+  async loadDriveBackups(more = false) {
     const list = document.getElementById('restore-list');
     if (!list) return;
-    list.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);">กำลังโหลดรายการไฟล์สำรอง...</div>';
+    if (this._loadingDriveBackups) return;
+    if (more && !Number.isSafeInteger(this._driveBackupNextOffset)) return;
+    this._loadingDriveBackups = true;
+    if (!more) {
+      this._driveBackupFiles = []; this._driveBackupNextOffset = null;
+      list.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);">กำลังโหลดรายการไฟล์สำรอง...</div>';
+    }
 
     try {
       // รายการไฟล์สำรอง = ทางเข้าสู่ข้อมูลทั้งร้าน — Apps Script ขอรหัสเจ้าของ (ดู cloudPost)
-      const d = await this.cloudPost('list_backups', {}, 20000, { owner: true });
+      const d = await this.cloudPost('list_backups', { offset: more ? this._driveBackupNextOffset : 0 }, 20000, { owner: true });
       if (d.status !== 'success') throw new Error(this.explainCloudError(d.message) || 'คลาวด์แจ้งข้อผิดพลาด');
 
-      const files = (d.details && Array.isArray(d.details.files)) ? d.details.files : [];
+      const details = d.details || {}, page = Array.isArray(details.files) ? details.files : [];
+      const seen = new Set((this._driveBackupFiles || []).map(f => f.id));
+      const files = (this._driveBackupFiles || []).concat(page.filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true; }));
+      this._driveBackupFiles = files;
+      this._driveBackupNextOffset = Number.isSafeInteger(details.nextOffset) && details.nextOffset > (more ? this._driveBackupNextOffset : 0) ? details.nextOffset : null;
+      this._driveBackupTotal = Number(details.total) || files.length;
+      this._driveBackupLegacyCap = details.nextOffset === undefined && files.length >= 50;
       if (!files.length) {
         list.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted);">' +
           'ยังไม่มีไฟล์สำรองใน Google Drive<br>' +
@@ -14288,13 +14564,26 @@ class PosApp {
         return;
       }
 
-      // รายชื่อถูกตัดที่ไฟล์ล่าสุด DRIVE_BACKUP_LIST_MAX ไฟล์ (ราว 2 สัปดาห์) — บอกตรง ๆ ว่าไฟล์เก่ากว่านั้นอยู่ที่ไหน (รอบตรวจ 6 ข้อ 5)
-      const capNote = files.length >= DRIVE_BACKUP_LIST_MAX
-        ? `<p style="font-size:0.74rem;color:var(--text-muted);margin:6px 2px 0;line-height:1.5;">แสดงไฟล์ล่าสุด ${files.length} ไฟล์ (ราว 2 สัปดาห์) — ` +
-          'ไฟล์ที่เก่ากว่านี้ยังอยู่ในโฟลเดอร์ Erotica_POS_Backups บน Google Drive (เก็บ 90 วัน): ดาวน์โหลดไฟล์ที่ต้องการ ' +
-          'แล้วใช้ปุ่ม "นำเข้าข้อมูลสำรอง (.json)" ในหน้าตั้งค่า</p>'
-        : '';
-      list.innerHTML = capNote + files.map((f, idx) => {
+      this.renderDriveBackupFiles(list);
+    } catch (err) {
+      console.error('list backups failed', err);
+      if (more && (this._driveBackupFiles || []).length) {
+        this.renderDriveBackupFiles(list, 'โหลดไฟล์เก่าไม่สำเร็จ — กดโหลดไฟล์เก่าเพิ่มเพื่อลองใหม่');
+      } else {
+        list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--danger,#f43f6a);">' +
+          'โหลดรายการไม่สำเร็จ<br><span style="font-size:0.8rem;line-height:1.5;">' +
+          escapeHtml(this.explainCloudError(err)) + '</span></div>';
+      }
+    } finally { this._loadingDriveBackups = false; }
+  }
+
+  renderDriveBackupFiles(list, error = '') {
+      const files = this._driveBackupFiles || [];
+      const note = this._driveBackupLegacyCap
+        ? `แสดงไฟล์ล่าสุด ${files.length} ไฟล์ — Apps Script ยังเป็นรุ่นเก่า ไฟล์เก่าอยู่ในโฟลเดอร์ Erotica_POS_Backups บน Drive ใช้ปุ่ม "นำเข้าข้อมูลสำรอง" ได้`
+        : (files.length > 50 || this._driveBackupNextOffset !== null ? `แสดง ${files.length} จาก ${this._driveBackupTotal} ไฟล์ เรียงล่าสุดก่อน` : '');
+      list.innerHTML = (note ? `<p style="font-size:0.78rem;margin:6px 2px;">${escapeHtml(note)}</p>` : '') +
+        (error ? `<p role="alert">${escapeHtml(error)}</p>` : '') + files.map((f, idx) => {
         const label = this.formatBackupLabel(f);
         const tag = idx === 0 ? '<span style="font-size:0.7rem;padding:2px 8px;border-radius:99px;background:var(--accent-premium,#f5c842);color:#1a1a1a;font-weight:700;">ล่าสุด</span>' : '';
         return '<button type="button" class="btn-small secondary restore-item"' +
@@ -14304,18 +14593,15 @@ class PosApp {
             `<span style="font-size:0.72rem;opacity:0.65;">${escapeHtml(f.name || '')} · ${Number(f.sizeKB) || 0} KB</span></span>` +
             tag +
           '</button>';
-      }).join('');
+      }).join('') + (this._driveBackupNextOffset !== null
+        ? '<button type="button" id="restore-load-more" class="btn-small secondary" style="width:100%;min-height:48px;margin-top:8px;">โหลดไฟล์เก่าเพิ่ม</button>' : '');
 
       // ผูก event ทีหลัง ไม่ใช้ onclick ใน HTML — กันชื่อไฟล์ที่มีอัญประกาศไปทำ markup พัง
       list.querySelectorAll('.restore-item').forEach((btn) => {
         btn.onclick = () => this.restoreFromDriveBackup(btn.dataset.id, btn.dataset.label);
       });
-    } catch (err) {
-      console.error('list backups failed', err);
-      list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--danger,#f43f6a);">' +
-        'โหลดรายการไม่สำเร็จ<br><span style="font-size:0.8rem;line-height:1.5;">' +
-        escapeHtml(this.explainCloudError(err)) + '</span></div>';
-    }
+      const moreBtn = list.querySelector('#restore-load-more');
+      if (moreBtn) moreBtn.onclick = () => this.loadDriveBackups(true);
   }
 
   // กู้ข้อมูลจากไฟล์ที่เลือก
@@ -15582,9 +15868,9 @@ class PosApp {
   isCloudJobExpired(item, svc, now) {
     const r = item && item.retry && item.retry[svc];
     if (r && r.stopped) return true;          // ชีตปฏิเสธถาวร (INVALID_SUMMARY · ตรวจ 8 ต.ค. 2569 ข้อ 8) — รอเจ้าของตัดสินเหมือนงานหมดอายุ
-    if (!r || !(r.tries > 0)) return false;   // ยังไม่เคยล้ม = ยังไม่หมดอายุ (เช่นพักเพราะไม่ใช่เครื่องหลัก)
+    if (!r || !(r.tries >= CLOUD_JOB_MIN_FAIL_TRIES)) return false; // ปิดร้านหลายวันไม่นับเป็นการลองส่ง
     // นับจาก "ครั้งแรกที่ล้ม" เท่านั้น — ไม่ใช้เวลาสร้างงาน เพราะงานที่ถูกพักไว้นาน (เช่นไม่ใช่เครื่องหลัก)
-    // แล้วเพิ่งล้มครั้งแรก ต้องได้ลองครบ 7 วันเหมือนกัน · งานรุ่นก่อนไม่มีค่านี้ = เริ่มนับตอนล้มครั้งถัดไป
+    // แล้วเพิ่งล้มครั้งแรก ต้องได้ลองอย่างน้อย 10 ครั้งด้วย · งานรุ่นก่อนไม่มีค่านี้ = เริ่มนับตอนล้มครั้งถัดไป
     const since = Number(r.firstFailAt) || 0;
     if (!since) return false;
     return ((now || Date.now()) - since) > CLOUD_JOB_MAX_FAIL_DAYS * 86400000;
@@ -15912,6 +16198,54 @@ class PosApp {
       .then(d => { if (d.ok) this.showToast('ส่งข้อความทดสอบสำเร็จ!','success'); else this.showToast('Telegram API error: ' + d.description,'error'); })
       .catch(err => this.showToast('ไม่สามารถเชื่อมต่อ Telegram: ' + err.message,'error'));
   }
+}
+
+// ── ตรวจ 18 ต.ค. 2569 (F08): คีย์บอร์ดต้องไม่หลุดออกจากหน้าต่างที่เปิดอยู่ ─────────────────
+// เดิมกด Tab ต่อไปเรื่อย ๆ จนออกจาก modal ไปถึงปุ่มด้านหลัง (เช่นปุ่มล็อก) แล้วกด Enter ได้จริง → ออกจากระบบ ร่างที่กรอกหาย
+// ทำที่จุดเดียวสำหรับทุกหน้าต่าง (.modal-overlay.active — รวมกล่องยืนยัน/ถามค่าที่เปิดโดยเพิ่มคลาสเอง):
+//   · Tab / Shift+Tab วนอยู่ในหน้าต่างบนสุด
+//   · Enter / Space ขณะ focus ค้างอยู่ที่ปุ่มด้านหลัง (เช่นปุ่มที่กดเปิดหน้าต่างนี้) = ไม่ทำงาน
+// ไม่ย้าย focus เข้าช่องกรอกเองตอนเปิดหน้าต่าง — บน iPad จะเด้งแป้นพิมพ์ขึ้นมาทุกครั้ง
+function topOpenModal() {
+  if (typeof document === 'undefined' || !document.querySelectorAll) return null;
+  const list = Array.from(document.querySelectorAll('.modal-overlay.active') || []);
+  let best = null, bestZ = -Infinity;
+  list.forEach(m => {
+    let z = NaN;
+    try { z = parseInt(window.getComputedStyle(m).zIndex, 10); } catch (e) { /* ไม่มี getComputedStyle */ }
+    const zz = isNaN(z) ? 0 : z;
+    if (zz >= bestZ) { bestZ = zz; best = m; }   // z เท่ากัน = ตัวที่อยู่หลังใน DOM อยู่บน
+  });
+  return best;
+}
+function modalFocusables(m) {
+  return Array.from(m.querySelectorAll('a[href],button,input,select,textarea,[tabindex]') || [])
+    .filter(el => !el.disabled && el.tabIndex !== -1 && el.type !== 'hidden' &&
+      typeof el.getClientRects === 'function' && el.getClientRects().length > 0);
+}
+function handleModalFocusKey(e) {
+  if (!e || (e.key !== 'Tab' && e.key !== 'Enter' && e.key !== ' ')) return;
+  const m = topOpenModal();
+  if (!m) return;
+  const active = document.activeElement;
+  const inside = !!(active && m.contains(active));
+  if (e.key !== 'Tab') {
+    if (!inside && active && active !== document.body) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { active.blur(); } catch (err) { /* ignore */ }
+    }
+    return;
+  }
+  const f = modalFocusables(m);
+  if (!f.length) { e.preventDefault(); return; }
+  const first = f[0], last = f[f.length - 1];
+  if (!inside) { e.preventDefault(); (e.shiftKey ? last : first).focus(); return; }
+  if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+}
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  document.addEventListener('keydown', handleModalFocusKey, true);
 }
 
 // เริ่มต้นแอปพลิเคชัน

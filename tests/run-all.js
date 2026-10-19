@@ -20,13 +20,19 @@ files.push('test_codex_review_20261013.js', 'test_codex_deploy_20261013.js');
 files.push('test_claude_recheck_codex_20261014.js');
 // ตรวจทั้งระบบ 14 ต.ค. 2569 (บ่าย) — แก้ 21 ข้อ
 files.push('test_fix_20261014_fx1.js', 'test_fix_20261014_fx2.js', 'test_fix_20261014_fx3.js', 'test_fix_20261014_fx4.js',
-  'test_fix_20261014_fx5.js', 'test_fix_20261014_fx6.js', 'test_fix_20261014_fx7.js', 'test_fix_20261014_iv.js');
+  'test_fix_20261014_fx5.js', 'test_fix_20261014_fx6.js', 'test_fix_20261014_fx7.js', 'test_fix_20261014_iv.js', 'test_fix_20261016_index_month.js');
 // รอบ 2 (14 ต.ค. ค่ำ — เจ้าของตัดสินข้อ ก/ข + จุดเล็ก 4 จุด)
 files.push('test_fix_20261014b_gx1.js', 'test_fix_20261014b_gx3.js', 'test_fix_20261014b_gx4.js', 'test_fix_20261014b_gx7.js', 'test_fix_20261014b_iv2.js');
 files.push('test_codex_review_20261014.js');
 // หมายเหตุบิล + หมายเหตุปิดกะ (เจ้าของสั่ง 14 ต.ค. 2569)
 files.push('test_notes_20261014.js');
 files.push('test_codex_bill_notes_20261015.js');
+files.push('test_codex_money_20261016.js', 'test_codex_tools_20261016.js', 'test_codex_records_20261016.js', 'test_codex_reports_20261016.js');
+files.push('test_codex_cloud_20261017.js', 'test_codex_app_20261017.js');
+// Claude ตรวจซ้ำผลตรวจทั้งระบบของ Codex 18 ต.ค. 2569 (F01–F11)
+files.push('test_claude_recheck_20261018.js');
+// รอบ 2: C01–C05 ที่ Codex เจอหลังงานแก้ F01–F11
+files.push('test_claude_recheck_20261018b.js');
 // ตัวตัดสินผ่าน/ไม่ผ่านอยู่ใน runner_judge.js (ใช้ร่วมกับ run-all-ui.js) — ต้องมีบรรทัดสรุป · อ่าน stderr · ค้างเกิน 5 นาที = ไม่ผ่าน
 const { runTestFile, parseArgs } = require('./runner_judge');
 const args = parseArgs((process.argv || []).slice(2));

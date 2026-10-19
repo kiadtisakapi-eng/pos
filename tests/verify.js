@@ -375,12 +375,12 @@ doc.querySelectorAll = () => [];   // ไม่แตะ dropdown พนัก�
   const damaged = {
     backupSchemaVersion: 2, services: [{ id: 's1', name: 'ตัดผม', price: 400 }], staff: [{ id: 'st-1', name: 'เอ' }],
     transactions: [
-      { id: 'TX-1', date: d('2026-08-10T20:00:00'), total: 400, subtotal: 400, discount: 0, services: ['ตัดผม'] }, // ดี
-      { id: 'TX-2', date: d('2026-08-10T21:00:00'), total: 'หาย', subtotal: 500, discount: 0, services: ['ตัดผม'] }, // ยอดพัง
-      { id: 'TX-3', date: 'ไม่ใช่วันที่', total: 300, subtotal: 300, discount: 0, services: ['ตัดผม'] },            // วันที่พัง
+      { id: 'TX-0001', date: d('2026-08-10T20:00:00'), total: 400, subtotal: 400, discount: 0, services: ['ตัดผม'] }, // ดี
+      { id: 'TX-0002', date: d('2026-08-10T21:00:00'), total: 'หาย', subtotal: 500, discount: 0, services: ['ตัดผม'] }, // ยอดพัง
+      { id: 'TX-0003', date: 'ไม่ใช่วันที่', total: 300, subtotal: 300, discount: 0, services: ['ตัดผม'] },            // วันที่พัง
       { id: '',     date: d('2026-08-10T22:00:00'), total: 200, subtotal: 200, discount: 0, services: ['ตัดผม'] }, // ไม่มีเลขบิล
-      { id: 'TX-1', date: d('2026-08-10T23:00:00'), total: 100, subtotal: 100, discount: 0, services: ['ตัดผม'] }, // ซ้ำ
-      { id: 'TX-5', date: d('2026-08-10T23:30:00'), total: '600', subtotal: '600', discount: 0, services: ['ตัดผม'] } // ตัวเลขเป็นข้อความ (ซ่อมได้)
+      { id: 'TX-0001', date: d('2026-08-10T23:00:00'), total: 100, subtotal: 100, discount: 0, services: ['ตัดผม'] }, // ซ้ำ
+      { id: 'TX-0005', date: d('2026-08-10T23:30:00'), total: '600', subtotal: '600', discount: 0, services: ['ตัดผม'] } // ตัวเลขเป็นข้อความ (ซ่อมได้)
     ],
     shift: { active: false, expenses: [], history: [{ startTime: d('2026-08-10T11:00:00'), endTime: d('2026-08-11T02:00:00'),
       expenses: [{ id: 'e1', amount: 500, time: d('2026-08-10T20:00:00') }, { id: 'e2', amount: null, time: d('2026-08-10T21:00:00') }] }] }
@@ -400,21 +400,21 @@ doc.querySelectorAll = () => [];   // ไม่แตะ dropdown พนัก�
   // ⚠️ ก.ย. 2569: เดิมข้อนี้คาดว่า "ยอดที่พังกลายเป็น 0" — นั่นคือบั๊กที่ต้องแก้ (บิลยอด 0 ถูกส่งขึ้นชีตเหมือนบิลจริง)
   // ตอนนี้บิลที่ตัวเลขเงินเชื่อไม่ได้ต้องถูกแยกไปตรวจสอบ โดยเก็บค่าเดิมไว้ครบ
   check('บิลยอดพังไม่ถูกแทนด้วย 0 — แยกไปตรวจสอบพร้อมค่าต้นฉบับ',
-    !damaged.transactions.some(t => t.id === 'TX-2') &&
-    quar.some(r => r.kind === 'transaction' && r.id === 'TX-2' && r.original.total === 'หาย'));
+    !damaged.transactions.some(t => t.id === 'TX-0002') &&
+    quar.some(r => r.kind === 'transaction' && r.id === 'TX-0002' && r.original.total === 'หาย'));
   check('บิลวันที่พัง / ไม่มีเลขที่ / เลขซ้ำ ถูกแยกไปตรวจ ไม่ปนในยอด',
     quar.filter(r => r.kind === 'transaction').length === 4 && damaged.transactions.length === 2);
-  check('ตัวเลขที่เป็นข้อความ "600" ถูกแปลงเป็น 600 (ไม่เสียข้อมูล)', damaged.transactions.find(t => t.id === 'TX-5').total === 600);
+  check('ตัวเลขที่เป็นข้อความ "600" ถูกแปลงเป็น 600 (ไม่เสียข้อมูล)', damaged.transactions.find(t => t.id === 'TX-0005').total === 600);
   check('ค่าใช้จ่ายที่พังไม่ถูกแทนด้วย 0 — แยกไปตรวจสอบพร้อมค่าต้นฉบับ',
     damaged.shift.history[0].expenses.length === 1 &&
     quar.some(r => r.kind === 'expense' && r.id === 'e2' && r.original.amount === null));
   const sumAll = damaged.transactions.reduce((s, t) => s + t.total, 0);
   check(`รวมยอดเฉพาะบิลที่เชื่อได้ (ได้ ${sumAll})`, Number.isFinite(sumAll) && sumAll === 1000);
   check('ไฟล์สะอาดต้องรายงานว่าสะอาด', app.auditBackupData({
-    transactions: [{ id: 'A', date: Date.now(), total: 100, subtotal: 100, discount: 0 }], shift: {}
+    transactions: [{ id: 'TX-000A', date: Date.now(), total: 100, subtotal: 100, discount: 0 }], shift: {}
   }).clean === true);
   check('บิลโอน (cashReceived เป็น null) ต้องไม่ถูกยัด 0 จนใบเสร็จโชว์ช่องเงินทอน', (() => {
-    const q = { transactions: [{ id: 'Q', date: Date.now(), total: 100, subtotal: 100, discount: 0, cashReceived: null, cashChange: null }], shift: {} };
+    const q = { transactions: [{ id: 'TX-000Q', date: Date.now(), total: 100, subtotal: 100, discount: 0, cashReceived: null, cashChange: null }], shift: {} };
     app.sanitizeBackupData(q);
     return q.transactions[0].cashReceived === null;
   })());

@@ -316,7 +316,7 @@ await section('[G]', async () => {
   {
     const gas = createGasEnv();
     const day = (over) => Object.assign({ action: 'summary_day', dateKey: '2026-09-05', totalRevenue: 5000, cashRevenue: 5000, qrRevenue: 0,
-      creditRevenue: 0, billCount: 12, totalExpenses: 0, cashVariance: 0, shiftCount: 1, shiftCash: [], nonVatBase: 5000, vatableBase: 0,
+      creditRevenue: 0, billCount: 12, totalExpenses: 0, cashVariance: 0, shiftCount: 0 /* C03 (18 ต.ค. 2569): 1 กะแต่ไม่มีแถวกะ = ข้อมูลขัดกันเอง ถูกปฏิเสธแล้ว */, shiftCash: [], nonVatBase: 5000, vatableBase: 0,
       vatAmount: 0, rounding: 0, vatRate: 0, vatCategories: [], services: [], expenses: [], staffCommissions: [] }, over || {});
     const SN = 'สรุป-2026-09-05';
     const masterRev = () => { const m = gas.sheet('สรุปรายเดือน'); const h = m.getRange(1, 1, 1, m.getLastColumn()).getValues()[0];
@@ -341,7 +341,7 @@ await section('[G]', async () => {
     m.getRange(2, 1, 1, 8).setValues([['รายวัน', '2026-09-05', 10, 1000, 100, 900, 0, "'2026-09-05 23:00"]]);
     gas.faults.flush = 2;   // Sheets ล้มหลังเพิ่มคอลัมน์ (flush ครั้งที่ 2 = ใน updateMasterSummarySheet)
     gas.post({ action: 'summary_day', dateKey: '2026-09-05', generatedAt: 5000, totalRevenue: 5000, cashRevenue: 5000, qrRevenue: 0,
-      creditRevenue: 0, billCount: 12, totalExpenses: 0, cashVariance: 0, shiftCount: 1, shiftCash: [], nonVatBase: 5000, vatableBase: 0,
+      creditRevenue: 0, billCount: 12, totalExpenses: 0, cashVariance: 0, shiftCount: 0 /* C03 (18 ต.ค. 2569): 1 กะแต่ไม่มีแถวกะ = ข้อมูลขัดกันเอง ถูกปฏิเสธแล้ว */, shiftCash: [], nonVatBase: 5000, vatableBase: 0,
       vatAmount: 0, rounding: 0, vatRate: 0, vatCategories: [], services: [], expenses: [], staffCommissions: [] });
     const w = m.getLastColumn(); const h = m.getRange(1, 1, 1, w).getValues()[0]; const v = m.getRange(2, 1, 1, w).getValues()[0];
     const col = (name) => v[h.indexOf(name)];
@@ -405,10 +405,16 @@ await section('[C]', async () => {
     return { items: [...h.matchAll(/receipt-item-details">\s*<span>[^<]*<\/span>\s*<span>฿([^<]*)</g)].map(m => Number(m[1].replace(/,/g, ''))),
       sub: (/รวมค่าบริการ:<\/span>\s*<span>฿([^<]*)</.exec(h) || [])[1] }; };
   const r1 = receipt({ id: 'TX-1', date: Date.now(), customerName: 'x', services: ['A', 'B', 'C'], staffNames: ['เอ'], subtotal: 100, discount: 0, total: 100, paymentMethod: 'cash' });
-  await t('บิลเก่า 3 รายการ ยอด 100: ราคาต่อรายการรวมกันได้ 100 พอดี (เดิม 33×3 = 99)', () =>
-    eq(Math.round(r1.items.reduce((a, b) => a + b, 0) * 100), 10000, JSON.stringify(r1)));
+  // ตรวจ 18 ต.ค. 2569 (F09): เปลี่ยนกติกา — บิลเก่าหลายบริการไม่มีราคารายบรรทัดจริง จึงไม่พิมพ์ราคาที่เฉลี่ยเอง
+  // (เดิมเทสต์นี้บังคับให้เกลี่ย 100/3 ให้รวมได้ 100 — ตัวเลขรวมถูก แต่ราคารายบรรทัดเป็นค่าที่ระบบแต่งขึ้น)
+  const legacyHtml = () => d.getElementById('thermal-receipt-preview').innerHTML;
+  await t('บิลเก่า 3 รายการ ยอด 100: ไม่พิมพ์ราคารายบรรทัดที่เดาเอง · รวมค่าบริการ 100 · บอกว่าไม่มีรายละเอียด', () => {
+    eq(r1.items.length, 0, JSON.stringify(r1)); eq(r1.sub, '100');
+    ok(/ไม่มีรายละเอียดราคาและผู้ดูแลแยกรายบริการ/.test(legacyHtml()), 'ไม่มีป้ายบอก'); });
   const r2 = receipt({ id: 'TX-2', date: Date.now(), customerName: 'x', services: ['A', 'B'], staffNames: ['เอ'], total: 500, paymentMethod: 'cash' });
-  await t('บิลเก่าที่มีแต่ยอดรวม 500: รวมค่าบริการ 500 และรายการละ 250 (เดิม 0)', () => { eq(r2.sub, '500'); eq(r2.items.join(), '250,250'); });
+  await t('บิลเก่าที่มีแต่ยอดรวม 500: รวมค่าบริการ 500 (เดิม 0) · ไม่แบ่งราคาเอง', () => { eq(r2.sub, '500'); eq(r2.items.length, 0); });
+  const r3 = receipt({ id: 'TX-3', date: Date.now(), customerName: 'x', services: ['A'], staffNames: ['เอ'], total: 300, paymentMethod: 'cash' });
+  await t('บิลเก่าบริการเดียว: ราคา = ยอดรวมจริง (ไม่ใช่การประมาณ)', () => { eq(r3.items.join(), '300'); eq(r3.sub, '300'); });
 
   // ตะกร้าที่ผูกพนักงานที่ถูกลบ
   const s2 = await makeShop({ role: 'owner' });

@@ -407,6 +407,7 @@ await section('[J]', async () => {
   // ทำให้หมดอายุอีกครั้งแล้วทิ้ง
   const old = app.state.cloudOutbox.find(x => x.id === 'cob-old');
   old.retry.telegram.firstFailAt = Date.now() - 9 * DAY;
+  old.retry.telegram.tries = 10; // หลังลองใหม่เริ่มตัวนับใหม่; ต้องล้มครบ 10 ครั้งและเกิน 7 วันจึงหยุด
   await app.discardExpiredCloudJob('cob-old'); await settle(50);
   await t('กด "ทิ้งงานนี้" (ยืนยันแล้ว) → งานหายจากคิวและจากเครื่อง · งานอื่นยังอยู่', async () => {
     eq(app.state.cloudOutbox.map(x => x.id), ['cob-new']);

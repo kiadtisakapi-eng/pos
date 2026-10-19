@@ -57,7 +57,7 @@ await t('หน้าต่างรองส่งสรุปด้วยม�
 console.log('\n--- D-F04: สมาชิกใน array ไม่ใช่แค่ตัวห่อ ---');
 t('sanitize กรองสมาชิกที่ใช้ไม่ได้ทิ้ง', () => {
   const f = { queue:[{id:'q-1',services:[null,{name:'ตัดผม'},'ไม่ใช่อ็อบเจกต์']}],
-              transactions:[{id:'t1',date:Date.now(),total:1,details:[null,{name:'x',price:1}],services:[null,'ตัดผม'],staffNames:[{},'เอ']}],
+              transactions:[{id:'TX-00001',date:Date.now(),total:1,details:[null,{name:'x',price:1}],services:[null,'ตัดผม'],staffNames:[{},'เอ']}],
               shift:{expenses:[null,{amount:1}],history:[null]} };
   app.sanitizeBackupData(f);
   eq(f.queue[0].services.length, 1);

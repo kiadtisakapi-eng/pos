@@ -138,7 +138,7 @@ t('วันที่ไม่มีบิลเลย (0 ทุกช่อง)
 });
 t('เงินสดขาด (cashVariance ติดลบ) ต้องผ่าน', ()=>{
   const ss=FakeSS();
-  const r=g.handleDailySummary(daySummary({cashVariance:-150}), ss);
+  const r=g.handleDailySummary(daySummary({cashVariance:-150, shiftCash:[{expected:1150,counted:1000,difference:-150}]})  /* F05: กะต้องรวมได้เท่า cashVariance */, ss);
   if(!/success/.test(JSON.stringify(r))) throw new Error(JSON.stringify(r));
 });
 t('กำไรติดลบ (ค่าใช้จ่าย > รายได้) ต้องผ่าน', ()=>{

@@ -144,5 +144,5 @@ async function run(seed) {
   }
   console.log(`\n${RUNS} runs, ${bad} with problems`);
   console.log(kinds);
-  process.exit(0);
+  process.exit(bad ? 1 : 0);
 })();

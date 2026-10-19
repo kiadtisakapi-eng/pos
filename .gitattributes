@@ -8,6 +8,10 @@
 #    ให้ commit การ normalize แยกจาก commit ที่แก้โค้ดจริง จะได้ย้อนดูง่าย
 * text=auto eol=lf
 
+# สองไฟล์นี้คง CRLF ตามกติกาของโปรเจกต์ ทั้งในเครื่องทำงานและ checkout ใหม่
+deploy.ps1 text eol=crlf
+.gitignore text eol=crlf
+
 # ไฟล์ไบนารี ห้ามแตะ
 *.png binary
 *.pdf binary

@@ -292,9 +292,9 @@
                 </button>
               </form>
 
-              <!-- รายการค่าใช้จ่ายวันนี้ -->
+              <!-- รายการค่าใช้จ่ายของกะที่เปิดอยู่ (ตรวจ 18 ต.ค. 2569 F07: เดิมป้าย "รายการวันนี้" แต่ยอดเป็นของกะนี้เท่านั้น) -->
               <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <span>รายการวันนี้</span>
+                <span>ค่าใช้จ่ายกะนี้</span>
                 <span id="expense-total-label" style="color: var(--accent-premium); font-weight: 700;">รวม: ฿0.00</span>
               </div>
               <div id="expense-list" class="activity-list" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
@@ -739,8 +739,8 @@
             </p>
             <p style="color: var(--text-muted); font-size: 0.78rem; margin: -6px 0 1rem;">
               ระบบสำรองข้อมูลขึ้น Google Drive ให้อัตโนมัติทุกครั้งที่ปิดกะ · ระหว่างกะทุก 5 บิล · และราว 2 นาทีหลังยกเลิก/แก้บิล (Drive เก็บย้อนหลัง 90 วัน · ไฟล์ล่าสุดอย่างน้อย 10 ไฟล์เสมอ) —
-              ปุ่ม "กู้ข้อมูล" แสดงไฟล์ล่าสุด 50 ไฟล์ (ราว 2 สัปดาห์ · ปกติใช้ไฟล์บนสุด) ต้องใช้รหัสเจ้าของร้าน (Owner key) ·
-              ไฟล์ที่เก่ากว่านั้นดาวน์โหลดจากโฟลเดอร์ Erotica_POS_Backups ใน Drive แล้วใช้ปุ่ม "นำเข้าข้อมูลสำรอง"
+              ปุ่ม "กู้ข้อมูล" แสดงล่าสุดก่อน ครั้งละ 200 ไฟล์ กด "โหลดไฟล์เก่าเพิ่ม" เพื่อเลือกไฟล์เก่าที่ยังเก็บอยู่ ต้องใช้รหัสเจ้าของร้าน (Owner key) ·
+              หรือดาวน์โหลดจากโฟลเดอร์ Erotica_POS_Backups ใน Drive แล้วใช้ปุ่ม "นำเข้าข้อมูลสำรอง"
               · "ส่งออกข้อมูลสำรอง" บน iPad จะเปิดเมนูแชร์ — เลือก "บันทึกไปยังไฟล์" แล้วตรวจในแอป "ไฟล์"
             </p>
             <p id="backup-status-label" style="color: var(--text-secondary); font-size: 0.78rem; margin: -6px 0 1rem;">

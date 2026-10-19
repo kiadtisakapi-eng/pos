@@ -102,7 +102,8 @@ t('ไม่มีเคสไหนได้เศษสตางค์หร�
   for(let i=0;i<500;i++){
     const n=1+Math.floor(Math.random()*4);
     const items=[];
-    for(let j=0;j<n;j++) items.push(L(Math.round(Math.random()*99900)/100, Math.random()<0.5?'drinks':'barber'));
+    // สุ่มราคาบวกตามเงื่อนไข total > 0 ด้านล่าง; เดิมสุ่ม 0 ได้และทำให้ด่านล้มเป็นครั้งคราว
+    for(let j=0;j<n;j++) items.push(L(Math.max(1,Math.round(Math.random()*99900))/100, Math.random()<0.5?'drinks':'barber'));
     // ส่วนลดเป็นจำนวนเต็มบาทเท่านั้น (กติกาตัวเลข 26 ก.ย. 2569) — ราคายังสุ่มถึงสตางค์เพื่อทดสอบตัวคิด VAT
     const disc=Math.random()<0.3?Math.floor(Math.random()*50):0;
     setCart(items,disc);

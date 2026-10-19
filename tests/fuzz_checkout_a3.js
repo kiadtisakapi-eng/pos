@@ -234,5 +234,5 @@ function oracle(cartItems, discount, vatOn, vatRate) {
   failures.forEach(f => { (byMsg[f.msg] = byMsg[f.msg] || []).push(f); });
   Object.keys(byMsg).forEach(m => console.log('FAIL x' + byMsg[m].length + ': ' + m, JSON.stringify(byMsg[m][0]).slice(0, 900)));
   console.log(failures.length ? 'FAILURES ' + failures.length : 'ALL INVARIANTS HOLD');
-  process.exit(0);
+  process.exit(failures.length ? 1 : 0);
 })().catch(e => { console.error('CRASH', e); process.exit(1); });

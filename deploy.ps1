@@ -56,7 +56,7 @@ $safeNewPaths = @(
     '.nojekyll', '.gitattributes', '.gitignore',
     'index.html', 'app.js', 'style_v2.css', 'sw.js', 'manifest.json',
     'promptpay-qr.js', 'dexie.min.js', 'google_apps_script.js', 'README.md',
-    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'tests', 'apple-touch-icon.png', 'คู่มือเริ่มใช้งาน.html', 'วิธีกู้ข้อมูล_อ่านตอนฉุกเฉิน.md',
+    'SYSTEM_OVERVIEW.md', 'deploy.ps1', 'deploy.bat', 'fix-push.ps1', 'fix-push.bat', 'tests', 'apple-touch-icon.png', 'คู่มือเริ่มใช้งาน.html', 'วิธีกู้ข้อมูล_อ่านตอนฉุกเฉิน.md',
     # Font Awesome ที่ย้ายมาเก็บเอง — ถ้าลืมบรรทัดนี้ ไฟล์จะไม่ถูก push
     # แล้วไอคอนทั้งแอปบนเว็บจริงจะหายหมดทันทีโดยสคริปต์ไม่เตือนอะไรเลย
     'vendor',
@@ -67,8 +67,26 @@ $safeNewPaths = @(
 )
 
 # path จาก git status อยู่ในรายการอนุญาตไหม (ชื่อไฟล์ตรง หรืออยู่ใต้โฟลเดอร์ที่อนุญาต)
+# ตรวจ 18 ต.ค. 2569 รอบ 2 (C04): allowlist ทั้งโฟลเดอร์ tests/ tools/ vendor/ ยังรับ "ไฟล์ข้อมูล" ชื่อทั่วไปได้
+# (เช่นคัดลอกไฟล์ส่งออกของร้านมาไล่ปัญหาแล้วตั้งชื่อ tests/export.json) — .gitignore กันได้เฉพาะชื่อที่แอปตั้งเอง
+# ไฟล์โค้ด/ฟอนต์/ภาพในโฟลเดอร์พวกนี้ยังผ่านตามเดิม · ไฟล์ข้อมูล (นามสกุลด้านล่าง) ต้องอยู่ในรายชื่ออนุมัติเท่านั้น
+# เพิ่ม fixture ใหม่: ตรวจว่าเป็นข้อมูลสมมติล้วนแล้วเติมชื่อใน $approvedDataFiles (ทั้ง deploy.ps1 และ fix-push.ps1)
+$approvedDataFiles = @('tests/codex-responsive-result.json', 'tests/fixtures_codex_money_20261016.json', 'vendor/fontawesome/LICENSE.txt')
+$dataFileDirs = @('tests', 'tools', 'vendor')
+$dataFileExts = @('.json', '.csv', '.tsv', '.txt', '.xlsx', '.xls', '.xlsm', '.ods', '.zip', '.7z', '.rar', '.gz', '.tar', '.db', '.sqlite', '.sqlite3', '.bak', '.log')
+function Test-UnapprovedDataFile($p) {
+    $p = ([string]$p).Trim().Trim('"').TrimEnd('/')
+    $inDir = $false
+    foreach ($d in $dataFileDirs) { if ($p.StartsWith($d + '/')) { $inDir = $true } }
+    if (-not $inDir) { return $false }
+    $ext = [System.IO.Path]::GetExtension($p).ToLowerInvariant()
+    if (-not ($dataFileExts -contains $ext)) { return $false }
+    return -not ($approvedDataFiles -contains $p)
+}
+
 function Test-SafeNewPath($p) {
     $p = $p.Trim().Trim('"').TrimEnd('/')
+    if (Test-UnapprovedDataFile $p) { return $false }
     foreach ($s in $safeNewPaths) { if ($p -eq $s -or $p.StartsWith($s + '/')) { return $true } }
     return $false
 }
@@ -82,14 +100,52 @@ function Assert-SafeIndex {
         if (-not (Test-SafeNewPath $p)) { Fail "staged path outside project allowlist: $p (index preserved)" }
     }
 }
+# ตรวจ 18 ต.ค. 2569 (F04): ตรวจ "ทุก commit ที่กำลังจะ push" ก่อน push ทุกครั้ง
+# เดิมตรวจเฉพาะไฟล์ที่ stage/แก้อยู่ — commit ที่ค้างอยู่ก่อน (จาก VS Code / commit มือ) ซึ่งมีไฟล์ส่วนตัว push ขึ้น repo สาธารณะได้
+# ต้องดูทีละ commit ไม่ใช่แค่ผลต่างสุทธิ: เพิ่มไฟล์ส่วนตัวแล้วลบใน commit ถัดไป ไฟล์ยังอยู่ใน history ให้ทุกคนเปิดได้
+# รอบ 2 (C02): ใช้ -m ทั้งรายชื่อไฟล์และ patch — ไม่มี -m git ไม่แสดง diff ของ merge commit เลย
+#   token ที่ใส่ตอนแก้ conflict จึงหลุดผ่าน (ทดสอบกับ Git จริงแล้ว)
+# และตรวจบรรทัดที่เพิ่มว่ามี Telegram bot token / URL deployment ของ Apps Script หรือไม่ (ความลับที่ไม่ควรอยู่ในไฟล์ใดเลย)
+function Assert-SafeOutgoing($range) {
+    $net = @(git -c core.quotepath=false diff --name-only --no-renames -z $range)
+    if ($LASTEXITCODE -ne 0) { Fail "cannot inspect commits to push ($range) - nothing pushed" }
+    $hist = @(git -c core.quotepath=false log -m --format= --name-only --no-renames -z $range)
+    if ($LASTEXITCODE -ne 0) { Fail "cannot inspect commits to push ($range) - nothing pushed" }
+    $joined = ([string]::Join("`n", $net)) + [char]0 + ([string]::Join("`n", $hist))
+    $paths = @($joined.Split([char]0) | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    foreach ($p in $paths) {
+        if (-not (Test-SafeNewPath $p)) {
+            Fail "a commit waiting to be pushed contains a path outside the project allowlist: $p - nothing pushed. Remove it from the unpushed commits first (deleting it in a later commit is not enough: it stays in history)"
+        }
+    }
+    $patch = @(git -c core.quotepath=false log -m -p --no-color --format= $range)
+    if ($LASTEXITCODE -ne 0) { Fail "cannot inspect commits to push ($range) - nothing pushed" }
+    foreach ($line in $patch) {
+        if ($null -eq $line) { continue }
+        $l = [string]$line
+        if (-not $l.StartsWith('+') -or $l.StartsWith('+++')) { continue }
+        if ($l -match '[0-9]{8,10}:[A-Za-z0-9_-]{35}') { Fail "a commit waiting to be pushed contains something that looks like a Telegram bot token - nothing pushed" }
+        if ($l -match 'script\.google\.com/macros/s/[A-Za-z0-9_-]{20,}') { Fail "a commit waiting to be pushed contains an Apps Script deployment URL - nothing pushed" }
+    }
+}
+
 Assert-SafeIndex
+# F04: commit ที่ค้างอยู่ก่อนแล้วต้องสะอาดตั้งแต่ก่อนเริ่ม — ไม่ stage/commit อะไรเพิ่มถ้าของเก่ามีไฟล์ส่วนตัว
+$null = git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>$null
+if ($LASTEXITCODE -eq 0) { Assert-SafeOutgoing '@{u}..HEAD' }
 
 # --- 1) มีอะไรให้ deploy ไหม --------------------------------------------
 # นับเฉพาะของที่ขั้นที่ 4 จะ stage จริง: ไฟล์ที่ติดตามอยู่ + ไฟล์ใหม่ในรายการอนุญาต
 # เดิมนับทุกบรรทัดของ git status → มีไฟล์ส่วนตัวที่ไม่ถูกกันวางไว้ในโฟลเดอร์ (ไม่ได้ถูก stage อยู่แล้ว)
 # สคริปต์ก็คิดว่ามีของเปลี่ยน แล้วบวกเลขแคช + push รุ่นเปล่า (iPad ขึ้นว่ามีอัปเดตทั้งที่โค้ดเหมือนเดิม)
-$dirtyAll = @(git status --porcelain)
+# รอบ 2 (C04): --untracked-files=all ให้เห็นไฟล์ใหม่ทีละไฟล์ (ไม่ยุบเป็นชื่อโฟลเดอร์) และหยุดก่อน stage ถ้ามีไฟล์ข้อมูลที่ไม่ได้อนุมัติ
+$dirtyAll = @(git -c core.quotepath=false status --porcelain --untracked-files=all)
 if ($LASTEXITCODE -ne 0) { Fail "git status failed - is this folder a git repo?" }
+foreach ($line in $dirtyAll) {
+    if ($line -and $line.StartsWith('?? ') -and (Test-UnapprovedDataFile $line.Substring(3))) {
+        Fail "new data file under tests/tools/vendor is not in the approved fixture list: $($line.Substring(3)) - nothing staged. Move it out of the project, or if it is synthetic test data add it to `$approvedDataFiles in deploy.ps1 and fix-push.ps1"
+    }
+}
 $changedRaw = @(git -c core.quotepath=false diff HEAD --name-only --no-renames -z)
 if ($LASTEXITCODE -ne 0) { Fail "cannot inspect changed paths" }
 $changedPaths = @(([string]::Join("`n", $changedRaw)).Split([char]0) | Where-Object { $_ })
@@ -129,6 +185,7 @@ if ($dirty.Count -eq 0) {
             git commit -m "deploy v$swNew (cache bump for unpushed commits) $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
             if ($LASTEXITCODE -ne 0) { Fail "git commit (cache bump) failed" }
         }
+        Assert-SafeOutgoing '@{u}..HEAD'
         git push
         if ($LASTEXITCODE -ne 0) { Fail "git push failed - check login, or run fix-push.bat" }
         Write-Host "PUSHED -> https://kiadtisakapi-eng.github.io/pos/" -ForegroundColor Green
@@ -242,6 +299,7 @@ if ($LASTEXITCODE -ne 0) { Fail "git commit failed" }
 
 # --- 6) push -----------------------------------------------------------
 Write-Host "[6/6] git push ..." -ForegroundColor Cyan
+Assert-SafeOutgoing '@{u}..HEAD'
 git push
 if ($LASTEXITCODE -ne 0) { Fail "git push failed - check login/remote, or run fix-push.bat" }
 

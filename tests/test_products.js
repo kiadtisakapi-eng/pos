@@ -310,7 +310,7 @@ await section('[C]', async () => {
 
   // ต้นทุนในบรรทัดเพี้ยน (ไฟล์นำเข้า/แก้มือ) → ไม่ทำให้บิลเสีย แค่ไม่ทราบต้นทุน
   for (const bad of ['abc', -5, 7.5, null]) {
-    const x = clone(b4.tx); x.id = 'TX-BADCOST-' + String(bad); x.details[0].unitCost = bad;
+    const x = clone(b4.tx); x.id = 'TX-BADCOST-' + String(bad).replace(/\./g, '_'); x.details[0].unitCost = bad;
     app.state.services.find(s => s.id === 'p1').cost = null;
     await t(`ต้นทุนในบรรทัด = ${JSON.stringify(bad)} → บิลไม่เสีย · รายงานขึ้นไม่ทราบต้นทุน`, () => {
       eq(fatal(app, x), []); ok(app.isBillUsable(x));

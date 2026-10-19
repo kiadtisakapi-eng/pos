@@ -160,5 +160,6 @@ const setCount = (cashObj, amt) => { for (const k in cashObj) delete cashObj[k];
     if (process.env.VERBOSE) console.log(log.join('\n'));
   }
   console.log(problems.length ? 'PROBLEMS:\n' + problems.join('\n') : 'NO MISMATCH');
-  process.exit(0);
+  // ตรวจ 18 ต.ค. 2569 (F11): เจอความต่างของเงินต้องออกไม่เป็นศูนย์ — เดิม exit 0 เสมอ automation ที่ดู exit code เข้าใจว่าผ่าน
+  process.exit(problems.length ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

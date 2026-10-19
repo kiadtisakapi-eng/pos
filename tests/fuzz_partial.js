@@ -55,7 +55,9 @@ async function run(seed) {
       }
       const st2 = app.billMoneyStatus(tx);
       if (!st2.settled) { await app.recordBillSettlement(tx.id, 'waive'); log.push(`  leftover waive ${JSON.stringify(st2.diffs)}`); }
-      if (!app.billMoneyStatus(tx).settled) problems.push(`not settled ${JSON.stringify(app.billMoneyStatus(tx).diffs)}`);
+      const finalStatus = app.billMoneyStatus(tx);
+      if (finalStatus.invalid) problems.push('invalid money history (ข้อมูลเงินเสีย)');
+      else if (!finalStatus.settled) problems.push(`pending money difference (ส่วนต่างค้าง) ${JSON.stringify(finalStatus.diffs)}`);
       check('edit');
     } else if (r < 0.85 && settledLive.length) {
       const tx = pick(settledLive); const outcome = pick(['refunded', 'none']); const b = bills.get(tx.id);
@@ -84,5 +86,5 @@ async function run(seed) {
     if (problems.length) { bad++; problems.forEach(p => { const k = p.replace(/-?\d+(\.\d+)?/g, 'N').slice(0, 60); kinds[k] = (kinds[k] || 0) + 1; });
       if (bad <= 2) { console.log(`--- seed ${s}`); console.log(log.join('\n')); console.log('PROBLEMS:\n ' + problems.join('\n ')); } }
   }
-  console.log(`\n${RUNS} runs, ${bad} with problems`); console.log(kinds); process.exit(0);
+  console.log(`\n${RUNS} runs, ${bad} with problems`); console.log(kinds); process.exit(bad ? 1 : 0);
 })();

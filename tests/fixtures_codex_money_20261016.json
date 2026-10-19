@@ -1,0 +1,435 @@
+[
+  {
+    "name": "report",
+    "tx": {
+      "id": "TX-1792165042722-WASCL4L1",
+      "date": 1792165042722,
+      "customerName": "ลูกค้าทั่วไป (Walk-in)",
+      "customerId": null,
+      "services": [
+        "ตัดผม"
+      ],
+      "details": [
+        {
+          "name": "ตัดผม",
+          "price": 300,
+          "netPrice": 100,
+          "staffId": "st-1",
+          "staffName": "เอ",
+          "commission": 10,
+          "commissionType": "percent",
+          "commissionAmount": 10,
+          "category": "barber",
+          "vatable": false,
+          "serviceId": "s1",
+          "isProduct": false
+        }
+      ],
+      "subtotal": 300,
+      "discount": 200,
+      "vatRate": 0,
+      "nonVatBase": 100,
+      "vatableBase": 0,
+      "vatAmount": 0,
+      "rounding": 0,
+      "total": 100,
+      "cashReceived": 300,
+      "cashChange": 0,
+      "paymentMethod": "cash",
+      "tender": {
+        "method": "cash",
+        "amount": 300,
+        "received": 300,
+        "change": 0,
+        "at": 1792165042722,
+        "shiftStart": 1792161442700
+      },
+      "staffNames": [
+        "เอ"
+      ],
+      "soldBy": "เจ้าของร้าน",
+      "rev": 4,
+      "checkoutAttemptId": "CO-1792165042720-hs800oeb",
+      "syncStatus": "pending",
+      "settlements": [
+        {
+          "id": "stl-1792165042753-0-uoc23",
+          "kind": "refund",
+          "method": "promptpay",
+          "amount": -200,
+          "at": 1792165042753,
+          "by": "เจ้าของร้าน",
+          "shiftStart": 1792161442700
+        },
+        {
+          "id": "stl-1792165042753-s0-jy3g6",
+          "kind": "waive",
+          "swap": true,
+          "via": "promptpay",
+          "method": "cash",
+          "amount": -200,
+          "at": 1792165042753,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ],
+          "supersededAt": 1792165042762
+        },
+        {
+          "id": "stl-1792165042753-s1-82yoe",
+          "kind": "waive",
+          "swap": true,
+          "via": "promptpay",
+          "method": "promptpay",
+          "amount": 200,
+          "at": 1792165042753,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ],
+          "supersededAt": 1792165042762
+        },
+        {
+          "id": "stl-1792165042767-0-mjjfj",
+          "kind": "collect",
+          "method": "cash",
+          "amount": 200,
+          "at": 1792165042767,
+          "by": "เจ้าของร้าน",
+          "shiftStart": 1792161442700
+        },
+        {
+          "id": "stl-1792165042767-s0-k0de0",
+          "kind": "waive",
+          "swap": true,
+          "via": "cash",
+          "method": "cash",
+          "amount": -200,
+          "at": 1792165042767,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 300
+            }
+          ],
+          "supersededAt": 1792165042772
+        },
+        {
+          "id": "stl-1792165042767-s1-1rbi6",
+          "kind": "waive",
+          "swap": true,
+          "via": "cash",
+          "method": "promptpay",
+          "amount": 200,
+          "at": 1792165042767,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 300
+            }
+          ],
+          "supersededAt": 1792165042772
+        },
+        {
+          "id": "stl-1792165042775-0-3rrtl",
+          "kind": "refund",
+          "method": "promptpay",
+          "amount": -200,
+          "at": 1792165042775,
+          "by": "เจ้าของร้าน",
+          "shiftStart": 1792161442700
+        },
+        {
+          "id": "stl-1792165042775-s0-y43xq",
+          "kind": "waive",
+          "swap": true,
+          "via": "promptpay",
+          "method": "cash",
+          "amount": -400,
+          "at": 1792165042775,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ]
+        },
+        {
+          "id": "stl-1792165042775-s1-6q0vj",
+          "kind": "waive",
+          "swap": true,
+          "via": "promptpay",
+          "method": "promptpay",
+          "amount": 400,
+          "at": 1792165042775,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ]
+        }
+      ]
+    },
+    "shift": {
+      "active": true,
+      "startTime": 1792161442700,
+      "startCash": 1000,
+      "startDetails": {},
+      "expenses": [],
+      "history": [],
+      "cashAdjustments": [
+        {
+          "id": "stl-1792165042767-0-mjjfj",
+          "billId": "TX-1792165042722-WASCL4L1",
+          "kind": "collect",
+          "amount": 200,
+          "at": 1792165042767,
+          "by": "เจ้าของร้าน"
+        }
+      ]
+    }
+  },
+  {
+    "name": "fuzz",
+    "tx": {
+      "id": "TX-1792165042789-TM5E7ADA",
+      "date": 1792165042789,
+      "customerName": "ลูกค้าทั่วไป (Walk-in)",
+      "customerId": null,
+      "services": [
+        "ตัดผม"
+      ],
+      "details": [
+        {
+          "name": "ตัดผม",
+          "price": 300,
+          "netPrice": 100,
+          "staffId": "st-1",
+          "staffName": "เอ",
+          "commission": 10,
+          "commissionType": "percent",
+          "commissionAmount": 10,
+          "category": "barber",
+          "vatable": false,
+          "serviceId": "s1",
+          "isProduct": false
+        }
+      ],
+      "subtotal": 300,
+      "discount": 200,
+      "vatRate": 0,
+      "nonVatBase": 100,
+      "vatableBase": 0,
+      "vatAmount": 0,
+      "rounding": 0,
+      "total": 100,
+      "cashReceived": 300,
+      "cashChange": 0,
+      "paymentMethod": "cash",
+      "tender": {
+        "method": "cash",
+        "amount": 300,
+        "received": 300,
+        "change": 0,
+        "at": 1792165042789,
+        "shiftStart": 1792161442783
+      },
+      "staffNames": [
+        "เอ"
+      ],
+      "soldBy": "เจ้าของร้าน",
+      "rev": 5,
+      "checkoutAttemptId": "CO-1792165042789-6skxa30p",
+      "syncStatus": "pending",
+      "settlements": [
+        {
+          "id": "stl-1792165042794-0-qnawf",
+          "kind": "refund",
+          "method": "promptpay",
+          "amount": -200,
+          "at": 1792165042794,
+          "by": "เจ้าของร้าน",
+          "shiftStart": 1792161442783
+        },
+        {
+          "id": "stl-1792165042794-s0-d0y8m",
+          "kind": "waive",
+          "swap": true,
+          "via": "promptpay",
+          "method": "cash",
+          "amount": -200,
+          "at": 1792165042794,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ],
+          "supersededAt": 1792165042798
+        },
+        {
+          "id": "stl-1792165042794-s1-ezn1w",
+          "kind": "waive",
+          "swap": true,
+          "via": "promptpay",
+          "method": "promptpay",
+          "amount": 200,
+          "at": 1792165042794,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ],
+          "supersededAt": 1792165042798
+        },
+        {
+          "id": "stl-1792165042803-0-ke579",
+          "kind": "collect",
+          "method": "cash",
+          "amount": 200,
+          "at": 1792165042803,
+          "by": "เจ้าของร้าน",
+          "shiftStart": 1792161442783
+        },
+        {
+          "id": "stl-1792165042803-s0-rkghm",
+          "kind": "waive",
+          "swap": true,
+          "via": "cash",
+          "method": "cash",
+          "amount": -200,
+          "at": 1792165042803,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 300
+            }
+          ],
+          "supersededAt": 1792165042807
+        },
+        {
+          "id": "stl-1792165042803-s1-jr4jn",
+          "kind": "waive",
+          "swap": true,
+          "via": "cash",
+          "method": "promptpay",
+          "amount": 200,
+          "at": 1792165042803,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 300
+            }
+          ],
+          "supersededAt": 1792165042807
+        },
+        {
+          "id": "stl-1792165042811-0-3oz5f",
+          "kind": "waive",
+          "method": "cash",
+          "amount": -300,
+          "at": 1792165042811,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 200
+            }
+          ],
+          "supersededAt": 1792165042817
+        },
+        {
+          "id": "stl-1792165042811-1-lvpa6",
+          "kind": "waive",
+          "method": "promptpay",
+          "amount": 200,
+          "at": 1792165042811,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 200
+            }
+          ],
+          "supersededAt": 1792165042817
+        },
+        {
+          "id": "stl-1792165042824-0-cggyv",
+          "kind": "waive",
+          "method": "cash",
+          "amount": -400,
+          "at": 1792165042824,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ]
+        },
+        {
+          "id": "stl-1792165042824-1-u5ro2",
+          "kind": "waive",
+          "method": "promptpay",
+          "amount": 200,
+          "at": 1792165042824,
+          "by": "เจ้าของร้าน",
+          "shiftStart": null,
+          "due": [
+            {
+              "method": "cash",
+              "amount": 100
+            }
+          ]
+        }
+      ]
+    },
+    "shift": {
+      "active": true,
+      "startTime": 1792161442783,
+      "startCash": 1000,
+      "startDetails": {},
+      "expenses": [],
+      "history": [],
+      "cashAdjustments": [
+        {
+          "id": "stl-1792165042803-0-ke579",
+          "billId": "TX-1792165042789-TM5E7ADA",
+          "kind": "collect",
+          "amount": 200,
+          "at": 1792165042803,
+          "by": "เจ้าของร้าน"
+        }
+      ]
+    }
+  }
+]
