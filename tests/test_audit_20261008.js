@@ -172,6 +172,9 @@ async function waitConfirm(app) { for (let i = 0; i < 100 && !app._confirmP; i++
       if (!id) throw new Error('fetch failed');
       return { status: 'success', details: { backendId: id, registered: true, isThisDevice: true } };
     };
+    // ตรวจ 19 ต.ค. 2569 ข้อ 46: ตัวตนชีตของ URL ใหม่ถูกถาม "ก่อนเข้าคิวงานบันทึก" ด้วย probeCloudBackendId(url, token)
+    // (ยังไม่ได้ตั้งค่าในเครื่อง จึงไม่ผ่าน cloudPost) — จำลองชีตปลายทางชุดเดียวกัน
+    s.app.probeCloudBackendId = async (url) => { s.calls.push(['primary_status', url]); return s.backends[url] || ''; };
     s.setUrl = (url) => {
       const v = (id, val) => { s.document.getElementById(id).value = val; };
       v('shop-name-input', s.app.shopName); v('shop-tagline-input', s.app.shopTagline); v('shop-address-input', s.app.shopAddress || '');
@@ -347,8 +350,11 @@ async function waitConfirm(app) { for (let i = 0; i < 100 && !app._confirmP; i++
         const { seed, quiet, loginAs } = require('./fixtures_db');
         const env = createEnv({ onLine: false });
         quiet(env.app);
-        await seed(env); await env.app.loadState(); loginAs(env.app, 'owner');
         const NOW = Date.parse('2026-10-08T10:00:00+07:00');          // 03:00 UTC — วันที่ UTC ของ "เวลาทำการ" ต่างจากไทย
+        // ตรวจ 19 ต.ค. 2569 ข้อ 18: แดชบอร์ดใช้ "เวลาล่าสุดที่เคยเห็น" (กะ/บิลที่บันทึกไว้) — กะตั้งต้นของ seed ต้องเปิดก่อน NOW
+        // (เดิม seed เปิดกะตามนาฬิกาจริง = เหมือนตั้งนาฬิกาย้อนหลัง ซึ่งตอนนี้แดชบอร์ดไม่ยอมย้อนตามแล้ว)
+        await seed(env, { shift: { active: true, startTime: NOW - 3600e3, startCash: 1000, startDetails: {}, expenses: [], history: [] } });
+        await env.app.loadState(); loginAs(env.app, 'owner');
         vm.runInContext('Date.now = () => ' + NOW, env.ctx);
         const real = Object.getPrototypeOf(env.app);
         try { real.renderDashboard.call(env.app); } catch (e) { /* ส่วนอื่นของแดชบอร์ดไม่เกี่ยว */ }

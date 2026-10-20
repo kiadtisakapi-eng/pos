@@ -360,13 +360,14 @@ doc.querySelectorAll = () => [];   // ไม่แตะ dropdown พนัก�
   // ══════════════════════════════════════════════════════════════════
   console.log('\n[15] ช่องนับเงิน: ค่าติดลบ/เศษ/เกินจริง ต้องถูกกันไว้');
   const mkInput = (v) => ({ value: String(v) });
-  check('พิมพ์ -5 → กลายเป็น 0 และเขียนกลับลงช่องให้เห็น', (() => {
-    const i = mkInput(-5); return app.readCashQty(i) === 0 && i.value === '0';
+  // ตรวจ 19 ต.ค. 2569 ข้อ 23: ค่าที่ใช้ไม่ได้ = ไม่นับ + ไม่เขียนทับช่อง (เดิม clamp/ปัดให้เองเงียบ ๆ) — ตัวบันทึกจริงไม่ยอมยืนยัน
+  check('พิมพ์ -5 → ไม่นับ และไม่แก้ค่าในช่อง', (() => {
+    const i = mkInput(-5); return app.readCashQty(i) === 0 && i.value === '-5' && app.cashQtyValue(i.value) === null;
   })());
-  check('พิมพ์ 12.9 → ตัดเป็น 12', app.readCashQty(mkInput(12.9)) === 12);
+  check('พิมพ์ 12.9 → ไม่นับ (ไม่ตัดเป็น 12 เอง)', app.readCashQty(mkInput(12.9)) === 0 && app.cashQtyValue('12.9') === null);
   check('ช่องว่าง → 0 ไม่ใช่ NaN', app.readCashQty(mkInput('')) === 0);
   check('พิมพ์ตัวอักษร → 0', app.readCashQty(mkInput('abc')) === 0);
-  check('เกิน 99999 → ถูก clamp', app.readCashQty(mkInput(999999)) === 99999);
+  check('เกิน 99999 → ไม่นับ (ไม่ clamp เอง)', app.readCashQty(mkInput(999999)) === 0 && app.cashQtyValue('999999') === null);
   check('ค่าปกติ 25 ผ่านตามเดิม ไม่ถูกแตะ', (() => {
     const i = mkInput(25); return app.readCashQty(i) === 25 && i.value === '25';
   })());

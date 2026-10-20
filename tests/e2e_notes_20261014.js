@@ -173,7 +173,10 @@ async function sellOne(p, note) {
   const last = shift && shift.history && shift.history.at(-1);
   t('กรอกแล้วปิดกะได้ · ประวัติกะใน IndexedDB มีหมายเหตุ', shift && shift.active === false && last && last.closeNote === 'ทอนเงินผิดให้ลูกค้า' && last.difference === -300,
     JSON.stringify(last && { n: last.closeNote, d: last.difference }));
-  await p.evaluate(()=>{ app.switchTab('reports'); app.filterReports(); });
+  // ดูรายงานของวันทำการที่กะนี้สังกัด — เดิมใช้วันที่ตั้งต้น: รันเทสต์ช่วง 03:00–05:59 กะที่เพิ่งเปิดถูกนับเป็นวันถัดไป (shiftAnchorTime) จึงไม่ขึ้นตาราง
+  await p.evaluate(()=>{ app.switchTab('reports'); const sh = app.state.shift.history.at(-1);
+    const el = document.getElementById('report-date-input'); if (el && sh) el.value = app.getBusinessISODate(app.shiftAnchorTime(sh));
+    app.filterReports(); });
   await p.waitForTimeout(300);
   t('ตารางประวัติกะเห็นหมายเหตุ', (await p.innerHTML('#report-shifts-body')).includes('ทอนเงินผิดให้ลูกค้า'));
 

@@ -71,7 +71,7 @@ const shiftVoidLine = app => {
       const held = app.state.transactions.find(t => t.id === tx.id);
       ok(held && held.syncStatus === 'conflict' && held.syncIssue.code === 'ALREADY_VOIDED', 'not held');
       eq(activeVoids(app, tx.id).length, 1, 'void evidence lost by restore');
-      ok(/คืนเงินแล้ว/.test(held.syncIssue.message || ''), held.syncIssue.message);
+      ok(/เอาเงินของบิลออกจากยอดที่ควรมี/.test(held.syncIssue.message || ''), held.syncIssue.message);
       await app.resolveBillConflict(tx.id, 'void-local'); await drain(app);
       eq(activeVoids(app, tx.id).map(v => v.moneyOutcome), ['refunded']);
       eq(app.computeShiftDrawer(app.state.shift).expected, 1000, 'drawer still expects the refunded cash');

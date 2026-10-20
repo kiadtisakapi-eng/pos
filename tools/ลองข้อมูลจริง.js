@@ -19,7 +19,8 @@
  *    3. node tools/ลองข้อมูลจริง.js audit/<ชื่อไฟล์>.json
  *    ผลสุดท้าย "ผ่าน" = อัปเกรดได้ · "ต้องดูก่อน" = ส่งผลให้คนดูแลระบบดูก่อนอัปเกรด
  *
- *  ห้ามวางไฟล์สำรองไว้ในโฟลเดอร์ tests/ หรือ tools/ — deploy.ps1 จะ push ขึ้น repo สาธารณะ
+ *  ห้ามวางไฟล์สำรองไว้ในโฟลเดอร์ tests/ หรือ tools/ — deploy.ps1 / fix-push.ps1 จะหยุดไม่ยอม deploy จนกว่าจะย้ายออก
+ *  (ด่านไฟล์ข้อมูลใต้ tests/ tools/ vendor/) แต่ git add ที่พิมพ์เอง หรือ commit จาก VS Code ยังหยิบไฟล์ไปได้ — เก็บไว้ใน audit/ เท่านั้น
  */
 process.env.TZ = process.env.TZ || 'Asia/Bangkok';   // วันทำการตัดตี 6 ตามเวลาไทย
 const fs = require('fs'), path = require('path');

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jahn-pos-v65-uifix';
+const CACHE_NAME = 'jahn-pos-v66-uifix';
 // ไฟล์หลัก — ต้องแคชให้สำเร็จ (ขาดไม่ได้ ไม่งั้นออฟไลน์ใช้ไม่ได้)
 const CORE_ASSETS = [
   './',
@@ -94,7 +94,7 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-// ดึงข้อมูลจากแคชเมื่อไม่มีอินเทอร์เน็ต (Offline First / Cache with Network Fallback & Dynamic Caching for CDNs)
+// ดึงข้อมูลจากแคชเมื่อไม่มีอินเทอร์เน็ต (Offline First / Cache with Network Fallback)
 self.addEventListener('fetch', (e) => {
   // ข้าม request ที่ไม่ใช่ GET (เช่น POST ไป Google Sheets / Telegram) — ปล่อยให้ผ่านตามปกติ
   if (e.request.method !== 'GET') return;
@@ -105,24 +105,10 @@ self.addEventListener('fetch', (e) => {
       if (cachedResponse) {
         return cachedResponse;
       }
-      return fetch(e.request).then((networkResponse) => {
-        // ⚠️ ตั้งแต่ v1.5.2 แอปไม่เรียกไฟล์จากเว็บนอกแล้ว (Font Awesome + ฟอนต์ย้ายมาไว้ใน vendor/)
-        // เงื่อนไขนี้จึงไม่ทำงานอีกแล้วในทางปฏิบัติ — เก็บไว้เป็นตาข่ายรองรับเผื่ออนาคตมีใครเพิ่ม CDN กลับเข้ามา
-        // ถ้าไม่มีแผนจะเพิ่ม ลบทิ้งได้เลย
-        const isCdn = e.request.url.includes('fonts.googleapis.com') ||
-                      e.request.url.includes('fonts.gstatic.com') ||
-                      e.request.url.includes('cdnjs.cloudflare.com');
-        // รับทั้ง response ปกติ (200) และ opaque (no-cors — status เป็น 0 เสมอ เช่น stylesheet/webfont จาก CDN)
-        // เดิมเช็คแค่ 200 ทำให้ Font Awesome ไม่เคยถูกแคชจริง → ออฟไลน์แล้วไอคอนทั้งแอปกลายเป็นสี่เหลี่ยม
-        // ข้อแลก: opaque ตรวจไม่ได้ว่าเป็น error หรือไม่ — ยอมรับได้เพราะเป็นไฟล์ static จาก CDN ที่เสถียร
-        if (isCdn && (networkResponse.status === 200 || networkResponse.type === 'opaque')) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(e.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      }).catch(() => {
+      // ตรวจ 19 ต.ค. 2569 ข้อ 67: ตัดกิ่ง "แคชไฟล์จาก CDN" ออก — ตั้งแต่ v1.5.2 แอปไม่เรียกไฟล์จากเว็บนอกแล้ว
+      // (Font Awesome + ฟอนต์อยู่ใน vendor/ และอยู่ใน CORE_ASSETS/FONT_ASSETS) กิ่งนั้นจึงไม่มีวันทำงาน
+      // ถ้าอนาคตเพิ่มไฟล์ที่แอปต้องใช้ ให้ใส่ใน CORE_ASSETS ไม่ใช่พึ่งการแคชระหว่างใช้งาน
+      return fetch(e.request).catch(() => {
         // หากดึงข้อมูลล้มเหลวและเป็นหน้าหลัก ให้ส่งหน้า index.html กลับไป
         if (e.request.mode === 'navigate') {
           return caches.open(CACHE_NAME).then((cache) => cache.match('./index.html'));

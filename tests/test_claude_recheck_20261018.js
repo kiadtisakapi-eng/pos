@@ -175,7 +175,8 @@ async function pendingRefundBill(s) {
     const sh = s.app.state.shift;
     sh.history.push({ active: false, startTime: sh.startTime, endTime: Date.now(), startCash: 1000, cashSales: 300, expensesTotal: 0,
       drawerExpensesTotal: 0, expectedCash: 1300, countedCash: 1280, difference: -20, closedBy: 'x' });
-    const cash = s.app.buildShiftCashSummary('day', s.app.currentBusinessDateKey());
+    // วันทำการของกะ = ตาม shiftAnchorTime (กะที่เปิด 03:00–05:59 นับเป็นวันใหม่) — เดิมใช้ "วันนี้" ทำให้เทสต์ตกเมื่อรันช่วง 04:00–05:59
+    const cash = s.app.buildShiftCashSummary('day', s.app.getBusinessISODate(s.app.shiftAnchorTime({ startTime: sh.startTime, endTime: Date.now() })));
     eq(cash.cashVariance, -20);
     const p = Object.assign(base(), { totalRevenue: 300, cashRevenue: 300, billCount: 1, nonVatBase: 300, vatableBase: 0, vatAmount: 0, rounding: 0,
       shiftCount: cash.shiftCount, cashVariance: cash.cashVariance, shiftCash: cash.shifts });
@@ -320,6 +321,8 @@ fx.makeShop = async (o) => { const s = await orig(o); const P = Object.getProtot
       fs.mkdirSync(path.join(dir, 'tests')); fs.mkdirSync(path.join(dir, '.git'));
       for (const f of [script, 'sw.js', 'app.js']) fs.copyFileSync(path.join(ROOT, f), path.join(dir, f));
       fs.writeFileSync(path.join(dir, 'tests/run-all.js'), 'process.exit(0)\n');
+      // ผลตรวจ 19 ต.ค. 2569 ข้อ 13: สคริปต์ตรวจไฟล์ที่แอปอ้างก่อน stage → วางโครงแอป + git ls-files จำลองตอบรายชื่อนี้
+      cfg = Object.assign({ tracked: require('./deploy_test_kit').writeAppSkeleton(dir, ROOT).concat([script, 'app.js']) }, cfg);
       fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg));
       fs.writeFileSync(path.join(dir, 'invoke.ps1'), `
 $ErrorActionPreference = 'Stop'
@@ -344,6 +347,7 @@ function git {
       return
     }
     'rev-list' { return '1' }
+    'ls-files' { return ((@($global:cfg.tracked) | Where-Object { $_ }) -join [char]0) + [char]0 }
     'symbolic-ref' { return 'main' }
     'rev-parse' { return 'origin/main' }
     'fetch' { return }

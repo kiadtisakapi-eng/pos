@@ -5,7 +5,7 @@
 //   · saveState / loadState        = ชั้นเก็บข้อมูลทั้งหมดของร้าน (ถูก stub ทิ้งในทุกไฟล์เทสต์)
 //   · readCashQty / updateCashSum  = การนับเงินในลิ้นชัก
 //   · doLogin / tryRestoreSession  = ทางเข้าระบบทั้งหมด
-//   · roundToTotal                 = ตัวเกลี่ยเศษสตางค์
+//   · roundToTotal                 = ตัวเกลี่ยเศษสตางค์ (ลบแล้ว 20 ต.ค. 2569 — ไม่มีผู้เรียก)
 // ไฟล์นี้ไล่ปิดช่องพวกนั้น
 const h = require('./harness.js');
 const app = h.ctx.app;
@@ -96,12 +96,15 @@ console.log('\n--- นับเงิน: readCashQty ---');
 const mkInput = (v) => ({ value: String(v) });
 t('ช่องว่าง -> 0', () => eq(app.readCashQty(mkInput('')), 0));
 t('ตัวอักษร -> 0', () => eq(app.readCashQty(mkInput('abc')), 0));
-t('ติดลบ -> 0 และแก้ค่าในช่องให้ตรงกับที่นับจริง', () => {
-  const i = mkInput('-5'); eq(app.readCashQty(i), 0); eq(i.value, '0');});
-t('ทศนิยม -> ปัดลงเป็นจำนวนเต็ม', () => {
-  const i = mkInput('3.9'); eq(app.readCashQty(i), 3); eq(i.value, '3');});
-t('เกินเพดาน 99999 -> ตัดที่ 99999', () => {
-  const i = mkInput('1000000'); eq(app.readCashQty(i), 99999); eq(i.value, '99999');});
+// ตรวจ 19 ต.ค. 2569 ข้อ 23: ค่าที่ใช้ไม่ได้ = ไม่นับ (0) และ "ห้ามเขียนทับสิ่งที่พิมพ์" — เดิมแก้ให้เองเงียบ ๆ (-5→0 · 3.9→3 · 1000000→99999)
+// ตัวบันทึกจริงไม่ยอมยืนยันเมื่อมีช่องแบบนี้ (ดู tests/test_fix_20261020_appB_shift.js)
+t('ติดลบ -> ไม่นับ และไม่แก้ค่าในช่อง (ช่องแดง ให้คนแก้เอง)', () => {
+  const i = mkInput('-5'); eq(app.readCashQty(i), 0); eq(i.value, '-5'); eq(app.cashQtyValue(i.value), null);});
+t('ทศนิยม -> ไม่นับ และไม่ปัดเอง', () => {
+  const i = mkInput('3.9'); eq(app.readCashQty(i), 0); eq(i.value, '3.9'); eq(app.cashQtyValue(i.value), null);});
+t('เกินเพดาน 99999 -> ไม่นับ และไม่ตัดเอง', () => {
+  const i = mkInput('1000000'); eq(app.readCashQty(i), 0); eq(i.value, '1000000'); eq(app.cashQtyValue(i.value), null);});
+t('99999 พอดี -> นับได้', () => eq(app.readCashQty(mkInput('99999')), 99999));
 t('ค่าปกติ -> คืนตามเดิม ไม่ไปแก้ช่อง', () => {
   const i = mkInput('12'); eq(app.readCashQty(i), 12); eq(i.value, '12');});
 
@@ -142,52 +145,15 @@ t('ปุ่มเงินด่วน 1000 -> เติม 1000 ทอน 700'
   eq(el('cash-received').value, 1000); ok(/700/.test(el('cash-change').innerText));});
 
 // ═══════════════════════════════════════════════════════════════
-// 3. roundToTotal — ตัวเกลี่ยเศษสตางค์ ผลรวมต้องเท่าเป้าเป๊ะเสมอ
+// 3. roundToTotal — ลบแล้ว (ตรวจ 19 ต.ค. 2569 ข้อ 67: โค้ดค้าง ไม่มีผู้เรียกในแอปตั้งแต่ buildEditableDetails เลิกใช้)
+//    เทสต์สุ่มเดิมของตัวนี้ทดสอบฟังก์ชันที่ไม่มีใครใช้ — เหลือไว้แค่ตรวจว่าไม่มีใครเรียกกลับมาโดยไม่ตั้งใจ
 // ═══════════════════════════════════════════════════════════════
-console.log('\n--- roundToTotal: ผลรวมต้องเท่าเป้าเป๊ะ ---');
-const r2 = v => Math.round(v * 100) / 100;
-t('อาเรย์ว่าง -> ว่าง ไม่พัง', () => eq(app.roundToTotal([], 100), []));
-t('ผลรวมตรงอยู่แล้ว -> ไม่แตะ', () => eq(app.roundToTotal([100, 200], 300), [100, 200]));
-t('ขาดไป -> เติมที่รายการที่มากที่สุด', () => {
-  const out = app.roundToTotal([100, 200], 301); eq(r2(out[0] + out[1]), 301); eq(out[1], 201);});
-t('เกินไป -> หักที่รายการที่มากที่สุด', () => {
-  const out = app.roundToTotal([100, 200], 299); eq(r2(out[0] + out[1]), 299);});
-t('เป้าเป็น 0 -> ไม่มีค่าติดลบ', () => {
-  const out = app.roundToTotal([100, 200], 0); ok(out.every(v => v >= 0));});
-// ยิงสุ่มแบบเดียวกับการใช้งานจริง: แตกยอดบิลตามสัดส่วนราคาแล้วเกลี่ยเศษกลับ
-// (ผู้เรียกตัวเดียวคือ buildEditableDetails ซึ่งส่งค่าที่รวมแล้วใกล้เคียง subtotal อยู่แล้ว)
-// ⚠️ รอบตรวจ 5 (2 ต.ค. 2569): เดิมใช้ Math.random() ตรง ๆ + ยอดบิลสุ่มตั้งแต่ 0.00 บาท
-//    ราว 1 ใน 60 รอบสุ่มเจอบิล "3 สตางค์แตกเป็น 5 รายการ" (ทุกรายการปัดเป็น 0.01 แล้วหักคืนได้ไม่ครบ)
-//    → ไฟล์นี้ล้มแบบสุ่ม แล้ว deploy.bat หยุดทั้งที่โค้ดไม่ได้เปลี่ยน · บิลจริงไม่มีแบบนั้น (ราคาเป็นจำนวนเต็มบาท)
-//    ตอนนี้: ตัวสุ่มแบบตั้งค่าเริ่มตายตัว (ผลเหมือนเดิมทุกครั้ง ทวนซ้ำได้) + ยอดบิลจริง 0 หรือ 1.00 – 5,000 บาท
-let seed = 20261002;
-const rand = () => {   // mulberry32
-  seed = (seed + 0x6D2B79F5) | 0;
-  let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
-  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-};
-let bad = 0, neg = 0, worst = 0;
-for (let n = 0; n < 300000; n++) {
-  const k = 1 + Math.floor(rand() * 6);
-  const subtotal = rand() < 0.01 ? 0 : (100 + Math.round(rand() * 499900)) / 100;   // บิล 0 บาท หรือ 1 - 5,000 บาท
-  const weights = Array.from({ length: k }, () => rand() * 1000);
-  const wSum = weights.reduce((a, b) => a + b, 0);
-  const raw = weights.map(w => subtotal * w / wSum);              // มีเศษทศนิยมยาว ๆ ติดมาเสมอ
-  const out = app.roundToTotal(raw, subtotal);
-  const sum = r2(out.reduce((s, v) => s + v, 0));
-  const gap = Math.abs(sum - r2(subtotal));
-  if (gap > worst) worst = gap;
-  if (gap > 0.0001) bad++;
-  if (out.some(v => v < 0)) neg++;
-}
-t(`สุ่ม 300,000 เคสแบบใช้งานจริง: ผลรวมเท่ายอดบิลเป๊ะทุกเคส (คลาดสูงสุด ${worst})`, () => eq(bad, 0));
-t('สุ่ม 300,000 เคส: ไม่มีราคาชิ้นไหนติดลบ', () => eq(neg, 0));
-
-// เคสสุดโต่งที่โค้ดจงใจ clamp ไว้ที่ 0 — ต้องไม่ติดลบ แม้ผลรวมจะไม่เท่าเป้า
-const clamped = app.roundToTotal([10, 5], -1000);
-t('เป้าติดลบมาก -> ยอมให้ผลรวมไม่ตรง แต่ห้ามมีค่าติดลบ (clamp ที่ 0 ตามที่โค้ดตั้งใจ)',
-  () => ok(clamped.every(v => v >= 0), JSON.stringify(clamped)));
+console.log('\n--- roundToTotal: ลบโค้ดค้างแล้ว ---');
+t('roundToTotal ไม่อยู่ในแอปแล้ว และไม่มีที่ไหนเรียก', () => {
+  eq(typeof app.roundToTotal, 'undefined');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'app.js'), 'utf8');
+  ok(!/roundToTotal/.test(src), 'ยังมีการอ้างถึง roundToTotal ใน app.js');
+});
 
 // ═══════════════════════════════════════════════════════════════
 // 4. PIN และการย้ายข้อมูลบัญชี

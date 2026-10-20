@@ -16,6 +16,19 @@
 //    ⚠️ เดิมไม่จำลองข้อนี้ — ทำให้บั๊ก "หน้าตรวจความตรงกันฟ้องวันเวลาไม่ตรงทุกบิล" ผ่านเทสต์ทั้งชุดได้
 //    จำลองเฉพาะรูปแบบที่มั่นใจว่า Sheets แปลงจริง (ไม่เดารูปแบบที่ขึ้นกับ locale ของไฟล์)
 //  ข้อจำกัด: Script Properties จำกัด 9KB ต่อค่าเหมือนของจริง แต่ไม่จำลองโควตารวม 500KB · ไม่มีเครือข่ายจริง
+//
+//  เพิ่ม 20 ต.ค. 2569 (ตรวจทั้งระบบ 19 ต.ค. ข้อ 69 — ของที่ตัวจำลองเดิม "ไม่มี" จนบั๊กผ่านเทสต์ได้):
+//    · Drive: createFile(ชื่อ, เนื้อหา, ชนิด) แบบ 3 ช่อง โยน error เมื่อเนื้อหาเกิน 10 MB (คู่มือ Google)
+//      createFile(blob) โยน error เมื่อเกิน 50 MB · Utilities.newBlob() · env.purgeFolder(ชื่อ) = โฟลเดอร์ถูกลบถาวร
+//      (getFolderById โยน "No item with the given ID could be found" เหมือนของจริง) — ปิดเพดานได้ด้วย { driveLimits: false }
+//    · Script Properties: env.propCalls นับทุกครั้งที่เรียก (get/getAll/set/delete · แยกว่าเรียกตอนถือล็อกหรือไม่)
+//      { propQuota: n } = ครบ n ครั้งแล้วโยน error โควตารายวันแบบของจริง
+//    · ล็อก: env.lockLog บันทึก waitLock/releaseLock ตามลำดับ · env.lockHeld บอกว่ากำลังถือล็อกอยู่ไหม
+//    · CacheService (ScriptCache) + env.cacheCalls · ⚠️ เทสต์ที่แก้ env.props ตรง ๆ = เหมือนเจ้าของรันฟังก์ชันตั้งค่า
+//      ในตัวแก้ไข → cache ถูกล้างให้ (ของจริง: setupPosApiToken/rotatePosApiToken ล้าง/เติม cache เอง)
+//    · Range.createTextFinder() — ค้นจาก "ค่าที่โชว์" ทีละช่อง (ค่าเริ่มต้นแบบ Sheets: ไม่สนตัวพิมพ์ · หาบางส่วนของช่อง)
+//      + env.finderCalls นับจำนวนครั้ง · Range.getRow()/getColumn()
+//    · การแปลงชนิดเพิ่ม: ".5" → 0.5 (Sheets แปลงแน่นอน) · "1 1/2" → 1.5 เปิดเฉพาะเทสต์ที่ขอ ({ coerceFractions: true })
 // ─────────────────────────────────────────────────────────────────────────────
 const fs = require('fs'), vm = require('vm'), path = require('path'), crypto = require('crypto');
 // POS_GAS_SRC = ชี้ไปไฟล์ Apps Script รุ่นอื่น (ใช้พิสูจน์ว่าเทสต์ใหม่ "ตก" กับโค้ดก่อนแก้ — ดู tests/README.md)
@@ -46,6 +59,12 @@ function createGasEnv(opts) {
     const s = v.trim();
     if (/^[-+]?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$/.test(s)) return Number(s.replace(/,/g, ''));
     if (/^[-+]?(\d+)(\.\d+)?%$/.test(s)) return Number(s.slice(0, -1)) / 100;
+    // ".5" / "-.25" / ".5%" — Sheets อ่านเป็นตัวเลข (ตรวจ 19 ต.ค. ข้อ 42)
+    if (/^[-+]?\.\d+$/.test(s)) return Number(s);
+    if (/^[-+]?\.\d+%$/.test(s)) return Number(s.slice(0, -1)) / 100;
+    // เศษส่วนคละ "1 1/2" → 1.5 — ยังไม่ได้ลองกับชีตจริงของร้าน จึงเปิดเฉพาะเทสต์ที่ขอ
+    const fr = opts.coerceFractions ? /^(\d+)\s+(\d+)\/(\d+)$/.exec(s) : null;
+    if (fr && Number(fr[3]) > 0 && Number(fr[2]) < Number(fr[3])) return Number(fr[1]) + Number(fr[2]) / Number(fr[3]);
     if (/^(true|false)$/i.test(s)) return /^true$/i.test(s);
     const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
     if (m) {
@@ -142,6 +161,30 @@ function createGasEnv(opts) {
         nr = nr || 1; nc = nc || 1;
         if (maxColsOverride !== null && c + nc - 1 > maxColsOverride) throw new Error('Exception: Those columns are out of bounds.');
         const cell = {
+          getRow: () => r, getColumn: () => c, getNumRows: () => nr, getNumColumns: () => nc, getSheet: () => api,
+          // TextFinder แบบ Sheets: ค้นจากค่าที่โชว์ · ค่าเริ่มต้นไม่สนตัวพิมพ์และหา "บางส่วนของช่อง" (ต้องสั่ง matchCase/matchEntireCell เอง)
+          createTextFinder: (text) => {
+            env.finderCalls++;
+            const o = { caseOn: false, whole: false, regex: false, pos: 0 };
+            const all = () => {
+              const out = [], want = String(text);
+              for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) {
+                const s = shown((grid[r - 1 + i] && grid[r - 1 + i][c - 1 + j]) ?? '', fmtAt(r + i, c + j));
+                const a = o.caseOn ? s : s.toLowerCase(), b = o.caseOn ? want : want.toLowerCase();
+                const hitCell = o.regex ? new RegExp(o.whole ? '^(?:' + want + ')$' : want, o.caseOn ? '' : 'i').test(s)
+                  : (o.whole ? a === b : (b !== '' && a.indexOf(b) >= 0));
+                if (hitCell) out.push(api.getRange(r + i, c + j));
+              }
+              return out;
+            };
+            const f = {
+              matchCase: (b) => { o.caseOn = !!b; return f; }, matchEntireCell: (b) => { o.whole = !!b; return f; },
+              useRegularExpression: (b) => { o.regex = !!b; return f; }, ignoreDiacritics: () => f, matchFormulaText: () => f,
+              findAll: () => { hit('textFinder'); return all(); },
+              findNext: () => { hit('textFinder'); const a = all(); return o.pos < a.length ? a[o.pos++] : null; }
+            };
+            return f;
+          },
           getDisplayValue: () => shown((grid[r - 1] && grid[r - 1][c - 1]) ?? '', fmtAt(r, c)),
           getDisplayValues: () => { const o = []; for (let i = 0; i < nr; i++) { const row = []; for (let j = 0; j < nc; j++) row.push(shown((grid[r - 1 + i] && grid[r - 1 + i][c - 1 + j]) ?? '', fmtAt(r + i, c + j))); o.push(row); } return o; },
           getValue: () => (grid[r - 1] && grid[r - 1][c - 1]) ?? '',
@@ -194,6 +237,14 @@ function createGasEnv(opts) {
       isTrashed: () => folder._trashed, setTrashed: (v) => { folder._trashed = !!v; return folder; },
       createFile: (fn, content, mime) => {
         hit('createFile');
+        // createFile(blob) — ชื่อและชนิดมากับ blob · เพดาน 50 MB · แบบ 3 ช่อง (ข้อความ) เพดาน 10 MB (คู่มือ Google: drive.d.ts)
+        if (fn && typeof fn === 'object' && typeof fn.getDataAsString === 'function') {
+          const blob = fn;
+          if (opts.driveLimits !== false && blob.getBytes().length > 50 * 1024 * 1024) throw new Error('Exception: Blob object must have non-null content and be smaller than 50MB.');
+          fn = blob.getName(); mime = blob.getContentType(); content = blob.getDataAsString();
+        } else if (opts.driveLimits !== false && Buffer.byteLength(String(content), 'utf8') > 10 * 1024 * 1024) {
+          throw new Error('Exception: File content is larger than 10MB — content is larger than 10MB (createFile(name, content, mimeType))');
+        }
         const fid = 'file-' + (++fileSeq);
         let stored = String(content);
         if (faults.truncateNextFile) { stored = stored.slice(0, Math.floor(stored.length / 2)); delete faults.truncateNextFile; }
@@ -213,6 +264,8 @@ function createGasEnv(opts) {
   const folders = {};
   const DriveApp = {
     _folders: folders,
+    // โฟลเดอร์ถูกลบออกจากถังขยะ (ครบ 30 วัน) = หายถาวร: ค้นด้วยชื่อ/ID ไม่เจออีก (ไฟล์ข้างในหายด้วย)
+    _purge: (name) => { const f = folders[name]; if (!f) return false; delete folders[name]; f._files.forEach(x => { delete allFiles[x.getId()]; }); return true; },
     getFoldersByName: (n) => { const a = folders[n] ? [folders[n]] : []; let i = 0; return { hasNext: () => i < a.length, next: () => a[i++] }; },
     getFolderById: (id) => { const f = Object.values(folders).find(x => x.getId() === id); if (!f) throw new Error('No item with the given ID could be found'); return f; },
     createFolder: (n) => { const f = makeFolder(n); folders[n] = f; return f; },
@@ -220,20 +273,45 @@ function createGasEnv(opts) {
   };
 
   // ── Script Properties (จำกัด 9KB ต่อค่าเหมือนของจริง) ──
-  const props = {};
+  // rawProps = ที่เก็บจริง (สคริปต์อ่าน/เขียนผ่าน PropertiesService) · props = ทางที่เทสต์แก้ตรง ๆ (ล้าง cache ให้ — ดูหัวไฟล์)
+  const rawProps = {};
+  const cacheStore = new Map();
+  const props = new Proxy(rawProps, {
+    set(t, k, v) { t[k] = v; cacheStore.clear(); return true; },
+    deleteProperty(t, k) { delete t[k]; cacheStore.clear(); return true; }
+  });
+  // นับการเรียก Script Properties (โควตา Google บัญชี gmail = 50,000 ครั้ง/วัน) · แยกว่าเกิดตอนถือล็อกหรือก่อนถือ
+  const propCalls = { get: 0, getAll: 0, set: 0, del: 0, total: 0, underLock: 0, outsideLock: 0, keys: {} };
+  const countProp = (kind, k) => {
+    propCalls[kind]++; propCalls.total++;
+    if (env.lockHeld) propCalls.underLock++; else propCalls.outsideLock++;
+    if (k) propCalls.keys[k] = (propCalls.keys[k] || 0) + 1;
+    if (opts.propQuota && propCalls.total > opts.propQuota) throw new Error('Service invoked too many times for one day: properties.');
+  };
   const PropertiesService = { getScriptProperties: () => ({
-    getProperty: (k) => { hit('getProperty'); hit('getProperty:' + k); return Object.prototype.hasOwnProperty.call(props, k) ? props[k] : null; },
-    getProperties: () => { hit('getProperties'); return Object.assign({}, props); },
-    getKeys: () => { hit('getProperties'); return Object.keys(props); },
+    getProperty: (k) => { countProp('get', k); hit('getProperty'); hit('getProperty:' + k); return Object.prototype.hasOwnProperty.call(rawProps, k) ? rawProps[k] : null; },
+    getProperties: () => { countProp('getAll'); hit('getProperties'); return Object.assign({}, rawProps); },
+    getKeys: () => { countProp('getAll'); hit('getProperties'); return Object.keys(rawProps); },
     setProperty: (k, v) => {
+      countProp('set', k);
       hit('setProperty'); hit('setProperty:' + k);
       const s = String(v);
       if (Buffer.byteLength(s, 'utf8') > 9 * 1024) throw new Error('Argument too large: value');
-      props[k] = s; return this;
+      rawProps[k] = s; return this;
     },
-    setProperties: (o) => { hit('setProperty'); Object.keys(o).forEach(k => { const s = String(o[k]); if (Buffer.byteLength(s, 'utf8') > 9 * 1024) throw new Error('Argument too large: value'); }); Object.keys(o).forEach(k => { props[k] = String(o[k]); }); },
-    deleteProperty: (k) => { hit('deleteProperty'); delete props[k]; }
+    setProperties: (o) => { countProp('set'); hit('setProperty'); Object.keys(o).forEach(k => { const s = String(o[k]); if (Buffer.byteLength(s, 'utf8') > 9 * 1024) throw new Error('Argument too large: value'); }); Object.keys(o).forEach(k => { rawProps[k] = String(o[k]); }); },
+    deleteProperty: (k) => { countProp('del', k); hit('deleteProperty'); delete rawProps[k]; }
   }) };
+
+  // ── CacheService (ScriptCache) — หมดอายุตามเวลาจริงของสภาพทดสอบ (opts.now) · เพดานเวลา 6 ชม. แบบของจริง ──
+  const cacheCalls = { get: 0, put: 0, remove: 0 };
+  const cacheNow = () => (opts.now ? opts.now() : Date.now());
+  const scriptCache = {
+    get: (k) => { cacheCalls.get++; hit('cacheGet'); const e = cacheStore.get(String(k)); if (!e) return null; if (cacheNow() >= e.exp) { cacheStore.delete(String(k)); return null; } return e.v; },
+    put: (k, v, ttl) => { cacheCalls.put++; hit('cachePut'); const sec = Math.min(Number(ttl) || 600, 21600); cacheStore.set(String(k), { v: String(v), exp: cacheNow() + sec * 1000 }); },
+    remove: (k) => { cacheCalls.remove++; cacheStore.delete(String(k)); }
+  };
+  const CacheService = { getScriptCache: () => scriptCache };
 
   let uuidN = 0;
   const pad = (n) => String(n).padStart(2, '0');
@@ -247,7 +325,19 @@ function createGasEnv(opts) {
     },
     computeDigest: (alg, str) => Array.from(crypto.createHash('sha256').update(String(str), 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
     DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' },
-    sleep: () => {}
+    sleep: () => {},
+    // Blob แบบที่ Drive รับ — เก็บเป็นข้อความ UTF-8 (พอสำหรับไฟล์สำรอง JSON)
+    newBlob: (data, contentType, name) => {
+      let text = typeof data === 'string' ? data : Buffer.from(data || []).toString('utf8');
+      let bytes = null;
+      const b = {
+        getDataAsString: () => text, getBytes: () => (bytes || (bytes = Buffer.from(text, 'utf8'))),
+        getContentType: () => contentType || null, setContentType: (t) => { contentType = t; return b; },
+        getName: () => name || null, setName: (n) => { name = n; return b; },
+        setDataFromString: (s) => { text = String(s); bytes = null; return b; }, copyBlob: () => Utilities.newBlob(text, contentType, name)
+      };
+      return b;
+    }
   };
 
   const logs = [];
@@ -258,9 +348,14 @@ function createGasEnv(opts) {
     ContentService: { createTextOutput: (s) => ({ setMimeType: () => s, getContent: () => s }), MimeType: { JSON: 'json', TEXT: 'text' } },
     MimeType: { PLAIN_TEXT: 'text/plain' },
     Utilities, Session: { getScriptTimeZone: () => 'Asia/Bangkok' },
-    LockService: { getScriptLock: () => ({ waitLock() { hit('waitLock'); }, tryLock() { return true; }, releaseLock() {} }) },
+    // ล็อกที่สังเกตได้: env.lockLog เก็บลำดับ waitLock/releaseLock · env.lockHeld = ถืออยู่ตอนนี้ไหม
+    LockService: { getScriptLock: () => ({
+      waitLock(ms) { env.lockLog.push('waitLock'); hit('waitLock'); env.lockHeld = true; },
+      tryLock() { env.lockHeld = true; return true; },
+      releaseLock() { if (env.lockHeld) env.lockLog.push('releaseLock'); env.lockHeld = false; }
+    }) },
     Logger: { log: (m) => logs.push(String(m)) },
-    PropertiesService, DriveApp
+    PropertiesService, DriveApp, CacheService
   };
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx, { filename: 'google_apps_script.js' });
@@ -279,11 +374,15 @@ function createGasEnv(opts) {
     let parsed = null;
     try { parsed = JSON.parse(body); } catch (e) {}
     requests.push(parsed);
-    const out = ctx.doPost({ postData: { contents: body } });
+    // e.postData.length = จำนวนไบต์ของ body (ของจริงมีให้เสมอ — ใช้ปฏิเสธคำขอใหญ่เกินก่อนแยกอ่าน)
+    const out = ctx.doPost({ postData: { contents: body, length: Buffer.byteLength(String(body == null ? '' : body), 'utf8'), type: 'text/plain' } });
     return typeof out === 'string' ? out : String(out);
   }
   const env = {
     ctx, ss, DriveApp, props, faults, logs, requests,
+    propCalls, cacheCalls, lockLog: [], lockHeld: false, finderCalls: 0,
+    // โฟลเดอร์สำรองถูกลบถาวร (ล้างถังขยะแล้ว) — ค่า POS_BACKUP_FOLDER_ID ที่จำไว้ยังชี้ไป ID เดิม
+    purgeFolder(name) { return DriveApp._purge(name); },
     token: 'T'.repeat(32),
     // ขังคำขอที่ตรงเงื่อนไขไว้ (ยังไม่ส่งถึงเซิร์ฟเวอร์) — คืนตัวควบคุม
     hold(pred) {

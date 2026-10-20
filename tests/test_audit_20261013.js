@@ -512,7 +512,11 @@ await section('[16-22 app]', async () => {
     const tb = env.document.getElementById('report-transactions-body').innerHTML;
     await t('[21.2] ป้ายช่องทางในตารางบิลเป็นภาษาไทย (ไม่มี Scan/Credit ตัวพิมพ์ใหญ่)', () => ok(/โอน\/QR/.test(tb) && !/text-transform: uppercase/.test(tb) && !/>Scan</.test(tb), tb.slice(0, 300)));
     const D = vm.runInContext('Date', env.ctx), realNow = D.now;
-    D.now = () => Date.parse('2026-10-13T01:25:00+07:00');
+    // ตี 1:25 ของคืนถัดไป (หลังบิลที่เพิ่งขายด้วยนาฬิกาจริง) — หน้าแรกใช้ "เวลาล่าสุดที่เคยเห็น" เป็นพื้น (ตรวจ 19 ต.ค. ข้อ 18)
+    // ถ้าตั้งเป็นวันที่ตายตัวในอดีต นาฬิกาจะถือว่าถูกตั้งย้อน แล้วคำทักทายตามเวลาจริงตอนรันเทสต์
+    const bkkNow = new Date(realNow() + 7 * 3600e3);
+    const lateNight = Date.UTC(bkkNow.getUTCFullYear(), bkkNow.getUTCMonth(), bkkNow.getUTCDate() + 1, 1 - 7, 25);
+    D.now = () => lateNight;
     try { proto(app, 'renderDashboard')(); } catch (e) {}
     D.now = realNow;
     await t('[21.3] ตี 1 ทักทายว่า "ตอนดึก" (ไม่ใช่ตอนเย็น)', () => ok(/ตอนดึก/.test(env.document.getElementById('dashboard-greeting').innerText)));
@@ -552,6 +556,8 @@ await section('[12]', async () => {
     for (const f of [script, 'sw.js']) fs.copyFileSync(path.join(src === ROOT ? ROOT : src, f), path.join(dir, f));
     fs.copyFileSync(APP_SRC, path.join(dir, 'app.js'));
     fs.writeFileSync(path.join(dir, 'tests/run-all.js'), 'process.exit(0);');
+    // ผลตรวจ 19 ต.ค. 2569 ข้อ 13: สคริปต์ตรวจไฟล์ที่แอปอ้างก่อน stage → วางโครงแอป + git ls-files จำลองตอบรายชื่อนี้
+    settings = Object.assign({ tracked: require('./deploy_test_kit').writeAppSkeleton(dir, ROOT).concat([script, 'app.js']) }, settings);
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(settings));
     fs.writeFileSync(path.join(dir, 'invoke.ps1'), `
 $ErrorActionPreference = 'Stop'
@@ -572,6 +578,7 @@ function git {
         return [string][char]0
       }
       'rev-list' { return '2' }
+      'ls-files' { return ((@($global:cfg.tracked) | Where-Object { $_ }) -join [char]0) + [char]0 }
       'symbolic-ref' { return 'main' }
       'rev-parse' { return 'origin/main' }
       'fetch' { return }

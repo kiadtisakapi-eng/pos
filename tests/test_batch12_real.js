@@ -6,7 +6,7 @@
 //   [5] หน้ากู้จาก Drive บอกว่ารายชื่อตัดที่ 50 ไฟล์ล่าสุด และไฟล์เก่ากว่านั้นอยู่ที่ไหน
 //   [6] เอกสาร/ข้อความ: ลำดับอัปเดต = Apps Script ก่อน · ข้อความในแอปตรงกับที่ระบบทำจริง
 //   [7] เทสต์หน้าจอ responsive/modaltest ต้องส่งผล "ล้มเหลว" ได้จริง
-//   [8] ชื่อแอปตอนติดตั้ง = "Pos Massage" (manifest + iPad ตรงกัน) · ชื่อฐานข้อมูลในเครื่องห้ามเปลี่ยน
+//   [8] ชื่อแอปตอนติดตั้ง = "Erotica POS" (manifest + iPad ตรงกัน · เจ้าของเลือกใหม่ 20 ต.ค. 2569 แทน "Pos Massage") · ชื่อฐานข้อมูลในเครื่องห้ามเปลี่ยน
 //  (ข้อ 3 การพิมพ์ใบเสร็จ: test_print.js + e2e_batch12.js)
 //  โค้ดจริงทั้งสองฝั่ง (app.js บน IndexedDB จริง + google_apps_script.js ในชีตจำลอง)
 //  พิสูจน์ว่าจับของจริง: คัดลอกไฟล์นี้ไปรันกับโปรเจกต์ก่อนแก้ (รอบตรวจ 6) → ต้องตก
@@ -413,17 +413,27 @@ for (const f of ['responsive.js', 'modaltest.js']) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n[8] ชื่อแอปตอนติดตั้งลงหน้าจอ = "Pos Massage" (เจ้าของสั่ง 6 ต.ค. 2569)');
+console.log('\n[8] ชื่อแอปตอนติดตั้งลงหน้าจอ = "Erotica POS" (เจ้าของเลือก 20 ต.ค. 2569 · เดิม "Pos Massage" ตามที่สั่ง 6 ต.ค.)');
 // ═══════════════════════════════════════════════════════════════════════════
-await t('manifest.json: ชื่อแอป (short_name / name) = Pos Massage', () => {
+await t('manifest.json: ชื่อแอป (short_name / name) = Erotica POS', () => {
   const m = JSON.parse(read('manifest.json'));
-  eq([m.short_name, m.name], ['Pos Massage', 'Pos Massage']);
+  eq([m.short_name, m.name], ['Erotica POS', 'Erotica POS']);
 });
 await t('index.html: ชื่อตอนเพิ่มไปยังหน้าจอโฮมบน iPad ตรงกับ manifest', () => {
   const h = read('index.html');
   const meta = /<meta name="apple-mobile-web-app-title" content="([^"]*)">/.exec(h);
   ok(meta && meta[1] === JSON.parse(read('manifest.json')).short_name, 'ชื่อบน iPad ไม่ตรงกับ manifest: ' + (meta && meta[1]));
-  ok(/<title>Pos Massage<\/title>/.test(h), '<title> ยังเป็นชื่อเดิม');
+  ok(/<title>Erotica POS<\/title>/.test(h), '<title> ต้องเป็นชื่อเดียวกับบนหน้าจอโฮม');
+});
+// ไอคอนบนหน้าจอโฮม (เจ้าของเลือกแบบพื้นส้ม 20 ต.ค. 2569): iPad ใช้ apple-touch-icon.png — ต้องเป็น PNG 180×180 แบบไม่มีพื้นโปร่งใส
+// (ส่วนที่โปร่งใส iPad เติมเป็นสีดำ) · manifest ชี้ไฟล์เดียวกัน (ไม่ใช่ไอคอนรูปแบบเก่าที่ไม่เคยขึ้นบน iPad)
+await t('apple-touch-icon.png: PNG 180×180 ไม่มีช่องโปร่งใส · manifest ชี้ไฟล์เดียวกัน', () => {
+  const b = fs.readFileSync(path.join(__dirname, '..', 'apple-touch-icon.png'));
+  ok(b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'ไม่ใช่ไฟล์ PNG');
+  eq([b.readUInt32BE(16), b.readUInt32BE(20)], [180, 180]);
+  ok(b[25] === 2 || b[25] === 0, 'มีช่องโปร่งใส (color type ' + b[25] + ') — iPad จะเติมพื้นดำ');
+  const m = JSON.parse(read('manifest.json'));
+  ok(Array.isArray(m.icons) && m.icons.length && m.icons.every(i => i.src === 'apple-touch-icon.png'), 'manifest ไม่ได้ชี้ apple-touch-icon.png');
 });
 // ⚠️ เปลี่ยนชื่อแอปได้ แต่ "ห้ามเปลี่ยนชื่อฐานข้อมูลในเครื่อง" — ชื่อใหม่ = ฐานข้อมูลเปล่า
 //    เปิดแอปแล้วยอดขาย/พนักงาน/การตั้งค่าทั้งร้านหายจากหน้าจอทันที (ข้อมูลเดิมยังค้างอยู่ใต้ชื่อเก่า แต่แอปไม่เห็น)

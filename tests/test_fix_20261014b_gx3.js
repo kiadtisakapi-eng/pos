@@ -10,7 +10,11 @@ const { makeShop, settle } = require('./fixtures_db');
 const { makeRunner, eq, ok } = require('./harness_db');
 const R = makeRunner('--- ตรวจ 14 ต.ค. 2569 รอบ 2 (gx3): ค่าคอมผิดรูปในเครื่อง ---');
 const t = R.t;
-const REAL = process.env.POS_REAL_BACKUP || require('path').join(__dirname, '..', 'audit', 'pos_backup_2026-09-25_21-38-31.json');   // ไฟล์จริงของร้าน (audit\ ไม่ขึ้น repo) · ไม่มี = ข้าม
+// ไฟล์สำรองจริงของร้าน (audit/ ไม่ขึ้น repo): POS_REAL_BACKUP หรือไฟล์ pos_backup_*.json ใหม่สุดใน audit/ — ไม่เขียนชื่อไฟล์จริงไว้ (ผลตรวจ 19 ต.ค. 2569 ข้อ 71)
+const REAL = process.env.POS_REAL_BACKUP || (() => {
+  const dir = require('path').join(__dirname, '..', 'audit');
+  try { const f = require('fs').readdirSync(dir).filter(n => /^pos_backup_.*\.json$/.test(n)).sort().pop(); return f ? require('path').join(dir, f) : ''; } catch (e) { return ''; }
+})();   // ไม่มีไฟล์ = ข้าม
 
 const SVCS = [
   { id: 's1', name: 'ตัดผม', price: 300, duration: 30, category: 'barber', commission: 10, commissionType: 'percent' },
@@ -123,7 +127,7 @@ const proto = (app, k) => Object.getPrototypeOf(app)[k].bind(app);
         JSON.stringify(app._loadRepairs)));
     env.dispose();
   }
-  if (fs.existsSync(REAL)) {
+  if (REAL && fs.existsSync(REAL)) {
     const file = JSON.parse(fs.readFileSync(REAL, 'utf8'));
     const { env, app } = await makeShop({ noInit: true, rows: { services: file.services, categories: file.categories } });
     const n = (file.services || []).length;

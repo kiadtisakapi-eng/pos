@@ -374,7 +374,8 @@ await section('[K]', async () => {
   app.state.expenseLog = [{ expenseId: 'e0', amount: 80, note: 'x', date: Date.now(), by: 'เอ' }];
   const msg = app.buildShiftReportMessage({ startTime: start, endTime: Date.now() + 1000, expenses: app.state.shift.expenses, expensesTotal: 120, startCash: 1000, cashSales: 300, expectedCash: 1180, countedCash: 1180, difference: 0 });
   await t('ยอดขายไม่นับบิลรอตรวจ (300 ไม่ใช่ 566.67)', () => ok(/ยอดขายรวม \(สุทธิ\): ฿300\b/.test(msg), msg));
-  await t('บอกจำนวนบิลรอตรวจแยก', () => ok(/บิลรอตรวจ.*1 ใบ/.test(msg)));
+  // ตรวจ 19 ต.ค. 2569 ข้อ 27: บรรทัดนี้นับ "บิลข้อมูลเงินเสีย" (ไม่นับในยอด) — เปลี่ยนชื่อ ไม่ให้ปนกับบิลรอตรวจที่ขัดแย้งกับชีต
+  await t('บอกจำนวนบิลข้อมูลเงินเสียแยก', () => ok(/บิลข้อมูลเงินเสีย \(ไม่นับในยอด\): 1 ใบ/.test(msg), msg));
   await t('แจกแจงค่าใช้จ่าย: ยอด · รายการ · คนลง', () => ok(/฿120 · ซื้อของอื่นๆ: น้ำแข็ง · ลงโดย เอ/.test(msg), msg));
   await t('บอกบิลที่ถูกยกเลิกในกะ + คนยกเลิก', () => ok(/บิลที่ถูกยกเลิกในกะ: 1 ใบ \(฿150\) — โดย บี/.test(msg)));
   await t('บอกค่าใช้จ่ายที่ถูกลบในกะ', () => ok(/ค่าใช้จ่ายที่ถูกลบในกะ: 1 รายการ \(฿80\)/.test(msg)));

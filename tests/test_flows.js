@@ -113,7 +113,9 @@ if(typeof app.voidTransaction==='function'){
   t('มีคำสั่งลบแถวในชีตค้างไว้ใน outbox',()=>ok(app.state.cloudOutbox.some(i=>i.needVoidDelete)));
 }
 
-console.log('\n--- ล้างยอดขาย: ต้องเก็บคำสั่งลบแถวไว้ ---');
+// ตรวจ 19 ต.ค. 2569 ข้อ 57: เดิมเทสต์นี้ยืนยันว่า "ล้างได้ + เก็บคำสั่งลบแถวไว้ + ตัดงานสรุปทิ้ง" ซึ่งทำให้สรุปบนชีต
+// ยังนับบิลที่ลบแถวไปแล้ว → ตอนนี้คำสั่งลบแถวค้าง = ไม่ล้าง (ส่งให้ครบก่อน) · ส่งครบแล้วจึงล้างและตัดงานสรุปเก่าทิ้ง
+console.log('\n--- ล้างยอดขาย: คำสั่งลบแถวค้าง = ยังไม่ล้าง ---');
 app.state.cloudOutbox=[
   {needVoidDelete:true,voidDelete:{id:'x'},needSummary:true,needTelegram:true,telegramMessage:'m'},
   {needVoidDelete:false,needSummary:true,needTelegram:false}];
@@ -121,15 +123,16 @@ app.state.transactions=[{id:'z',date:Date.now(),total:100,syncStatus:'synced'}];
 app.openCashCounter=()=>{};
 // รอบตรวจ 6 ข้อ 1: ต้องพิมพ์คำยืนยันก่อน (สำรองขึ้น Drive ถูกจำลองว่าสำเร็จไว้ด้านบนแล้ว)
 h.ctx.prompt=()=>'ล้างยอดขาย';
+toasts.length=0;
+await app.clearSalesData();
+t('คำสั่งลบแถวค้าง → ไม่ล้างยอดขาย และบอกว่าค้างอะไร',()=>{
+  eq(app.state.transactions.length,1); eq(app.state.cloudOutbox.length,2);
+  ok(toasts.some(x=>/คำสั่งลบแถวบิลที่ยกเลิก 1 รายการ/.test(x.m)));});
+app.state.cloudOutbox=[{needVoidDelete:false,needSummary:true,needTelegram:true,telegramMessage:'m'}];
 await app.clearSalesData();
 h.ctx.prompt=()=>null;
 t('ยอดขายถูกล้าง',()=>eq(app.state.transactions.length,0));
-t('คำสั่งลบแถวในชีตยังอยู่ (ไม่งั้นบิลผีค้างถาวร)',()=>{
-  eq(app.state.cloudOutbox.length,1);
-  ok(app.state.cloudOutbox[0].needVoidDelete);});
-t('งานสรุปเก่าถูกตัดทิ้ง (ไม่ให้ flush ยอดศูนย์ไปทับชีตวันเก่า)',()=>{
-  eq(app.state.cloudOutbox[0].needSummary,false);
-  eq(app.state.cloudOutbox[0].needTelegram,false);});
+t('งานสรุปเก่าถูกตัดทิ้ง (ไม่ให้ flush ยอดศูนย์ไปทับชีตวันเก่า)',()=>eq(app.state.cloudOutbox.length,0));
 
 console.log('\n--- สิทธิ์พนักงาน ---');
 app.currentRole='staff';

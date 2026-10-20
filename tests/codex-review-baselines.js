@@ -16,7 +16,9 @@ for (const name of ['app.js', 'google_apps_script.js', 'index.html', 'style_v2.c
   fs.copyFileSync(path.join(before, name), path.join(dir, name));
   fs.copyFileSync(path.join(before, name), path.join(originalBackup, name));
 }
-const env = { ...process.env, TZ: 'Asia/Bangkok', POS_REAL_BACKUP: path.join(root, 'audit', 'pos_backup_2026-09-25_21-38-31.json') };
+// ไฟล์สำรองจริงใหม่สุดใน audit/ (ถ้ามี) — ไม่เขียนชื่อไฟล์จริงไว้ใน repo สาธารณะ (ผลตรวจ 19 ต.ค. 2569 ข้อ 71)
+const realBackup = (() => { try { const f = fs.readdirSync(path.join(root, 'audit')).filter(n => /^pos_backup_.*\.json$/.test(n)).sort().pop(); return f ? path.join(root, 'audit', f) : ''; } catch (e) { return ''; } })();
+const env = { ...process.env, TZ: 'Asia/Bangkok', POS_REAL_BACKUP: realBackup };
 delete env.POS_APP_SRC; delete env.POS_GAS_SRC;
 // Existing runtime restricts browser requests to localhost and directs screenshots into tests/.
 if (env.NODE_OPTIONS) env.NODE_OPTIONS = '--require=' + JSON.stringify(path.join(__dirname, 'codex-browser-runtime.js'));

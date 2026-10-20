@@ -140,26 +140,42 @@ var BILL_LEGACY_HEADERS = [
 // ⚠️ เดิมไม่มีรหัส — แอปจึงนับเป็น "บิลใบนั้นล้ม" แล้วไล่ส่งทุกใบซ้ำทุกนาที (รหัสผิดค้างข้ามวันอาจชนโควตา
 //    อ่าน Script Properties 50,000 ครั้ง/วัน ซึ่งพอชนแล้วแม้แก้รหัสถูกก็ยังใช้ไม่ได้จนโควตารีเซ็ต)
 // ข้อความยังเหมือนเดิมทุกตัวอักษร — แอปรุ่นก่อนที่ดูจากข้อความยังทำงานได้ตามเดิม
+//
+// ── ตรวจ 19 ต.ค. 2569 ข้อ 17: อ่านคำขอ + ตรวจรหัสเชื่อมต่อ "ก่อน" รอล็อก ─────────────────────────────
+// เดิมรอล็อกก่อนแล้วค่อยตรวจรหัส — ใครมี URL /exec (อยู่ในไฟล์สำรอง/ไฟล์ส่งออกทุกไฟล์) ยิงถี่ ๆ แบบไม่มีรหัส
+// ก็ทำให้คำขอของร้านต้องรอคิว/ได้ BUSY และเผาโควตาอ่าน Script Properties ได้ · ตอนนี้คำขอที่ไม่มีรหัสถูกปฏิเสธ
+// โดยไม่แตะล็อก และรหัสอ่านจาก CacheService (6 ชม.) — ไม่อ่าน Script Properties ทุกคำขอ
+// · body เกิน MAX_POST_BYTES_ ปฏิเสธก่อนแยกอ่าน (REQUEST_TOO_LARGE)
+// · ข้อความ/รหัสของ UNAUTHORIZED / TOKEN_NOT_SET / BUSY / body ว่าง / JSON เสีย เหมือนเดิมทุกตัวอักษร
+var MAX_POST_BYTES_ = 30 * 1024 * 1024;
+// ค่าที่ใช้ได้ "เฉพาะในคำขอนี้" (Apps Script เริ่มสคริปต์ใหม่ทุกคำขออยู่แล้ว — ล้างใน doPost กันสภาพทดสอบที่ใช้ซ้ำ)
+// primary = ข้อมูลเครื่องหลักที่อ่านแล้ว (ข้อ 8: อ่าน Script Properties ครั้งเดียวต่อคำขอ)
+var REQUEST_SCOPE_ = null;
 function doPost(e) {
+  var data;
+  try {
+    if (!e || !e.postData || !e.postData.contents)
+      return json("error", "ไม่พบข้อมูลที่ส่งมา");
+    var bodyBytes = Number(e.postData.length);
+    if (!(isFinite(bodyBytes) && bodyBytes >= 0)) bodyBytes = String(e.postData.contents).length;
+    if (bodyBytes > MAX_POST_BYTES_) {
+      return json("error", "ข้อมูลที่ส่งมาใหญ่เกิน " + Math.round(MAX_POST_BYTES_ / 1048576) + " MB — Apps Script ไม่รับ " +
+        "(ถ้าเป็นไฟล์สำรอง ให้เจ้าของวางแผนเก็บบิลเก่าออกจากเครื่อง)", { sizeBytes: bodyBytes, limitBytes: MAX_POST_BYTES_ }, "REQUEST_TOO_LARGE");
+    }
+    data = JSON.parse(e.postData.contents);
+    var denied = checkApiToken_(String((data && typeof data === "object" && data.secret) || ""));
+    if (denied) return denied;
+  } catch (preErr) {
+    // JSON เสีย / บริการ Script Properties ล่ม — ข้อความแบบเดิม (เดิมเกิดในช่วงถือล็อกแล้วตอบแบบนี้)
+    return json("error", "ข้อผิดพลาด: " + preErr.toString(), null, "SERVER_ERROR");
+  }
+
   var lock = LockService.getScriptLock();
   try { lock.waitLock(30000); }
   catch (err) { return json("error", "ระบบหนาแน่น กรุณาลองใหม่", null, "BUSY"); }
 
+  REQUEST_SCOPE_ = {};
   try {
-    if (!e || !e.postData || !e.postData.contents)
-      return json("error", "ไม่พบข้อมูลที่ส่งมา");
-
-    var data = JSON.parse(e.postData.contents);
-
-    // ตรวจสอบรหัสเชื่อมต่อจาก Script Properties — ไม่ยอมให้ endpoint ทำงานถ้ายังไม่ได้ตั้งค่า
-    var expectedToken = getPosApiToken_();
-    if (!expectedToken) {
-      return json("error", "ยังไม่ได้ตั้งรหัสเชื่อมต่อ POS — ให้รัน setupPosApiToken() ใน Apps Script ก่อน", null, "TOKEN_NOT_SET");
-    }
-    if (!constantTimeEquals_(String(data.secret || ""), expectedToken)) {
-      return json("error", "ไม่ได้รับอนุญาต (unauthorized)", null, "UNAUTHORIZED");
-    }
-
     var ss   = SpreadsheetApp.getActiveSpreadsheet();
 
     // ── คำสั่งต้องอยู่ในรายการที่รองรับเท่านั้น ─────────────────────────────
@@ -213,6 +229,7 @@ function doPost(e) {
     // เช่น โควตาของ Google หมด / บริการชีตล่มชั่วคราว (ดูรหัสที่หัวฟังก์ชัน)
     return json("error", "ข้อผิดพลาด: " + err.toString(), null, "SERVER_ERROR");
   } finally {
+    REQUEST_SCOPE_ = null;
     lock.releaseLock();
   }
 }
@@ -227,6 +244,7 @@ function setupPosApiToken() {
     token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
     props.setProperty(POS_API_TOKEN_PROPERTY, token);
   }
+  cacheApiToken_(getPosApiToken_());   // ข้อ 17: ให้คำขอถัดไปใช้รหัสนี้ทันที (ไม่รอ cache เดิมหมดอายุ)
   Logger.log("POS API token: " + token);
   return token;
 }
@@ -235,6 +253,7 @@ function setupPosApiToken() {
 function rotatePosApiToken() {
   var token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
   PropertiesService.getScriptProperties().setProperty(POS_API_TOKEN_PROPERTY, token);
+  cacheApiToken_(getPosApiToken_());   // รหัสเก่าใช้ไม่ได้ทันที — cache ต้องไม่ถือรหัสเก่าไว้อีก 6 ชม.
   Logger.log("New POS API token: " + token);
   return token;
 }
@@ -242,6 +261,53 @@ function rotatePosApiToken() {
 function getPosApiToken_() {
   var token = String(PropertiesService.getScriptProperties().getProperty(POS_API_TOKEN_PROPERTY) || "");
   return /^[A-Za-z0-9_-]{24,200}$/.test(token) ? token : "";
+}
+
+// ── รหัสเชื่อมต่อใน CacheService (ข้อ 17) ─────────────────────────────────────────────
+// เก็บ { t: รหัส, at: เวลาที่อ่านจาก Script Properties } ไว้ 6 ชม. · cache ใช้ไม่ได้/ไม่มี = อ่าน Script Properties ตามเดิม
+// รหัสไม่ตรงกับ cache: ถ้า cache อายุไม่ถึง 1 นาที = ปฏิเสธเลย (ไม่อ่าน Script Properties — กันคนยิงรหัสมั่วเผาโควตา)
+//   เกิน 1 นาที = อ่านซ้ำ 1 ครั้ง (เจ้าของแก้รหัสใน Script properties เองโดยไม่ได้รัน rotatePosApiToken → ใช้ได้ภายใน 1 นาที)
+var API_TOKEN_CACHE_KEY_ = "POS_API_TOKEN_CACHE_V1";
+var API_TOKEN_CACHE_SECONDS_ = 6 * 60 * 60;
+var API_TOKEN_RECHECK_MS_ = 60 * 1000;
+function apiTokenCache_() {
+  try { return (typeof CacheService !== "undefined" && CacheService) ? CacheService.getScriptCache() : null; }
+  catch (e) { return null; }
+}
+function cacheApiToken_(token) {
+  var cache = apiTokenCache_();
+  if (!cache) return;
+  try {
+    if (token) cache.put(API_TOKEN_CACHE_KEY_, JSON.stringify({ t: token, at: Date.now() }), API_TOKEN_CACHE_SECONDS_);
+    else cache.remove(API_TOKEN_CACHE_KEY_);
+  } catch (e) { Logger.log("token cache not updated: " + e); }
+}
+function cachedApiToken_() {
+  var cache = apiTokenCache_();
+  if (!cache) return null;
+  try {
+    var o = JSON.parse(cache.get(API_TOKEN_CACHE_KEY_) || "null");
+    if (o && typeof o.t === "string" && /^[A-Za-z0-9_-]{24,200}$/.test(o.t) && isFinite(Number(o.at))) return { t: o.t, at: Number(o.at) };
+  } catch (e) { /* cache เสีย/ล่ม = อ่าน Script Properties */ }
+  return null;
+}
+// คืน null = รหัสถูก · ไม่ถูก = response (ข้อความ/รหัสเดิมทุกตัวอักษร)
+function checkApiToken_(given) {
+  var cached = cachedApiToken_();
+  if (cached) {
+    if (constantTimeEquals_(given, cached.t)) return null;
+    if (Date.now() - cached.at < API_TOKEN_RECHECK_MS_) return json("error", "ไม่ได้รับอนุญาต (unauthorized)", null, "UNAUTHORIZED");
+  }
+  var expectedToken = getPosApiToken_();
+  cacheApiToken_(expectedToken);
+  // ตรวจสอบรหัสเชื่อมต่อจาก Script Properties — ไม่ยอมให้ endpoint ทำงานถ้ายังไม่ได้ตั้งค่า
+  if (!expectedToken) {
+    return json("error", "ยังไม่ได้ตั้งรหัสเชื่อมต่อ POS — ให้รัน setupPosApiToken() ใน Apps Script ก่อน", null, "TOKEN_NOT_SET");
+  }
+  if (!constantTimeEquals_(given, expectedToken)) {
+    return json("error", "ไม่ได้รับอนุญาต (unauthorized)", null, "UNAUTHORIZED");
+  }
+  return null;
 }
 
 // ลดข้อมูล timing ที่ใช้เดารหัสทีละตัว (ไม่ใช่ตัวแทนระบบล็อกอินเต็มรูปแบบ)
@@ -363,15 +429,20 @@ var PRIMARY_ONLY_ACTIONS = { "register_primary": true, "transaction": true, "voi
 var DEVICE_ID_RE_ = /^[A-Za-z0-9_-]{16,64}$/;
 
 // คืน null = ยังไม่มีเครื่องหลัก · ค่าเสีย = โยน error (ปิดไว้ก่อน ไม่เดาว่าใครเป็นเครื่องหลัก)
+// ข้อ 8 (ตรวจ 19 ต.ค. 2569): ในคำขอเดียวกัน (ถือ script lock อยู่ ไม่มีใครเขียนแทรกได้) อ่าน Script Properties ครั้งเดียว
+// — เดิมบิลหนึ่งใบอ่าน 2–3 ครั้ง (ด่านเครื่องหลัก + ด่านกู้ฉุกเฉิน) · ค่าเสียไม่จำ (ทุกจุดยังโยน error เหมือนเดิม)
 function readPrimaryDevice_() {
+  var scope = REQUEST_SCOPE_;
+  if (scope && Object.prototype.hasOwnProperty.call(scope, "primary")) return scope.primary;
   var raw = PropertiesService.getScriptProperties().getProperty(POS_PRIMARY_DEVICE_PROPERTY);
-  if (!raw) return null;
+  if (!raw) { if (scope) scope.primary = null; return null; }
   var o = null;
   try { o = JSON.parse(raw); } catch (e) { o = null; }
   if (!o || typeof o !== "object" || !DEVICE_ID_RE_.test(String(o.id || ""))) {
     throw new Error("ข้อมูลเครื่องหลัก (POS_PRIMARY_DEVICE) ใน Script Properties เสีย — " +
       "ให้เจ้าของตั้งเครื่องหลักใหม่จากหน้าตั้งค่าของเครื่องที่ใช้ขาย (ต้องใช้รหัสเจ้าของ)");
   }
+  if (scope) scope.primary = o;
   return o;
 }
 
@@ -389,6 +460,7 @@ function devicePublic_(o) {
 }
 
 function writePrimaryDevice_(o) {
+  if (REQUEST_SCOPE_) delete REQUEST_SCOPE_.primary;   // ค่าที่จำไว้ในคำขอนี้เก่าแล้ว — อ่านกลับจาก Script Properties จริง
   PropertiesService.getScriptProperties().setProperty(POS_PRIMARY_DEVICE_PROPERTY, JSON.stringify(o));
   // อ่านกลับตรวจ — ถ้าเขียนไม่ติด ห้ามตอบว่าเป็นเครื่องหลักแล้ว
   var back = readPrimaryDevice_();
@@ -451,42 +523,78 @@ function handleClaimPrimary(data) {
     return json('error', 'ต้องยืนยันว่ากู้รายละเอียดบิล ค่าใช้จ่าย และกะครบก่อนปลดการพักฉุกเฉิน',
       { primary: devicePublic_(prev) }, 'RECOVERY_CONFIRMATION_REQUIRED');
   }
-  var ss = SpreadsheetApp.getActiveSpreadsheet(), voidPlan = [], acceptedRows = null, pendingVoidRows = [];
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), voidPlan = [], acceptedRows = null, pendingVoidRows = [], batchAccepted = 0;
   if ((!prev || prev.id !== dev || prev.recovery) && !emergency) {
     var voidBefore = prev && prev.recovery ? (Number(prev.recovery.startedAt) || 0) : Date.now();
-    var ready = validatePrimaryTransfer_(data.bills, { voidIntents: transferVoidIntents_(data.voidIntents), voidBefore: voidBefore,
-      sheetOnly: transferSheetOnly_(data.sheetOnly) });
+    var recoveryStartedAt = prev && prev.recovery ? Number(prev.recovery.startedAt) || 0 : 0;
+    // ประกอบตัวตรวจใหม่ทุกครั้ง (ตัวตรวจลบรายการ sheetOnly ที่ใช้แล้วออกจากแผนที่ของมัน) — ข้อ 10 ตรวจซ้ำหลังบันทึกรอบ
+    var validate = function() {
+      return validatePrimaryTransfer_(data.bills, { voidIntents: transferVoidIntents_(data.voidIntents), voidBefore: voidBefore,
+        sheetOnly: transferSheetOnly_(data.sheetOnly), acceptedSince: recoveryStartedAt });
+    };
+    var corruptOf = function(r) {
+      return registryCorruptResponse_(r.registryCorrupt.error, r.registryCorrupt.id,
+        prev && prev.recovery ? 'ยังไม่ปลดการพัก (เครื่องหลักยังเป็นแบบเดิม)' : 'ยังไม่ย้ายเครื่องหลัก (เครื่องหลักยังเป็นเครื่องเดิม)',
+        r.registryCorrupt.what);
+    };
+    var held = Object.create(null);
+    (Array.isArray(data.bills) ? data.bills : []).forEach(function(b) { if (b && b.id) held[String(b.id)] = true; });
+    // ยอมรับข้อมูลหายได้ไหม (ไม่ดูว่ารายการถูกตัดที่ TRANSFER_LIST_MAX_ หรือเปล่า — ข้อ 10 ยอมรับเป็นรอบได้)
+    // ⚠️ คำสั่งยกเลิกค้างเกินเพดาน = ไม่รับ (ด้านล่างปฏิเสธการปลดพักอยู่แล้ว ไม่ให้วนรอบที่ไม่คืบ)
+    var acceptableOf = function(r) {
+      return !r.structural && !r.voided.length && !r.acceptedLedgerError && !((r.counts.pendingVoid || 0) > r.pendingVoid.length) &&
+        !!(prev && prev.recovery) && data.recoveryConfirmed === true && !r.missing.some(function(x) { return x.accepted; }) &&
+        !r.missing.some(function(x) { return held[x.id] === true; });
+    };
+    var needsOf = function(r) { return r.missing.filter(function(x) { return !x.accepted; }).concat(r.different); };
+    var incomplete = function(r, prefix) {
+      var msg = (prefix || '') + r.message + (r.acceptedLedgerError ? ' · อ่านแท็บ _POS_RECOVERY_ACCEPTED ไม่ได้ (' + r.acceptedLedgerError +
+        ') — ห้ามแก้แท็บนี้เอง ให้ผู้ดูแลคืนหัวคอลัมน์เดิมก่อน' : '');
+      var det = { missing: r.missing, different: r.different, voided: r.voided,
+        pendingVoid: r.pendingVoid, counts: r.counts, truncated: !!r.truncated, acceptable: acceptableOf(r),
+        acceptedLedgerError: r.acceptedLedgerError || undefined, recoveryStartedAt: recoveryStartedAt };
+      if (batchAccepted) { det.batchAccepted = batchAccepted; det.remaining = r.counts.toAccept || 0; }
+      return json("error", msg, det, "PRIMARY_TRANSFER_INCOMPLETE");
+    };
+    var rowsOf = function(list) {
+      var at = Date.now(), label = safeCell(cleanDeviceLabel_(data.deviceLabel));   // ลงชีต → กันชีตแปลงชนิด/สูตร
+      return list.map(function(x) { return [x.id, x.month, x.version || '', x.total, x.kind, at, label]; });
+    };
+    var ready = validate();
     // ตรวจ 14 ต.ค. (รอบ 2): ทะเบียนยกเลิกเสีย = ตอบ REGISTRY_CORRUPT พร้อมสาเหตุ ก่อนแตะชีต/เครื่องหลัก
     // (เดิมตอบ PRIMARY_TRANSFER_INCOMPLETE "อ่านทะเบียนไม่ได้" แอปจึงเสนอ "รับช่วงฉุกเฉิน" = เครื่องหลักค้างโหมดพักโดยไม่จำเป็น)
-    if (ready.registryCorrupt) {
-      return registryCorruptResponse_(ready.registryCorrupt.error, ready.registryCorrupt.id,
-        prev && prev.recovery ? 'ยังไม่ปลดการพัก (เครื่องหลักยังเป็นแบบเดิม)' : 'ยังไม่ย้ายเครื่องหลัก (เครื่องหลักยังเป็นเครื่องเดิม)');
-    }
+    if (ready.registryCorrupt) return corruptOf(ready);
     if (!ready.ok) {
       // บิลที่เคยยอมรับว่าหายแล้ว (อยู่ในทะเบียน) แต่เครื่องนี้ยังไม่มี "บิลจากชีต" ของมัน → แอปนำเข้าก่อน ไม่ต้องยอมรับซ้ำ
-      // ยอมรับข้อมูลหายใหม่ได้เฉพาะตอนปลดพักฉุกเฉินที่ยืนยันแล้ว และต้องระบุครบทุกเลข (รวมบิลข้อมูลต่าง)
-      var needs = ready.missing.filter(function(x) { return !x.accepted; }).concat(ready.different);
+      // ยอมรับข้อมูลหายใหม่ได้เฉพาะตอนปลดพักฉุกเฉินที่ยืนยันแล้ว และต้องระบุครบทุกเลขที่ชีตแจ้ง (รวมบิลข้อมูลต่าง)
       // บิลที่เครื่องส่งมาเป็นบิลเต็ม ห้ามถูกบันทึกว่า "หาย" ไม่ว่ากรณีใด (กันซ้ำกับการตรวจแถวซ้ำข้างบน)
-      var held = Object.create(null);
-      (Array.isArray(data.bills) ? data.bills : []).forEach(function(b) { if (b && b.id) held[String(b.id)] = true; });
-      var acceptable = !ready.structural && !ready.voided.length && !ready.truncated && !ready.acceptedLedgerError &&
-        !!(prev && prev.recovery) && data.recoveryConfirmed === true && !ready.missing.some(function(x) { return x.accepted; }) &&
-        !ready.missing.some(function(x) { return held[x.id] === true; });
+      var needs = needsOf(ready);
       var wanted = Object.create(null);
       (Array.isArray(data.acceptIds) ? data.acceptIds : []).forEach(function(id) { wanted[String(id)] = true; });
       var covered = needs.length > 0 && needs.every(function(x) { return wanted[x.id] === true; });
-      if (!(acceptable && data.acceptMissing === true && covered)) {
-        var msg = ready.message + (ready.acceptedLedgerError ? ' · อ่านแท็บ _POS_RECOVERY_ACCEPTED ไม่ได้ (' + ready.acceptedLedgerError +
-          ') — ห้ามแก้แท็บนี้เอง ให้ผู้ดูแลคืนหัวคอลัมน์เดิมก่อน' : '');
-        return json("error", msg, { missing: ready.missing, different: ready.different, voided: ready.voided,
-          pendingVoid: ready.pendingVoid, counts: ready.counts, truncated: !!ready.truncated, acceptable: acceptable,
-          acceptedLedgerError: ready.acceptedLedgerError || undefined,
-          recoveryStartedAt: prev && prev.recovery ? Number(prev.recovery.startedAt) || 0 : 0 }, "PRIMARY_TRANSFER_INCOMPLETE");
+      if (!(acceptableOf(ready) && data.acceptMissing === true && covered)) return incomplete(ready);
+      if (ready.listTruncated) {
+        // ── ข้อ 10 (ตรวจ 19 ต.ค. 2569): บิลที่ต้องยอมรับมีเกินเพดานรายการต่อคำตอบ (3,000) ──────────────────────
+        // เดิม acceptable:false ตลอดไป = ปลดพักไม่ได้เลย (สรุป/สำรอง/ยกเลิกบิล ถูกพักถาวร)
+        // ตอนนี้: บันทึกรอบนี้ (เฉพาะรายการที่ชีตแจ้งมาและเจ้าของยืนยันครบ) ลงแท็บ _POS_RECOVERY_ACCEPTED แล้วตรวจใหม่
+        // แล้วตอบ "ยังไม่ครบ — เหลืออีก M ใบ" พร้อมรายการรอบถัดไป · รอบสุดท้าย (รายการไม่ถูกตัด) ปลดพักตามเดิม
+        // บิลที่หาย: เครื่องประกาศว่าถือ "บิลจากชีต" ของมันแล้ว (sheetOnly) จึงถูกนับว่าครบในการตรวจรอบถัดไป
+        // บิลข้อมูลต่าง: ยกเว้นเฉพาะที่ยอมรับ "ในการพักครั้งนี้" และแถวบนชีตยังตรงกับตอนยอมรับ (ดู acceptedSince)
+        // แอปรุ่นก่อน: ได้คำตอบนี้แล้วถอนบิลจากชีตออก — กดอีกครั้ง แอปนำเข้าบิลที่ยอมรับแล้วเอง (ทางเดิม) แล้วถามรอบถัดไป
+        var batchRows = rowsOf(needs);
+        var recErr = recordRecoveryEvidence_(ss, batchRows);
+        if (recErr) return recErr;
+        batchAccepted = batchRows.length;
+        ready = validate();
+        if (ready.registryCorrupt) return corruptOf(ready);
+        if (!ready.ok) {
+          return incomplete(ready, 'ยอมรับข้อมูลหายรอบนี้แล้ว ' + batchAccepted + ' ใบ (บันทึกในแท็บ ' + RECOVERY_ACCEPTED_NAME_ + ') · ยังเหลืออีก ' +
+            (ready.counts.toAccept || 0) + ' ใบ — ยังไม่ปลดพัก กด "ตรวจข้อมูลครบและปลดการพัก" อีกครั้งเพื่อยืนยันรอบถัดไป · ');
+        }
+        // ไม่เหลืออะไรแล้ว (ปกติไม่เกิด — รายการถูกตัดแปลว่ายังมีรอบถัดไป) → ปลดพักตามปกติด้านล่าง
+      } else {
+        acceptedRows = rowsOf(needs);
       }
-      var at = Date.now(), label = safeCell(cleanDeviceLabel_(data.deviceLabel));   // ลงชีต → กันชีตแปลงชนิด/สูตร
-      acceptedRows = needs.map(function(x) {
-        return [x.id, x.month, x.version || '', x.total, x.kind, at, label];
-      });
     }
     voidPlan = ready.voidPlan;
     // ปลดพักฉุกเฉินขณะมีคำสั่งยกเลิกที่ยังไม่ถึงชีต (สั่งระหว่างพัก/ไม่รู้เวลา) — แถวยังอยู่บนชีตจนคำสั่งนั้นมาถึง
@@ -512,23 +620,30 @@ function handleClaimPrimary(data) {
     if (!applied.ok) return applied.response || json('error', applied.message, { billId: voidPlan[i].id }, applied.code);
   }
   var evidenceRows = (acceptedRows || []).concat(pendingVoidRows);
-  if (evidenceRows.length) {
-    var acceptedSheet = ledgerSheet_(RECOVERY_ACCEPTED_NAME_, RECOVERY_ACCEPTED_HEADERS_, ss);
-    ledgerAppendRows_(acceptedSheet, evidenceRows, 3);
-    SpreadsheetApp.flush();
-    var recorded = readRecoveryAccepted_(ss);
-    for (var k = 0; k < evidenceRows.length; k++) {
-      var rec = recorded[evidenceRows[k][0]];
-      if (!rec || rec.kind !== evidenceRows[k][4]) return json('error', 'บันทึกหลักฐานบิลที่ยอมรับว่าหาย/คำสั่งยกเลิกค้างไม่สำเร็จ — ยังไม่ปลดพัก', null, 'RECOVERY_ACCEPT_FAILED');
-    }
-  }
+  var evidenceErr = recordRecoveryEvidence_(ss, evidenceRows);
+  if (evidenceErr) return evidenceErr;
   var saved = writePrimaryDevice_({ id: dev, label: cleanDeviceLabel_(data.deviceLabel), claimedAt: Date.now(), how: "owner",
     recovery: emergency ? { incomplete: true, startedAt: prev && prev.recovery ? prev.recovery.startedAt : Date.now() } : null,
     previous: prev && prev.id !== dev ? devicePublic_(prev) : null });
   return json("success", "ตั้งเครื่องนี้เป็นเครื่องหลักแล้ว", { primary: devicePublic_(saved), previous: prev && prev.id !== dev ? devicePublic_(prev) : null,
     voidedOnTransfer: voidPlan.map(function(p) { return p.id; }), accepted: acceptedRows ? acceptedRows.length : 0,
     pendingVoidRecorded: pendingVoidRows.length,
-    acceptedIds: acceptedRows ? acceptedRows.map(function(r) { return r[0]; }) : [] });
+    acceptedIds: acceptedRows ? acceptedRows.map(function(r) { return r[0]; }) : [],
+    batchAccepted: batchAccepted || undefined });
+}
+
+// เขียนหลักฐาน (ยอมรับข้อมูลหาย / คำสั่งยกเลิกค้าง) แล้วอ่านกลับยืนยัน — คืน null = สำเร็จ · response = ไม่สำเร็จ (ยังไม่ปลดพัก)
+function recordRecoveryEvidence_(ss, rows) {
+  if (!rows || !rows.length) return null;
+  var acceptedSheet = ledgerSheet_(RECOVERY_ACCEPTED_NAME_, RECOVERY_ACCEPTED_HEADERS_, ss);
+  ledgerAppendRows_(acceptedSheet, rows, 3);
+  SpreadsheetApp.flush();
+  var recorded = readRecoveryAccepted_(ss);
+  for (var k = 0; k < rows.length; k++) {
+    var rec = recorded[rows[k][0]];
+    if (!rec || rec.kind !== rows[k][4]) return json('error', 'บันทึกหลักฐานบิลที่ยอมรับว่าหาย/คำสั่งยกเลิกค้างไม่สำเร็จ — ยังไม่ปลดพัก', null, 'RECOVERY_ACCEPT_FAILED');
+  }
+  return null;
 }
 
 var RECOVERY_ACCEPTED_NAME_ = '_POS_RECOVERY_ACCEPTED';
@@ -543,9 +658,11 @@ function readRecoveryAccepted_(ss) {
   if (!sheet) return out;
   sheet = ledgerSheet_(RECOVERY_ACCEPTED_NAME_, RECOVERY_ACCEPTED_HEADERS_, ss);
   var n = sheet.getLastRow();
-  if (n > 1) sheet.getRange(2, 1, n - 1, 5).getValues().forEach(function(r) {
+  // ช่อง 6 = เวลาที่ยอมรับ (นาฬิกาเซิร์ฟเวอร์) — ข้อ 10 ใช้แยกว่าบิลข้อมูลต่างถูกยอมรับ "ในการพักครั้งนี้" หรือครั้งก่อน
+  if (n > 1) sheet.getRange(2, 1, n - 1, 6).getValues().forEach(function(r) {
     var id = String(r[0]);
-    if (BILL_ID_RE.test(id)) out[id] = { month: billIndexMonth_(r[1], ss), version: String(r[2]), total: Number(r[3]), kind: String(r[4]) };
+    if (BILL_ID_RE.test(id)) out[id] = { month: billIndexMonth_(r[1], ss), version: String(r[2]), total: Number(r[3]), kind: String(r[4]),
+      acceptedAt: Number(r[5]) || 0 };
   });
   return out;
 }
@@ -633,17 +750,29 @@ function validatePrimaryTransfer_(bills, opts) {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), local = Object.create(null), sheets = ss.getSheets(), tz = spreadsheetTz_(ss);
   var intents = opts.voidIntents || Object.create(null), voidBefore = Number(opts.voidBefore) || 0;
   var declared = opts.sheetOnly || Object.create(null);
+  // acceptedSince > 0 (ปลดพักฉุกเฉิน · ข้อ 10) = บิลข้อมูลต่างที่ยอมรับไว้ "ตั้งแต่เวลานี้" (การพักครั้งนี้) และแถวยังตรงกับตอนยอมรับ ไม่ต้องยอมรับซ้ำ
+  var acceptedSince = Number(opts.acceptedSince) || 0;
+  // counts.toAccept = จำนวนบิลที่ยังต้องให้เจ้าของยอมรับ (หายที่ยังไม่เคยยอมรับ + ข้อมูลต่าง) ทั้งหมด ไม่ใช่แค่ที่อยู่ในรายการ
   var res = { ok: false, structural: false, message: '', missing: [], different: [], voided: [], voidPlan: [], pendingVoid: [],
-    counts: { missing: 0, different: 0, voided: 0 }, truncated: false };
+    counts: { missing: 0, different: 0, voided: 0, toAccept: 0 }, truncated: false, listTruncated: false };
   var fail = function(message) { res.structural = true; res.message = message; return res; };
   (Array.isArray(bills) ? bills : []).forEach(function(b) { if (b && b.id) local[String(b.id)] = b; });
   var index = ss.getSheetByName(BILL_INDEX_NAME_), indexedBills = Object.create(null);
   if (index && index.getLastRow() > 1) {
     var indexRows = index.getRange(2, 1, index.getLastRow() - 1, 5).getValues();
-    indexRows.forEach(function(row) {
-      if (indexedBills[String(row[0])]) throw new Error('ทะเบียนเลขบิลซ้ำ — ตรวจชีตก่อนย้ายเครื่องหลัก');
-      indexedBills[String(row[0])] = row;
-    });
+    for (var ir = 0; ir < indexRows.length; ir++) {
+      // ข้อ 41 (ตรวจ 19 ต.ค. 2569): แถวที่ช่องเลขบิลว่าง (คนเคลียร์แถวในแท็บซ่อน) ไม่ใช่บิล — ข้ามแบบเดียวกับตอนอัปเกรดทะเบียน
+      // เดิมแถวว่างสองแถวนับเป็น "เลขซ้ำ" แล้วโยน error ที่ไม่บอกเลขบิล (ย้ายเครื่อง/ปลดพักไม่ได้)
+      var indexId = String(indexRows[ir][0] == null ? '' : indexRows[ir][0]).trim();
+      if (!indexId) continue;
+      if (indexedBills[indexId]) {
+        // ซ้ำจริง = ตอบ REGISTRY_CORRUPT พร้อมเลขบิล (ผู้เรียกใช้ registryCorruptResponse_) — ไม่แตะชีต/เครื่องหลัก
+        res.registryCorrupt = { error: registryCorrupt_('ทะเบียนเลขบิลมีเลขบิลซ้ำ: ' + indexId + ' (แถว ' + (ir + 2) + ')', 'bill'), id: indexId,
+          what: BILL_INDEX_LABEL_ };
+        return fail('ทะเบียนเลขบิลมีเลขบิล ' + indexId + ' ซ้ำ — ตรวจแท็บ ' + BILL_INDEX_NAME_ + ' ก่อนย้ายเครื่องหลัก');
+      }
+      indexedBills[indexId] = indexRows[ir];
+    }
   }
   // ทะเบียนยอมรับข้อมูลหายใช้ "ให้ข้อยกเว้น" อย่างเดียว — อ่านเฉพาะเมื่อมีบิลขาด และถ้าอ่านไม่ได้ถือว่าว่าง (ไม่ยกเว้นใคร)
   // เดิมอ่านทุกครั้งและ throw → แท็บนี้ถูกแก้หัวคอลัมน์ = เครื่องที่ข้อมูลครบก็ย้ายเครื่องหลักไม่ได้ (ผู้ตรวจแยกรอบ 2 #3)
@@ -704,6 +833,7 @@ function validatePrimaryTransfer_(bills, opts) {
           }
         }
         res.counts.missing++;
+        if (!accMatches) res.counts.toAccept++;
         if (res.missing.length < TRANSFER_LIST_MAX_) {
           var mi = transferRowInfo_(id, name, rows[j], hasVat, version, tz, notes ? notes[j][0] : ''); mi.kind = 'missing';
           if (accMatches) mi.accepted = true;
@@ -722,8 +852,18 @@ function validatePrimaryTransfer_(bills, opts) {
       if (billRowChanges_(rows[j], row, hasVat).length) reason = 'row';
       else if (indexed && /^[a-f0-9]{64}$/.test(String(indexed[3])) && String(indexed[3]) !== canonicalBillHash_(b, v)) reason = 'detail';
       else if (billNoteChanges_(notes ? notes[j][0] : '', localNote).length) reason = 'note';
+      if (reason && acceptedSince > 0) {
+        // ข้อ 10: ยอมรับไว้แล้วในรอบก่อนของการพักครั้งนี้ (แถวบนชีตไม่เปลี่ยนตั้งแต่ตอนนั้น — ระหว่างพักแก้บิลเดิมไม่ได้อยู่แล้ว)
+        var accD = acceptedOf(id);
+        if (accD && /^different/.test(accD.kind) && accD.month === name && accD.version === version && accD.total === sheetTotal &&
+            accD.acceptedAt >= acceptedSince) {
+          res.counts.acceptedEarlier = (res.counts.acceptedEarlier || 0) + 1;
+          reason = '';
+        }
+      }
       if (reason) {
         res.counts.different++;
+        res.counts.toAccept++;
         if (res.different.length < TRANSFER_LIST_MAX_) { var di = transferRowInfo_(id, name, rows[j], hasVat, version, tz, notes ? notes[j][0] : ''); di.kind = 'different:' + reason; di.reason = reason; res.different.push(di); }
       }
       delete local[id]; // Duplicate server IDs cannot be covered by one local bill.
@@ -744,6 +884,8 @@ function validatePrimaryTransfer_(bills, opts) {
   }
   res.truncated = res.counts.missing > res.missing.length || res.counts.different > res.different.length || res.counts.voided > res.voided.length ||
     (res.counts.pendingVoid || 0) > res.pendingVoid.length;
+  // รายการ "ที่ต้องยอมรับ" ถูกตัด (ข้อ 10) — ยอมรับเป็นรอบได้ · บิลยกเลิก/คำสั่งยกเลิกค้างที่ถูกตัด ไม่นับตรงนี้
+  res.listTruncated = res.counts.missing > res.missing.length || res.counts.different > res.different.length;
   var more = function(n) { return n > 1 ? ' (รวม ' + n + ' ใบ)' : ''; };
   if (res.counts.missing) res.message = "เครื่องใหม่ขาดบิล " + res.missing[0].id + more(res.counts.missing) + " — ซิงก์และสำรองเครื่องเดิม กู้ไฟล์ล่าสุด แล้วตรวจความตรงกันก่อนย้าย";
   else if (res.counts.different) res.message = (res.different[0].reason === 'detail' ? 'รายละเอียดบิล ' + res.different[0].id + ' ต่างจากเครื่องเดิม' : "บิล " + res.different[0].id + " ต่างจากชีต") +
@@ -862,6 +1004,27 @@ function cleanupOldBackups_(folder, keepFileId) {
   return out;
 }
 
+// ── เพดานขนาดไฟล์สำรอง (ข้อ 2 · ตรวจ 19 ต.ค. 2569) ─────────────────────────────────────────────
+// เดิมเขียนแบบจัดหน้า (ใหญ่ขึ้น ~1.5 เท่า) ด้วย createFile(ชื่อ, ข้อความ, ชนิด) ซึ่งคู่มือ Google ระบุว่ารับไม่เกิน 10 MB
+// → การสำรองล้มทุกครั้งเมื่อบิลถึงราว 5,000 ใบ · ตอนนี้เขียน JSON แบบไม่จัดหน้าผ่าน blob (Drive รับ blob ได้ 50 MB)
+// ไฟล์เก่าแบบจัดหน้ายังกู้ได้ตามเดิม (ตัวอ่านใช้ JSON.parse ซึ่งไม่สนช่องว่าง) · ชนิดไฟล์ยังเป็น text/plain (ตัวลบไฟล์เก่าค้นจากชนิดนี้)
+// เพดานที่ใช้จริง = ค่าที่น้อยกว่าระหว่างเพดาน blob ของ Drive กับเพดานขนาดคำขอ (MAX_POST_BYTES_) — ไฟล์สำรองมากับคำขอ
+// แอปใช้ details.limitBytes เตือนเจ้าของล่วงหน้า (ไม่มีค่านี้ = Apps Script รุ่นก่อน)
+var BACKUP_BLOB_LIMIT_BYTES_ = 50 * 1024 * 1024;
+function backupLimitBytes_() { return Math.min(BACKUP_BLOB_LIMIT_BYTES_, MAX_POST_BYTES_); }
+// จำนวนไบต์ UTF-8 ของข้อความ (ภาษาไทย 1 ตัว = 3 ไบต์) — ไม่สร้างสำเนาข้อความ/ไบต์ทั้งก้อน
+function utf8ByteLength_(str) {
+  var s = String(str == null ? "" : str), n = 0;
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xFC00) === 0xDC00) { n += 4; i++; }
+    else n += 3;
+  }
+  return n;
+}
+
 function handleBackup(data, ss) {
   var backup = data ? data.backupData : undefined;
   var why = validateBackupStructure_(backup);
@@ -870,14 +1033,22 @@ function handleBackup(data, ss) {
   }
   var folder, file, fileName;
   var expectedCompact = JSON.stringify(backup);
+  var sizeBytes = utf8ByteLength_(expectedCompact), limitBytes = backupLimitBytes_();
+  if (sizeBytes > BACKUP_BLOB_LIMIT_BYTES_) {
+    // ไม่ส่งให้ Drive โยนข้อความภาษาอังกฤษ — บอกเจ้าของตรง ๆ ว่าใหญ่เกินและต้องทำอะไร (รหัสเดิม: แอปทุกรุ่นเก็บงานไว้ลองใหม่)
+    return json("error", "ไฟล์สำรองใหญ่เกินที่ Google Drive รับได้ (" + (sizeBytes / 1048576).toFixed(1) + " MB จากเพดาน " +
+      Math.round(BACKUP_BLOB_LIMIT_BYTES_ / 1048576) + " MB) — การสำรองขึ้น Drive หยุดแล้ว ให้เจ้าของดาวน์โหลดไฟล์สำรองเก็บไว้ในเครื่อง " +
+      "และวางแผนเก็บบิลเก่าออกจากเครื่อง", { sizeBytes: sizeBytes, limitBytes: limitBytes, tooLarge: true }, "BACKUP_WRITE_FAILED");
+  }
   try {
     folder = getBackupFolder_(true);
     var timeStamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd_HH-mm-ss");
     fileName = BACKUP_FILE_PREFIX + timeStamp + ".json";
-    file = folder.createFile(fileName, JSON.stringify(backup, null, 2), MimeType.PLAIN_TEXT);
+    file = folder.createFile(Utilities.newBlob(expectedCompact, MimeType.PLAIN_TEXT, fileName));
   } catch (err) {
-    return json("error", "การสำรองข้อมูลล้มเหลว: " + (err && err.message ? err.message : String(err)), null,
-      (err && err.code === "BACKUP_FOLDER_TRASHED") ? "BACKUP_FOLDER_TRASHED" : "BACKUP_WRITE_FAILED");
+    var code = (err && (err.code === "BACKUP_FOLDER_TRASHED" || err.code === "BACKUP_FOLDER_MISSING")) ? err.code : "BACKUP_WRITE_FAILED";
+    return json("error", "การสำรองข้อมูลล้มเหลว: " + (err && err.message ? err.message : String(err)),
+      code === "BACKUP_WRITE_FAILED" ? { sizeBytes: sizeBytes, limitBytes: limitBytes } : null, code);
   }
 
   // ── ตรวจไฟล์ใหม่ก่อนถือว่าสำเร็จ ─────────────────────────────────────────
@@ -903,7 +1074,9 @@ function handleBackup(data, ss) {
     txCount: backup.transactions.length,
     bytes: expectedCompact.length,
     trashedOld: cleanup.trashed,
-    cleanupError: cleanupError
+    cleanupError: cleanupError,
+    sizeBytes: sizeBytes,          // ไบต์จริงของไฟล์ (UTF-8) — ข้อ 2
+    limitBytes: limitBytes         // เพดานที่ใช้จริง — แอปเตือนก่อนถึง
   });
 }
 
@@ -918,6 +1091,14 @@ function getBackupFolder_(createIfMissing) {
     try {
       saved = DriveApp.getFolderById(savedId);
     } catch (err) {
+      // ข้อ 40 (ตรวจ 19 ต.ค. 2569): โฟลเดอร์ถูกลบถาวร (ล้างถังขยะ/ครบ 30 วัน) — Drive ตอบ "No item with the given ID could be found"
+      // เดิมได้ข้อความกว้าง ๆ ทุกครั้งตลอดไป และฟังก์ชันแก้ต้องใส่ค่า (กด Run ในตัวแก้ไขไม่ได้) → บอกวิธีแก้ที่กดได้จริง
+      if (/no item with the given id|not found|ไม่พบ/i.test(String(err && err.message || err))) {
+        var gone = new Error("โฟลเดอร์สำรองที่ตั้งไว้ถูกลบถาวรจาก Google Drive แล้ว (หาไม่เจอ) — ให้เจ้าของเปิด Apps Script " +
+          "เลือกฟังก์ชัน resetPosBackupFolder แล้วกด Run 1 ครั้ง การสำรองครั้งถัดไปจะสร้างโฟลเดอร์ใหม่ให้เอง");
+        gone.code = "BACKUP_FOLDER_MISSING";
+        throw gone;
+      }
       // A transient Drive failure must never silently redirect the backup destination.
       throw new Error("เปิดโฟลเดอร์สำรองที่ตั้งไว้ไม่ได้ — ลองใหม่ หรือตรวจสิทธิ์/ตั้ง Folder ID โดยเจ้าของ: " + err);
     }
@@ -953,6 +1134,30 @@ function assertBackupFolderNotTrashed_(folder) {
     throw e;
   }
   return folder;
+}
+
+// ข้อ 40: โฟลเดอร์สำรองถูกลบถาวร (การสำรองตอบ BACKUP_FOLDER_MISSING) — เลือกฟังก์ชันนี้ในตัวแก้ไขแล้วกด Run 1 ครั้ง (ไม่ต้องใส่ค่า)
+// ล้าง POS_BACKUP_FOLDER_ID → การสำรองครั้งถัดไปหาโฟลเดอร์ชื่อ Erotica_POS_Backups หรือสร้างใหม่ให้เอง
+// โฟลเดอร์เดิมยังเปิดได้และไม่อยู่ในถังขยะ = ไม่ล้าง (กันกดผิด — ไฟล์สำรองเดิมยังอยู่ที่นั่น)
+function resetPosBackupFolder() {
+  var props = PropertiesService.getScriptProperties();
+  var savedId = String(props.getProperty(POS_BACKUP_FOLDER_ID_PROPERTY) || "");
+  var msg;
+  if (!savedId) {
+    msg = "ยังไม่ได้จำโฟลเดอร์สำรองไว้ — การสำรองครั้งถัดไปจะหา/สร้างโฟลเดอร์ " + BACKUP_FOLDER_NAME + " ให้เอง";
+  } else {
+    var still = null;
+    try { still = DriveApp.getFolderById(savedId); } catch (e) { still = null; }
+    if (still && !isTrashedFile_(still)) {
+      msg = "โฟลเดอร์สำรองเดิม \"" + still.getName() + "\" ยังใช้ได้ — ไม่ได้เปลี่ยนอะไร";
+    } else {
+      props.deleteProperty(POS_BACKUP_FOLDER_ID_PROPERTY);
+      msg = still ? "ล้างค่าโฟลเดอร์สำรองแล้ว (โฟลเดอร์เดิมอยู่ในถังขยะ — ถ้ายังต้องการไฟล์เดิม ให้กู้โฟลเดอร์คืนจากถังขยะก่อนสำรองครั้งถัดไป)"
+        : "ล้างค่าโฟลเดอร์สำรองแล้ว — การสำรองครั้งถัดไปจะสร้างโฟลเดอร์ " + BACKUP_FOLDER_NAME + " ใหม่ให้เอง";
+    }
+  }
+  Logger.log(msg);
+  return msg;
 }
 
 // ใช้เฉพาะตอนมีโฟลเดอร์ชื่อซ้ำ: คัดลอก Folder ID จาก URL ของโฟลเดอร์ที่ถูกต้อง แล้วรันฟังก์ชันนี้ 1 ครั้ง
@@ -997,7 +1202,7 @@ function handleListBackups(data) {
       files: page, total: total, nextOffset: offset + page.length < total ? offset + page.length : null
     });
   } catch (err) {
-    return json("error", "อ่านรายการไฟล์สำรองไม่สำเร็จ: " + err.toString());
+    return json("error", "อ่านรายการไฟล์สำรองไม่สำเร็จ: " + err.toString(), null, (err && err.code) || undefined);
   }
 }
 
@@ -1044,7 +1249,7 @@ function handleGetBackup(data) {
       backupData: parsed
     });
   } catch (err) {
-    return json("error", "กู้คืนข้อมูลไม่สำเร็จ: " + err.toString());
+    return json("error", "กู้คืนข้อมูลไม่สำเร็จ: " + err.toString(), null, (err && err.code) || undefined);
   }
 }
 
@@ -1078,6 +1283,34 @@ function billSheetIsBlank_(sheet) {
   return true;
 }
 
+// ── หัวตารางที่ "เขียนค้างครึ่งทาง" (ข้อ 9 · ตรวจ 19 ต.ค. 2569) ──────────────────────────────────────
+// Google ล้ม/ตัดการทำงานระหว่างเขียนหัวตารางแท็บใหม่ (บิลแรกของเดือน / สร้างแท็บสรุปรายเดือน) → เหลือหัวไม่ครบ
+// เดิมไม่มีวันซ่อมเอง: บิลทั้งเดือนถูกปฏิเสธ SCHEMA_MISMATCH หรือสรุปทุกใบล้ม จนคนไปแก้หัวตารางเอง
+// ซ่อมให้เฉพาะกรณีที่ปลอดภัยแน่นอน: แท็บยังไม่มีแถวข้อมูล และแถว 1 เป็น "ส่วนต้น" ของหัวที่ถูกต้องเป๊ะ
+// (ช่อง 1..k ตรงกับหัวที่รู้จักทุกตัว และหลังจากนั้นว่าง · ว่างทั้งแถวนับด้วย) — หัวที่คนแก้/สลับ/เติมเอง หรือมีแถวข้อมูลแล้ว = หยุดเหมือนเดิม
+function headerIsUnfinishedPrefix_(sheet, candidates) {
+  if (sheet.getLastRow() > 1) return false;
+  var lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return true;
+  var h = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  for (var c = 0; c < candidates.length; c++) {
+    var want = candidates[c];
+    if (lastCol >= want.length) continue;   // ยาวเท่า/เกินหัวเต็ม = ไม่ใช่หัวที่เขียนค้าง
+    var ok = true;
+    for (var i = 0; i < lastCol && ok; i++) if (String(h[i] == null ? "" : h[i]).trim() !== want[i]) ok = false;
+    if (ok) return true;
+  }
+  return false;
+}
+// แท็บบิลเดือนที่หัวเขียนค้าง → เขียนหัว 13 ช่องให้ครบ (ไม่มีแถวข้อมูล = ไม่มีอะไรให้เสีย) · คืน true เมื่อซ่อมแล้ว
+function repairUnfinishedBillHeader_(sheet) {
+  if (billSheetSchema_(sheet) || !headerIsUnfinishedPrefix_(sheet, [BILL_HEADERS, BILL_LEGACY_HEADERS])) return false;
+  styleHeaderRow(sheet, 1, BILL_HEADERS, "#1e293b", "white");
+  sheet.setFrozenRows(1);
+  Logger.log("ซ่อมหัวตารางที่เขียนค้างของแท็บ " + sheet.getName());
+  return !!billSheetSchema_(sheet);
+}
+
 function billSheetSchema_(sheet) {
   var lastCol = sheet.getLastColumn();
   if (lastCol < 1) return null;
@@ -1094,16 +1327,6 @@ function billSheetSchema_(sheet) {
   if (matches(BILL_HEADERS)) return "vat";
   if (matches(BILL_LEGACY_HEADERS)) return "legacy";
   return null;
-}
-
-function billSheetHasVatColumns_(sheet) {
-  var lastCol = sheet.getLastColumn();
-  if (lastCol < BILL_HEADERS.length) return false;
-  var h = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  for (var i = 0; i < BILL_HEADERS.length; i++) {
-    if (String(h[i] || "").trim() !== BILL_HEADERS[i]) return false;
-  }
-  return true;
 }
 
 // ── เพิ่ม 4 คอลัมน์ VAT ให้แท็บบิลเดิมที่ยังเป็นโครง 9 คอลัมน์ ──────────────
@@ -1374,9 +1597,26 @@ function ledgerWriteRow_(sheet, rowNum, values, textCols) {
   sheet.getRange(rowNum, 1, 1, values.length).setValues([values]);
   return rowNum;
 }
+// ── หาแถวของเลขบิลในทะเบียนระบบ (_POS_BILL_INDEX / _POS_VOID_ARCHIVE) ─────────────────────────────
+// ข้อ 8 (ตรวจ 19 ต.ค. 2569): เดิมอ่านทั้งทะเบียน (ทุกแถว × 5 ช่อง) ทุกคำขอ — งานโตตามจำนวนบิลทั้งร้าน
+// (ส่งบิลทั้งร้านใหม่หลังกู้ไฟล์ = กำลังสอง) · ตอนนี้ให้ Sheets ค้นเฉพาะคอลัมน์เลขบิลด้วย TextFinder แบบ "ตรงทั้งช่อง +
+// ตรงตัวพิมพ์" แล้วอ่านเฉพาะแถวที่เจอ · ยังตรวจเลขซ้ำเหมือนเดิม (เจอเกิน 1 แถวที่ค่าตรงจริง = REGISTRY_CORRUPT ระดับบิล)
+// TextFinder ค้นจาก "ค่าที่โชว์" → ยืนยันซ้ำด้วยค่าจริงของช่อง (String(ค่า) === เลขบิล) แบบเดียวกับตัวเดิม
+// ตัวจำลองรุ่นเก่าที่ไม่มี createTextFinder = อ่านทั้งทะเบียนแบบเดิม
 function ledgerEntry_(sheet, id, width) {
   var n = sheet.getLastRow(); if (n < 2) return null;
-  var values = sheet.getRange(2, 1, n - 1, width).getValues(), found = null;
+  var col = sheet.getRange(2, 1, n - 1, 1), found = null;
+  if (typeof col.createTextFinder === 'function') {
+    var hits = col.createTextFinder(String(id)).matchCase(true).matchEntireCell(true).findAll() || [];
+    for (var h = 0; h < hits.length; h++) {
+      var r = hits[h].getRow(), cells = sheet.getRange(r, 1, 1, width).getValues()[0];
+      if (String(cells[0]) !== id) continue;
+      if (found) throw registryCorrupt_('ทะเบียนมีเลขบิลซ้ำ: ' + id, 'bill');
+      found = { row: r, cells: cells };
+    }
+    return found;
+  }
+  var values = sheet.getRange(2, 1, n - 1, width).getValues();
   for (var i = 0; i < values.length; i++) if (String(values[i][0]) === id) {
     if (found) throw registryCorrupt_('ทะเบียนมีเลขบิลซ้ำ: ' + id, 'bill');
     found = { row: i + 2, cells: values[i] };
@@ -1476,7 +1716,8 @@ function migrateLegacyBillIndex_(ss, index) {
       var s = ss.getSheetByName(month);   // แท็บที่เคยอ่านไม่ได้ ถูกแก้หัวตาราง/ลบไปแล้ว → อัปเกรดซ้ำ
       return !s || s.getLastRow() < 2 || (!!billSheetSchema_(s) && billRevColumn_(s) >= 0);
     });
-  if (settled) return;
+  // ข้อ 8: คืนเครื่องหมายที่อ่านแล้วให้ผู้เรียกส่งต่อ (noteBillIndexGrowth_ ไม่ต้องอ่าน Script Properties ซ้ำในคำขอเดียวกัน)
+  if (settled) return marker;
   var existing = Object.create(null), ledgerProblems = [];
   // แถวทะเบียนที่อ่านไม่ได้ (ถูกล้างด้วยมือ/พิมพ์ทับ) ปิดเฉพาะเลขนั้น ไม่ล้มทั้งชีต (ตรวจรอบ Claude รอบ 3 · ผู้ตรวจแยก #9)
   // — แถวว่างข้าม · เลขซ้ำในทะเบียน: ledgerEntry_ ปฏิเสธเฉพาะบิลเลขนั้นอยู่แล้ว
@@ -1520,11 +1761,13 @@ function migrateLegacyBillIndex_(ss, index) {
   var value = JSON.stringify({ b: binding, n: Math.max(0, index.getLastRow() - 1), skip: scan.badTabs });
   props.setProperty(BILL_INDEX_MARKER_, value);
   if (props.getProperty(BILL_INDEX_MARKER_) !== value) throw new Error('ยืนยันการอัปเกรดทะเบียนเลขบิลไม่ได้');
+  return readBillIndexMarker_({ getProperty: function() { return value; } });
 }
 // จำนวนแถวทะเบียนสูงสุดที่เคยมี — แถวถูกลบด้วยมือ (จำนวนน้อยลง) = อัปเกรดซ้ำ (ตรวจรอบ Claude รอบ 3 · D8)
 // เขียน property เฉพาะตอนทะเบียนได้แถวใหม่ (บิลใหม่ 1 ใบ = 1 ครั้ง) ภายใต้ script lock เดียวกับการเขียนแถว
-function noteBillIndexGrowth_(rows) {
-  var props = PropertiesService.getScriptProperties(), m = readBillIndexMarker_(props);
+// known = เครื่องหมายที่ migrateLegacyBillIndex_ เพิ่งอ่าน/เขียนในคำขอเดียวกัน (ถือ script lock อยู่ ค่าไม่เปลี่ยนระหว่างทาง)
+function noteBillIndexGrowth_(rows, known) {
+  var props = PropertiesService.getScriptProperties(), m = known || readBillIndexMarker_(props);
   if (!m || m.b !== backendId_() || !(rows > m.n)) return;
   props.setProperty(BILL_INDEX_MARKER_, JSON.stringify({ b: m.b, n: rows, skip: m.skip }));
 }
@@ -1689,10 +1932,12 @@ function archivedVoidEvent_(id) {
 function registryCorrupt_(message, scope) { var e = new Error(message); e.registryCorrupt = scope === 'all' ? 'all' : 'bill'; return e; }
 // คืน response REGISTRY_CORRUPT ถ้าทะเบียนเสีย · null = ปัญหาชั่วคราว (ผู้เรียกตอบ REGISTRY_UNAVAILABLE ตามเดิม)
 // ข้อความเป็นของเราเอง (ไม่ส่งข้อความ error ดิบของ JSON.parse — ตัวแปลข้อความของแอปจะเข้าใจผิดว่าเป็นหน้าล็อกอิน)
-function registryCorruptResponse_(regErr, billId, notDone) {
+// what = ชื่อทะเบียนที่เสีย (ไม่ส่ง = ทะเบียนบิลที่ยกเลิก ตามเดิม) · ข้อ 41: ทะเบียนเลขบิล (_POS_BILL_INDEX) ใช้ BILL_INDEX_LABEL_
+var BILL_INDEX_LABEL_ = "ทะเบียนเลขบิล (แท็บซ่อน " + BILL_INDEX_NAME_ + ")";
+function registryCorruptResponse_(regErr, billId, notDone, what) {
   if (!regErr || !regErr.registryCorrupt) return null;
   var scope = regErr.registryCorrupt, reason = String(regErr.message || regErr).slice(0, 200);
-  return json("error", "ทะเบียนบิลที่ยกเลิกบนชีตเสีย" + (scope === 'all' ? " (ทั้งทะเบียน)" : " (เฉพาะบิล " + billId + ")") +
+  return json("error", (what || "ทะเบียนบิลที่ยกเลิกบนชีต") + "เสีย" + (scope === 'all' ? " (ทั้งทะเบียน)" : " (เฉพาะบิล " + billId + ")") +
     " จึง" + notDone + " — ส่งซ้ำก็ไม่หาย ให้ผู้ดูแลแก้ในชีต/Script Properties: " + reason,
     { billId: billId, scope: scope, reason: reason }, "REGISTRY_CORRUPT");
 }
@@ -1720,13 +1965,22 @@ function handleTransaction(data, ss) {
   // — ไม่ใช้ timezone ของโปรเจกต์ Apps Script อีกต่อไป จึงไม่ลงแท็บผิดเดือนแม้ตั้ง timezone ผิด
   var monthYear = v.monthKey;
   var priorSheet = ss.getSheetByName(monthYear);
-  if (priorSheet && !billSheetSchema_(priorSheet) && !billSheetIsBlank_(priorSheet)) {
+  if (priorSheet && !billSheetSchema_(priorSheet) && !billSheetIsBlank_(priorSheet) && !repairUnfinishedBillHeader_(priorSheet)) {
     return json('error', 'โครงสร้างคอลัมน์ของแท็บ ' + monthYear + ' ไม่ตรงกับระบบ — ตรวจหัวตารางก่อนส่งบิล', null, 'SCHEMA_MISMATCH');
   }
   var index = ledgerSheet_(BILL_INDEX_NAME_, ['id', 'month', 'version', 'hash', 'applied'], ss);
-  try { migrateLegacyBillIndex_(ss, index); }
+  var indexMarker = null;
+  try { indexMarker = migrateLegacyBillIndex_(ss, index); }
   catch (migrationErr) { return json('error', 'อัปเกรดทะเบียนเลขบิลยังไม่สำเร็จ: ' + String(migrationErr.message || migrationErr), null, 'BILL_INDEX_MIGRATION_REQUIRED'); }
-  var indexed = billIndexEntry_(index, billId, ss);
+  var indexed;
+  // ข้อ 41 (ตรวจ 19 ต.ค. 2569): เลขบิลนี้มีหลายแถวในทะเบียน — เดิมหลุดเป็น SERVER_ERROR ที่ไม่บอกอะไร
+  // ตอนนี้ตอบ REGISTRY_CORRUPT ระดับบิล (แอปส่งบิลใบอื่นต่อได้เหมือนเดิม) พร้อมเลขบิลและวิธีแก้
+  try { indexed = billIndexEntry_(index, billId, ss); }
+  catch (indexErr) {
+    var corruptIndex = registryCorruptResponse_(indexErr, billId, "ยังไม่บันทึกบิลใบนี้", BILL_INDEX_LABEL_);
+    if (corruptIndex) return corruptIndex;
+    throw indexErr;
+  }
   if (indexed && indexed.cells[3] === 'duplicate') {
     var stillDuplicate = resolveDuplicateIndexEntry_(ss, index, indexed, billId, monthYear);
     if (stillDuplicate) return stillDuplicate;
@@ -1953,7 +2207,7 @@ function handleTransaction(data, ss) {
   }
   var indexRow = [billId, monthYear, 'v1:' + incoming.epoch + ':' + incoming.rev, digest, 0];
   if (indexed) ledgerWriteRow_(index, indexed.row, indexRow, 4);
-  else { indexed = { row: ledgerWriteRow_(index, 0, indexRow, 4) }; noteBillIndexGrowth_(indexed.row - 1); }
+  else { indexed = { row: ledgerWriteRow_(index, 0, indexRow, 4) }; noteBillIndexGrowth_(indexed.row - 1, indexMarker); }
   // Reserve version + payload before the row. Identical retries can repair an interrupted write.
   SpreadsheetApp.flush();
   // ── เขียน: "รุ่นก่อน แล้วค่อยแถว" ──────────────────────────────────────
@@ -2018,7 +2272,8 @@ function handleListBills(data, ss) {
 
   var schema = billSheetSchema_(sheet);
   if (!schema) {
-    if (billSheetIsBlank_(sheet))
+    // หัวตารางเขียนค้าง (ข้อ 9) ไม่มีแถวข้อมูล = ยังว่าง เหมือนกัน (อ่านอย่างเดียว ไม่ซ่อมที่นี่ — บิลถัดไปซ่อมให้)
+    if (billSheetIsBlank_(sheet) || headerIsUnfinishedPrefix_(sheet, [BILL_HEADERS, BILL_LEGACY_HEADERS]))
       return json("success", "แท็บเดือนนี้ยังว่าง", { sheet: monthYear, exists: true, bills: [], truncated: false, rowsTotal: 0 });
     return json("error",
       "โครงสร้างคอลัมน์ของแท็บ " + monthYear + " ไม่ตรงกับที่ระบบรู้จัก จึงอ่านรายการไม่ได้",
@@ -2110,7 +2365,13 @@ function migrateVoidRegistryIfNeeded_() {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty(VOID_REG_MIGRATED_PROPERTY) === "1") return;
   var raw = props.getProperty(VOIDED_BILLS_PROPERTY);
-  if (!raw) return;   // ไม่มีทะเบียนรุ่นเก่า = ไม่มีอะไรต้องย้าย (ไม่ต้องเขียนอะไรเลย)
+  // ไม่มีทะเบียนรุ่นเก่า = ไม่มีอะไรต้องย้าย → ตั้งธงไว้เลย (ข้อ 8 · ตรวจ 19 ต.ค. 2569: เดิมไม่ตั้ง ทุกคำขออ่าน Script Properties
+  // เพิ่ม 2 ครั้งตลอดไป) · ตั้งไม่ได้ (โควตาเต็ม) ไม่ใช่เหตุให้คำขอล้ม — รอบหน้าลองตั้งใหม่
+  // ย้อนรุ่น: exportVoidRegistryForRollback() เขียน POS_VOIDED_BILLS ให้รุ่นเก่าอ่าน · รุ่นนี้ไม่ย้ายซ้ำเพราะธงตั้งแล้ว (ทะเบียนต่อบิลยังอยู่ครบ)
+  if (!raw) {
+    try { props.setProperty(VOID_REG_MIGRATED_PROPERTY, "1"); } catch (flagErr) { Logger.log("void registry flag not saved: " + flagErr); }
+    return;
+  }
   {
     var legacy;
     try { legacy = JSON.parse(raw); } catch (pe) { legacy = null; }
@@ -2221,16 +2482,31 @@ function markBillRestored_(billId, restoredAt, entry) {
 
 // ใช้ก่อน "ย้อนกลับไปใช้ Apps Script รุ่นก่อน" เท่านั้น: เขียนทะเบียนรูปแบบใหม่กลับลง POS_VOIDED_BILLS
 // (รุ่นก่อนอ่านได้แค่ค่าเดียว ≤ 8 KB — ใส่รายการใหม่สุดก่อนจนเต็มงบ แล้วบอกว่าตกหล่นกี่รายการ)
+// ข้อ 68 (ตรวจ 19 ต.ค. 2569): รวมเหตุการณ์ที่ย้ายไปแท็บ _POS_VOID_ARCHIVE แล้วด้วย (เกิน 90 วัน / ทะเบียนเกินงบ)
+//   เดิมส่งออกเฉพาะใน Script Properties — บิลที่ยกเลิกนานแล้วกลับขึ้นชีตได้ถ้ารุ่นเก่าได้คำขอส่งซ้ำ
+// และล้างธง POS_VOIDED_MIGRATED_V2 — กลับมาใช้รุ่นนี้เมื่อไร บิลที่รุ่นเก่ายกเลิกระหว่างนั้น (อยู่ใน POS_VOIDED_BILLS) ถูกย้ายเข้าทะเบียนต่อบิลให้
 function exportVoidRegistryForRollback() {
   var props = PropertiesService.getScriptProperties();
-  var all = props.getProperties(), list = [];
+  var all = props.getProperties(), list = [], merged = Object.create(null);
+  var add = function (id, v, r) {
+    if (!BILL_ID_RE.test(String(id))) return;
+    var cur = merged[id] || { v: 0, r: 0 };
+    merged[id] = { v: Math.max(cur.v, Number(v) || 0), r: Math.max(cur.r, Number(r) || 0) };
+  };
   Object.keys(all).forEach(function (k) {
     if (k.indexOf(VOID_REG_PREFIX) !== 0) return;
-    try {
-      var o = JSON.parse(all[k]); var e = { v: Number(o.v) || 0, r: Number(o.r) || 0 };
-      var ev = billEventOf_(e); if (!ev) return;
-      list.push({ id: k.slice(VOID_REG_PREFIX.length), n: ev.type === "voided" ? ev.at : -ev.at, at: ev.at });
-    } catch (e2) {}
+    try { var o = JSON.parse(all[k]); add(k.slice(VOID_REG_PREFIX.length), o.v, o.r); } catch (e2) {}
+  });
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss.getSheetByName(VOID_ARCHIVE_NAME_)) {
+      var sheet = ledgerSheet_(VOID_ARCHIVE_NAME_, ['id', 'voidedAt', 'restoredAt'], ss), n = sheet.getLastRow();
+      if (n > 1) sheet.getRange(2, 1, n - 1, 3).getValues().forEach(function (r) { add(String(r[0]), r[1], r[2]); });
+    }
+  } catch (archiveErr) { Logger.log("อ่านแท็บ " + VOID_ARCHIVE_NAME_ + " ไม่ได้ — ส่งออกเฉพาะใน Script Properties: " + archiveErr); }
+  Object.keys(merged).forEach(function (id) {
+    var ev = billEventOf_(merged[id]); if (!ev) return;
+    list.push({ id: id, n: ev.type === "voided" ? ev.at : -ev.at, at: ev.at });
   });
   list.sort(function (a, b) { return b.at - a.at; });
   var map = {}, kept = 0;
@@ -2240,6 +2516,7 @@ function exportVoidRegistryForRollback() {
     kept++;
   }
   props.setProperty(VOIDED_BILLS_PROPERTY, JSON.stringify(map));
+  props.deleteProperty(VOID_REG_MIGRATED_PROPERTY);
   var msg = "เขียนทะเบียนสำหรับรุ่นก่อนแล้ว " + kept + " จาก " + list.length + " รายการ (ใหม่สุดก่อน)";
   Logger.log(msg);
   return msg;
@@ -2422,8 +2699,8 @@ function handleVoidTransaction(data, ss) {
   // ใช้ monthKey จาก client เป็นหลัก (เหตุผลเดียวกับ handleTransaction) — ต้องชี้แท็บเดือนเดียวกับตอนบันทึกบิล
   var monthYear = /^(0[1-9]|1[0-2])-\d{4}$/.test(data.monthKey || "") ? data.monthKey : fmt(txDate, "MM-yyyy");
   // กันบิลที่วันที่หายไปแล้วกลายเป็นปี 1970 — จะได้แท็บ "01-1970" ค้างอยู่ในไฟล์ถาวร
-  if (!isValidMonthKey_(monthYear))
-    return json("error", "เดือนของบิลไม่ถูกต้อง (" + monthYear + ") — ตรวจสอบวันที่ของบิลใบนี้");
+  if (!isValidMonthKey_(monthYear))   // ข้อ 68: เดิมไม่มีรหัส — แอปรุ่นนี้นับเหมือนเดิม (เก็บงานไว้ลองใหม่) ข้อความเดิม
+    return json("error", "เดือนของบิลไม่ถูกต้อง (" + monthYear + ") — ตรวจสอบวันที่ของบิลใบนี้", null, "INVALID_MONTH");
   // ⚠️ ลงทะเบียนก่อนแตะชีตเสมอ — แม้จะไม่พบแท็บหรือไม่พบแถว
   // เพราะคำขอ "บันทึกบิล" ที่ยังลอยอยู่ในเน็ตอาจมาถึงทีหลังและสร้างแถวขึ้นมาใหม่
   //
@@ -2484,7 +2761,8 @@ function handleVoidTransaction(data, ss) {
     // ── โครงตารางต้องเป็นแบบที่รู้จัก ก่อนลบอะไรทั้งสิ้น (ฝั่งเขียนตรวจอยู่แล้ว ฝั่งลบต้องตรวจเหมือนกัน) ──
     // แท็บที่หัวตารางถูกสลับ/ลบหัวทิ้ง → คอลัมน์แรกอาจไม่ใช่เลขที่บิล = ลบแถวผิดได้
     if (!billSheetSchema_(sh)) {
-      if (billSheetIsBlank_(sh)) continue;
+      // ว่าง / หัวเขียนค้างโดยยังไม่มีแถวข้อมูล (ข้อ 9) = ไม่มีแถวบิลให้ลบ
+      if (billSheetIsBlank_(sh) || headerIsUnfinishedPrefix_(sh, [BILL_HEADERS, BILL_LEGACY_HEADERS])) continue;
       if (months[mi] === monthYear || months[mi] === indexedMonth) {
         return json("error",
           "โครงสร้างคอลัมน์ของแท็บ " + months[mi] + " ไม่ตรงกับที่ระบบรู้จัก จึงยังไม่ลบแถวใด — ตรวจหัวตารางแถวแรกก่อน " +
@@ -2575,6 +2853,27 @@ var SUMMARY_STAMP_COL = 26;   // Z1 — นอกพื้นที่ราย�
 // รหัสรุ่นที่อยู่ในแท็บจึงหายไปด้วย → คำขอรุ่นเก่าที่มาถึงทีหลังเขียนทับแถวของวันนั้นใน "สรุปรายเดือน" ได้
 // ตอนนี้: สรุปของวันที่เลยระยะเก็บแท็บ จดรหัสรุ่นไว้ใน Script Properties ด้วย (เฉพาะวันเก่า — จำนวนจำกัดตามการแก้บิลย้อนหลัง)
 function summaryStampPropKey_(sheetName) { return "POS_SUMSTAMP_" + sheetName; }
+// ── ลบรหัสรุ่นที่จดไว้ใน Script Properties เมื่อเก่าเกิน 400 วัน (ข้อ 68 · ตรวจ 19 ต.ค. 2569) ──────────────────────
+// เดิมไม่เคยลบ (~18 KB/ปี กินโควตา Script Properties 500 KB) · ทำไมลบได้อย่างปลอดภัย:
+//   รหัสรุ่นมีไว้กัน "คำขอสรุปเก่าที่ยังเดินทางอยู่" ทับยอดใหม่ — แอปสร้าง generatedAt ใหม่ทุกครั้งที่ประกอบคำขอ (ส่งซ้ำก็ใหม่กว่าเสมอ)
+//   คำขอที่ค้างในเน็ต/คิวของ Google มีอายุเป็นนาที ไม่ใช่เดือน · 400 วัน (> 13 เดือน) จึงเผื่อมากพอ
+//   ลบเมื่อเก่าทั้งสองทาง: "วันของสรุป" เก่ากว่า 400 วัน และ "ค่ารหัสรุ่น" (เวลาที่เครื่องสร้างคำขอ) ก็เก่ากว่า 400 วัน
+//   — แก้บิลวันเก่าเมื่อวาน รหัสรุ่นยังอยู่อีก 400 วัน · วันที่ยังไม่ถึง 400 วันไม่ลบไม่ว่าค่าเป็นอะไร
+//   ค่าที่อ่านไม่ได้ไม่ลบ (เป็นหลักฐาน — readSummaryStamp_ หยุดเฉพาะวันนั้นตามเดิม)
+var SUMMARY_STAMP_PROP_KEEP_MS_ = 400 * 24 * 60 * 60 * 1000;
+function pruneSummaryStampProps_(keepKey) {
+  try {
+    var props = PropertiesService.getScriptProperties(), all = props.getProperties(), cutoff = Date.now() - SUMMARY_STAMP_PROP_KEEP_MS_, n = 0;
+    Object.keys(all).forEach(function (k) {
+      if (k.indexOf("POS_SUMSTAMP_") !== 0 || k === keepKey) return;
+      var dm = /(\d{4})-(\d{2})-(\d{2})$/.exec(k);
+      if (!dm || !(Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3])) < cutoff)) return;
+      var v = Number(all[k]);
+      if (isFinite(v) && v > 0 && v < cutoff) { props.deleteProperty(k); n++; }
+    });
+    return n;
+  } catch (e) { Logger.log("prune summary stamps failed: " + e); return 0; }
+}
 function isDailyKeyBeyondRetention_(dateKey, keepDays) {
   var m = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m || !keepDays || keepDays <= 0) return false;
@@ -2653,6 +2952,7 @@ function handleDailySummary(data, ss) {
     // บันทึกไม่ได้ (โควตา Script Properties เต็ม) ไม่ใช่เหตุให้สรุปที่เขียนเสร็จแล้วล้ม — แท็บนี้ไม่ถูกลบในคำขอนี้ ยังกันคำขอเก่าได้
     try { PropertiesService.getScriptProperties().setProperty(summaryStampPropKey_(sheetName), String(stampN)); }
     catch (propErr) { Logger.log("save summary stamp failed: " + propErr); }
+    pruneSummaryStampProps_(summaryStampPropKey_(sheetName));   // ข้อ 68 — เฉพาะตอนจดรหัสรุ่นวันเก่า (ไม่บ่อย)
   }
   pruneOldDailySheets(ss, DAILY_SHEET_RETENTION_DAYS, sheetName);
   pruneOrphanSwapSheets_(ss);
@@ -2734,11 +3034,16 @@ function masterFieldsOf_(data) {
   keys.forEach(function (k) { if (data[k] !== undefined && data[k] !== null) out[k] = data[k]; });
   return out;
 }
+// ข้อ 21 (ตรวจ 19 ต.ค. 2569): บันทึกงานที่อ่านไม่ได้ (JSON เสีย) — เดิม throw ทุกคำขอสรุป = SERVER_ERROR วนถาวร
+// (ไม่มีคำขอไหนเขียนบันทึกใหม่ทับได้เลย เพราะทุกคำขออ่านก่อน) · ตอนนี้ถือว่า "ไม่มีงานค้าง" + จดใน Logger
+// แท็บชั่วคราวที่อาจค้าง (__POS_TMP_ / __POS_OLD_) ถูกกวาดตามอายุโดย pruneOrphanSwapSheets_ อยู่แล้ว · บันทึกเสียถูกเขียนทับในคำขอสรุปถัดไป
 function readSummaryJournal_() {
   var raw = PropertiesService.getScriptProperties().getProperty(SUMMARY_JOURNAL_PROPERTY);
   if (!raw) return null;
-  var j = JSON.parse(raw);   // พัง = throw → ผู้เรียกหยุด (ไม่เดาว่าไม่มีงานค้าง)
-  return (j && typeof j === "object") ? j : null;
+  var j;
+  try { j = JSON.parse(raw); }
+  catch (parseErr) { Logger.log("บันทึกงานเผยแพร่สรุป (" + SUMMARY_JOURNAL_PROPERTY + ") อ่านไม่ได้ — ข้ามไป: " + String(raw).slice(0, 120)); return null; }
+  return (j && typeof j === "object" && !Array.isArray(j)) ? j : null;
 }
 function writeSummaryJournal_(j) {
   var val = JSON.stringify(j);
@@ -2752,6 +3057,7 @@ function clearSummaryJournal_() { PropertiesService.getScriptProperties().delete
 function snapshotMasterRow_(ss, periodKey) {
   var master = ss.getSheetByName(MASTER_SHEET_NAME);
   if (!master) return { existed: false, sheetExisted: false };
+  repairUnfinishedMasterHeader_(master);   // ข้อ 9: ซ่อมหัวที่เขียนค้าง "ก่อน" ถ่ายสำเนา (ความกว้างตอนคืนแถวต้องตรง)
   // เพิ่มคอลัมน์ให้ครบ "ก่อน" ถ่ายสำเนาแถว — เดิมถ่ายสำเนาแบบ 8 ช่องแล้ว updateMasterSummarySheet ค่อยแทรกคอลัมน์
   // ถ้าพังหลังจากนั้น การคืนแถวจะเขียนค่าลงผิดช่อง (ยอด VAT/รายได้กลายเป็นค่าของคอลัมน์อื่น)
   migrateMasterAddVarianceColumn(master);
@@ -2773,7 +3079,9 @@ function restoreMasterRow_(ss, snap) {
   if (!snap) return;
   var master = ss.getSheetByName(MASTER_SHEET_NAME);
   if (!master) return;
-  if (!snap.sheetExisted) { try { ss.deleteSheet(master); } catch (e) {} return; }
+  // ข้อ 9: ลบแท็บที่เพิ่งสร้างไม่สำเร็จ = "คืนไม่สำเร็จ" ต้องโยนต่อ (ผู้เรียกเก็บ journal ไว้กู้ต่อรอบหน้า)
+  // เดิมกลืน error แล้วรายงานว่าย้อนสำเร็จ → journal ถูกล้าง แท็บหัวครึ่งเดียวค้างโดยไม่มีใครกลับมาดู
+  if (!snap.sheetExisted) { ss.deleteSheet(master); return; }
   // โครงคอลัมน์เปลี่ยนไปจากตอนถ่ายสำเนา = คืนตามตำแหน่งไม่ได้ (จะลงผิดช่อง) → แจ้งว่าคืนไม่สำเร็จแทน
   if (Math.max(master.getLastColumn(), 1) !== snap.width) throw new Error("โครงคอลัมน์ master เปลี่ยนระหว่างทาง — ไม่คืนแถวตามตำแหน่ง");
   if (snap.existed) master.getRange(snap.row, 1, 1, snap.width).setValues(snap.values);
@@ -3368,16 +3676,30 @@ function writeSummarySheet(sheet, data, periodLabel) {
 }
 
 // ── MASTER SUMMARY SHEET ──────────────────────
+function masterHeaders_() {
+  return [MASTER_TYPE_HEADER, MASTER_PERIOD_HEADER, MASTER_BILL_HEADER]
+    .concat(MASTER_VAT_HEADERS)
+    .concat([MASTER_REV_HEADER, MASTER_EXP_HEADER, MASTER_NET_HEADER, MASTER_VAR_HEADER, MASTER_TS_HEADER]);
+}
+// แท็บ "สรุปรายเดือน" ที่หัวเขียนค้าง/ว่างและยังไม่มีแถวข้อมูล (ข้อ 9) → เขียนหัวให้ครบ · คืน true เมื่อซ่อม
+// เดิม: งานเผยแพร่ที่ค้าง (journal) "ทำต่อให้จบ" เข้าหัวครึ่งเดียวทุกคำขอ = สรุปทุกใบล้มถาวร จนคนลบแท็บเอง
+function repairUnfinishedMasterHeader_(master) {
+  if (!master || !headerIsUnfinishedPrefix_(master, [masterHeaders_()])) return false;
+  styleHeaderRow(master, 1, masterHeaders_(), "#1e293b", "#e2e8f0");
+  master.setFrozenRows(1);
+  Logger.log("ซ่อมหัวตารางที่เขียนค้างของแท็บ " + MASTER_SHEET_NAME);
+  return true;
+}
+
 function updateMasterSummarySheet(ss, data, periodType, periodKey) {
   var masterName = MASTER_SHEET_NAME;
   var master = ss.getSheetByName(masterName);
   if (!master) {
     master = ss.insertSheet(masterName, 0);
-    var mh = [MASTER_TYPE_HEADER, MASTER_PERIOD_HEADER, MASTER_BILL_HEADER]
-      .concat(MASTER_VAT_HEADERS)
-      .concat([MASTER_REV_HEADER,"ค่าใช้จ่าย (฿)","กำไรสุทธิ (฿)", MASTER_VAR_HEADER, MASTER_TS_HEADER]);
-    styleHeaderRow(master, 1, mh, "#1e293b", "#e2e8f0");
+    styleHeaderRow(master, 1, masterHeaders_(), "#1e293b", "#e2e8f0");
     master.setFrozenRows(1);
+  } else if (repairUnfinishedMasterHeader_(master)) {
+    SpreadsheetApp.flush();
   } else {
     // ต้อง flush ให้การแทรกคอลัมน์มีผลจริงก่อน — writeToMaster ด้านล่างอ่านหัวตารางซ้ำ
     // ถ้าอ่านก่อนที่ Sheets จะ apply การแทรก จะหาคอลัมน์ใหม่ไม่เจอแล้วข้ามการเขียนเงินขาด/เกินไปทั้งรอบ
@@ -3587,15 +3909,16 @@ function getOrCreateSheet(ss, name, headers, headerBg) {
   return sheet;
 }
 
+// ข้อ 9 (ตรวจ 19 ต.ค. 2569): เขียนหัวทั้งแถวด้วย setValues ครั้งเดียว — เดิมเขียนทีละช่อง (13 ครั้ง)
+// Google ล้มกลางทางได้หัวครึ่งเดียว · ตอนนี้ได้ "ครบ" หรือ "ไม่มีเลย" (ว่างทั้งแถว = ซ่อมเองได้ ดู headerIsUnfinishedPrefix_)
 function styleHeaderRow(sheet, row, headers, bg, fg) {
-  headers.forEach(function(h, i) {
-    sheet.getRange(row, i+1)
-      .setValue(h)
-      .setBackground(bg || "#1e293b")
-      .setFontColor(fg || "white")
-      .setFontWeight("bold")
-      .setHorizontalAlignment("center");
-  });
+  if (!headers || !headers.length) return;
+  sheet.getRange(row, 1, 1, headers.length)
+    .setValues([headers.slice()])
+    .setBackground(bg || "#1e293b")
+    .setFontColor(fg || "white")
+    .setFontWeight("bold")
+    .setHorizontalAlignment("center");
 }
 
 function fmt(date, pattern) {
@@ -3694,7 +4017,12 @@ function looksCoercible_(s) {
   var t = String(s == null ? "" : s).trim();
   if (!t) return false;
   if (/^(true|false)$/i.test(t)) return true;                                                    // ค่าความจริง
+  if (/^#/.test(t)) return true;                                                                 // "#N/A" "#REF!" — ข้อ 42: Sheets อ่านเป็นค่า error
   if (!/[0-9]/.test(t)) return false;                                                            // ไม่มีตัวเลขเลย = ข้อความแน่นอน
+  // ข้อ 42 (ตรวจ 19 ต.ค. 2569): รูปแบบที่ยังหลุด — ".5" (ตัวเลข) · "10-2026" (เดือน-ปี = วันที่) · "1 1/2" (เศษส่วนคละ)
+  if (/^[-+]?\.\d+%?$/.test(t)) return true;
+  if (/^\d{1,2}\s*[-\/.]\s*\d{4}$/.test(t)) return true;
+  if (/^\d+\s+\d+\/\d+$/.test(t)) return true;
   if (/^\(?[$฿€£]?\s*[0-9][0-9.,\s]*%?\)?$/.test(t)) return true;                              // ตัวเลข/เงิน/เปอร์เซ็นต์
   if (/^[0-9]+(\.[0-9]+)?e[+-]?[0-9]+$/i.test(t)) return true;                                    // 1e5
   if (/^[0-9]{1,4}\s*[\/.\-]\s*[0-9]{1,2}(\s*[\/.\-]\s*[0-9]{1,4})?([ T]+[0-9]{1,2}:[0-9]{2}(:[0-9]{2})?)?$/.test(t)) return true;   // วันที่
@@ -3753,7 +4081,7 @@ function pruneOldDailySheets(ss, keepDays, keepName) {
   var cutoff = new Date();
   cutoff.setHours(0, 0, 0, 0);
   cutoff.setDate(cutoff.getDate() - keepDays);
-  var sheets = ss.getSheets();
+  var sheets = ss.getSheets(), moved = 0;
   for (var i = 0; i < sheets.length; i++) {
     var name = sheets[i].getName();
     var m = name.match(/^สรุป-(\d{4})-(\d{2})-(\d{2})$/);
@@ -3771,12 +4099,13 @@ function pruneOldDailySheets(ss, keepDays, keepName) {
           if (!isFinite(zn) || zn <= 0) throw new Error("unreadable summary stamp: " + name);
           var props = PropertiesService.getScriptProperties(), pk = summaryStampPropKey_(name);
           var cur = Number(props.getProperty(pk));
-          if (!(isFinite(cur) && cur >= zn)) props.setProperty(pk, String(zn));
+          if (!(isFinite(cur) && cur >= zn)) { props.setProperty(pk, String(zn)); moved++; }
         }
       } catch (stampErr) { Logger.log("keep stamp before prune failed: " + stampErr); continue; }
       try { ss.deleteSheet(sheets[i]); } catch (e) {}
     }
   }
+  if (moved) pruneSummaryStampProps_("");   // ข้อ 68 — วันละครั้งพร้อมการลบแท็บเก่า
 }
 
 // ── ตรวจช่อง "เดือน" ของทะเบียนเลขบิล (อ่านอย่างเดียว · รันจาก Apps Script editor) ─────────────

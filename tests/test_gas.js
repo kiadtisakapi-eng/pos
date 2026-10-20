@@ -42,7 +42,9 @@ ctx.SpreadsheetApp={flush:()=>{}, getActiveSpreadsheet:()=>null};
 ctx.ContentService={createTextOutput:(s)=>({setMimeType:()=>s}),MimeType:{JSON:'json',TEXT:'text'}};
 ctx.MimeType={PLAIN_TEXT:'text/plain'};
 let uuidCounter=0;
-ctx.Utilities={formatDate:()=>'2026-07-31 12:00',getUuid:()=>`00000000-0000-4000-8000-${String(++uuidCounter).padStart(12,'0')}`};
+ctx.Utilities={formatDate:()=>'2026-07-31 12:00',getUuid:()=>`00000000-0000-4000-8000-${String(++uuidCounter).padStart(12,'0')}`,
+  // ไฟล์สำรองเขียนผ่าน blob ตั้งแต่ 20 ต.ค. 2569 (ข้อ 2 — เพดาน 50 MB แทน 10 MB)
+  newBlob:(data,type,name)=>({getDataAsString:()=>String(data),getContentType:()=>type,getName:()=>name,getBytes:()=>Buffer.from(String(data),'utf8')})};
 ctx.Session={getScriptTimeZone:()=>'Asia/Bangkok'};
 ctx.LockService={getScriptLock:()=>({waitLock(){},releaseLock(){}})};
 ctx.Logger={log:()=>{}};
@@ -56,7 +58,9 @@ ctx.PropertiesService={getScriptProperties:()=>({
 function makeFolder(id, name, files){
   const list = files || [];
   return { _files:list, getId:()=>id, getName:()=>name,
-    createFile:(fn, content, mime)=>{ const f={ _trashed:false, getId:()=>'file-'+list.length,
+    createFile:(fn, content, mime)=>{
+      if (fn && typeof fn==='object' && typeof fn.getDataAsString==='function') { const b=fn; fn=b.getName(); content=b.getDataAsString(); mime=b.getContentType(); }
+      const f={ _trashed:false, getId:()=>'file-'+list.length,
         getName:()=>fn, getBlob:()=>({getDataAsString:()=>content}), getSize:()=>content.length,
         getDateCreated:()=>new Date(), getMimeType:()=>mime, setTrashed:(v)=>{f._trashed=v;} };
       list.push(f); return f; },

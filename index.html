@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pos Massage</title>
+  <title>Erotica POS</title>
   
   <!-- SEO Tags -->
   <meta name="description" content="ระบบจัดการร้านและคิวงานแบบออฟไลน์ สำหรับร้านตัดผมและนวดเพื่อสุขภาพ">
@@ -24,7 +24,7 @@
        โปรเจกต์นี้ไม่มีทั้งสองอย่าง หัวแอปจึงถูกแถบสถานะทับ
        black = แถบสถานะมีพื้นที่ของตัวเอง (พื้นทึบ ตัวหนังสือขาว เข้ากับธีมมืด) เนื้อแอปเริ่มใต้แถบพอดี -->
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="Pos Massage">
+  <meta name="apple-mobile-web-app-title" content="Erotica POS">
 
   <!-- Icon & Font Libraries -->
   <!-- ⚠️ Font Awesome เก็บไว้ในโปรเจกต์เอง ห้ามเปลี่ยนกลับไปโหลดจาก cdnjs
@@ -374,7 +374,7 @@
             <div class="cart-customer-section">
               <span class="form-label" style="margin-bottom: 4px; display: block;">ลูกค้า</span>
               <div class="customer-select-wrapper">
-                <select class="customer-select" id="cart-customer-select">
+                <select class="customer-select" id="cart-customer-select" aria-label="ลูกค้าของบิลนี้">
                   <option value="">ลูกค้าทั่วไป (Walk-in)</option>
                   <option value="google">ลูกค้าทั่วไป (Google)</option>
                   <option value="returning">ลูกค้าเก่า</option>
@@ -394,7 +394,7 @@
               <div class="summary-row">
                 <span>ส่วนลด</span>
                 <div class="discount-wrapper">
-                  <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="discount-input" id="cart-discount" value="0">
+                  <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="discount-input" id="cart-discount" value="0" aria-label="ส่วนลดของบิล (บาท)">
                   <span>บาท</span>
                 </div>
               </div>
@@ -523,7 +523,7 @@
               <span class="form-label" style="margin: 0;">เปิดการเก็บ VAT</span>
             </label>
             <div class="form-group" style="margin-top: 8px;">
-              <label class="form-label">อัตรา VAT (%)</label>
+              <label class="form-label" for="vat-rate">อัตรา VAT (%)</label>
               <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="vat-rate" value="7" style="max-width: 160px;">
             </div>
             <p style="color: var(--text-secondary); font-size: 0.8rem; line-height: 1.7; margin: 0 0 10px;">
@@ -585,35 +585,35 @@
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">ชื่อร้าน (แสดงบนใบเสร็จและหน้าจอ)</label>
+                <label class="form-label" for="shop-name-input">ชื่อร้าน (แสดงบนใบเสร็จและหน้าจอ)</label>
                 <input type="text" class="form-input" id="shop-name-input" placeholder="เช่น Erotica Barber & Massage" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   ชื่อนี้จะแสดงบนหัวใบเสร็จและหน้าแดชบอร์ด (บันทึกอัตโนมัติเมื่อแก้ไข)
                 </p>
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">ชื่อรอง / คำโปรย (ใต้ชื่อร้านบนแถบข้าง)</label>
+                <label class="form-label" for="shop-tagline-input">ชื่อรอง / คำโปรย (ใต้ชื่อร้านบนแถบข้าง)</label>
                 <input type="text" class="form-input" id="shop-tagline-input" placeholder="เช่น BARBER & MASSAGE" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   ข้อความสั้นๆ ใต้ชื่อร้านบนแถบข้าง (บันทึกอัตโนมัติเมื่อแก้ไข)
                 </p>
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">ที่อยู่ร้าน (แสดงบนใบเสร็จ)</label>
+                <label class="form-label" for="shop-address-input">ที่อยู่ร้าน (แสดงบนใบเสร็จ)</label>
                 <input type="text" class="form-input" id="shop-address-input" placeholder="เช่น 88/8 ถ.สุขุมวิท กรุงเทพฯ" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   เว้นว่างได้ — ถ้าไม่กรอก ใบเสร็จจะไม่พิมพ์บรรทัดที่อยู่
                 </p>
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">เบอร์โทรร้าน (แสดงบนใบเสร็จ)</label>
+                <label class="form-label" for="shop-phone-input">เบอร์โทรร้าน (แสดงบนใบเสร็จ)</label>
                 <input type="text" class="form-input" id="shop-phone-input" placeholder="เช่น 02-123-4567" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   เว้นว่างได้ — ถ้าไม่กรอก ใบเสร็จจะไม่พิมพ์บรรทัดเบอร์โทร
                 </p>
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">โลโก้ร้าน (แสดงบนแถบข้างและใบเสร็จ)</label>
+                <label class="form-label" for="shop-logo-input">โลโก้ร้าน (แสดงบนแถบข้างและใบเสร็จ)</label>
                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                   <div id="shop-logo-preview" style="width:48px; height:48px; border-radius:12px; background:rgba(255,255,255,0.05); border:1px solid var(--border-color); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
                     <span style="color:var(--text-muted); font-size:0.7rem;">ไม่มี</span>
@@ -626,7 +626,7 @@
                 </p>
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">หมายเลขพร้อมเพย์ร้านค้า (เบอร์โทร 10 หลัก / เลขบัตรประชาชน 13 หลัก) *</label>
+                <label class="form-label" for="shop-promptpay-id">หมายเลขพร้อมเพย์ร้านค้า (เบอร์โทร 10 หลัก / เลขบัตรประชาชน 13 หลัก) *</label>
                 <input type="text" class="form-input" id="shop-promptpay-id" placeholder="เช่น 0812345678 หรือ 1234567890123" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   ระบบจะสร้าง QR พร้อมเพย์มาตรฐาน (ฝังยอดเงินอัตโนมัติ) จากเลขนี้ — ตรวจให้เป็นเลขบัญชีร้านจริงก่อนรับเงิน
@@ -652,14 +652,14 @@
             </p>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">Google Apps Script Web App URL *</label>
+                <label class="form-label" for="shop-sheets-sync-url">Google Apps Script Web App URL *</label>
                 <input type="text" class="form-input" id="shop-sheets-sync-url" placeholder="https://script.google.com/macros/s/.../exec" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   วาง URL ที่ได้จากการ Deploy Web App ใน Google Sheets เพื่อเปิดระบบซิงก์ข้อมูลอัตโนมัติ
                 </p>
               </div>
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">รหัสเชื่อมต่อ Apps Script *</label>
+                <label class="form-label" for="shop-sheets-api-token">รหัสเชื่อมต่อ Apps Script *</label>
                 <input type="password" class="form-input" id="shop-sheets-api-token" autocomplete="off" placeholder="วางรหัสที่สร้างจาก Apps Script" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   ใช้ยืนยันว่าเครื่องนี้ได้รับอนุญาต รหัสนี้ไม่ถูกเก็บในไฟล์สำรอง ต้องตั้งใหม่เมื่อกู้ลงเครื่องใหม่
@@ -689,15 +689,15 @@
             </p>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
               <div class="form-group" style="margin: 0;">
-                <label class="form-label">Telegram Bot Token</label>
-                <input type="password" class="form-input" id="shop-telegram-token" placeholder="เช่น 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" onchange="app.saveShopSettings()">
+                <label class="form-label" for="shop-telegram-token">Telegram Bot Token</label>
+                <input type="password" class="form-input" id="shop-telegram-token" autocomplete="off" placeholder="เช่น 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" onchange="app.saveShopSettings()">
                 <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                   รหัสโทเค็นของบอทที่ได้จาก @BotFather
                 </p>
               </div>
               <div class="form-group" style="margin: 0; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                  <label class="form-label">Telegram Chat ID (ไอดีผู้รับ)</label>
+                  <label class="form-label" for="shop-telegram-chatid">Telegram Chat ID (ไอดีผู้รับ)</label>
                   <input type="text" class="form-input" id="shop-telegram-chatid" placeholder="เช่น -100123456789 หรือ 987654321" onchange="app.saveShopSettings()">
                   <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; line-height: 1.35;">
                     ไอดีแชทส่วนตัวของคุณ หรือไอดีกลุ่ม/แชนเนล (อย่าลืมแอดบอทเข้ากลุ่มก่อนใช้งาน)
@@ -787,6 +787,8 @@
               <i class="fa-solid fa-trash-arrow-up"></i> ล้างข้อมูลในระบบและคืนค่าเริ่มต้นทั้งหมด
             </button>
             <!-- ปุ่ม "ล้างประวัติยอดขายและคิวงานทั้งหมด" ถอดออกแล้ว (เจ้าของเลือก 2 ต.ค. 2569 — ร้านใช้งานจริงแล้ว) · ดู app.clearSalesData -->
+            <!-- ตรวจ 19 ต.ค. 2569 ข้อ 65: iPad ให้ "ที่เก็บข้อมูลถาวร" ไหม (app.renderStorageStatus) — ไม่ให้ = ต้องพึ่งไฟล์สำรองบน Drive -->
+            <p id="storage-persist-status" style="display: none; margin-top: 14px; text-align: center; font-size: 0.8rem; line-height: 1.5;"></p>
             <p id="app-version-label" style="margin-top: 14px; text-align: center; color: var(--text-muted); font-size: 0.75rem;">เวอร์ชัน —</p>
           </div>
         </div>
@@ -1119,47 +1121,47 @@
           <!-- Denomination Row Template -->
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: var(--accent-barber);"></i> 1,000 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="1000" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="1000" aria-label="จำนวนธนบัตร 1000 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-1000" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: var(--accent-premium);"></i> 500 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="500" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="500" aria-label="จำนวนธนบัตร 500 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-500" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: var(--color-success);"></i> 100 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="100" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="100" aria-label="จำนวนธนบัตร 100 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-100" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: #3b82f6;"></i> 50 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="50" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="50" aria-label="จำนวนธนบัตร 50 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-50" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-money-bill-wave" style="margin-right: 6px; color: #a855f7;"></i> 20 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="20" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="20" aria-label="จำนวนธนบัตร 20 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-20" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: var(--accent-barber);"></i> 10 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="10" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="10" aria-label="จำนวนเหรียญ 10 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-10" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: #e2e8f0;"></i> 5 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="5" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="5" aria-label="จำนวนเหรียญ 5 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-5" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: #cbd5e1;"></i> 2 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="2" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="2" aria-label="จำนวนเหรียญ 2 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-2" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
           <div class="denomination-row" style="display: grid; grid-template-columns: 2.2fr 1.8fr 2fr; align-items: center; gap: 10px; padding: 6px 10px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 6px;">
             <span style="font-size: 0.8rem; font-weight: 500;"><i class="fa-solid fa-coins" style="margin-right: 6px; color: #94a3b8;"></i> 1 บาท</span>
-            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="1" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
+            <input type="number" class="form-input cash-qty-input" inputmode="numeric" step="1" max="99999" data-denom="1" aria-label="จำนวนเหรียญ 1 บาท" min="0" value="0" style="text-align: right; height: 32px; padding: 4px 8px;" oninput="app.updateCashSum()" onkeydown="app.onCashQtyKeydown(event)" onfocus="try{this.select()}catch(e){}">
             <span class="denom-total" id="denom-total-1" style="font-size: 0.8rem; text-align: right; font-weight: 600; color: var(--text-secondary);">฿0</span>
           </div>
         </div>
@@ -1170,7 +1172,7 @@
         </div>
 
         <!-- Section closing shift details -->
-        <div id="cash-drawer-closing-summary" style="display: none; padding: 12px; background: rgba(15, 23, 42, 0.6); border-radius: var(--border-radius-md); border: 1px solid var(--border-color); font-size: 0.85rem; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+        <div id="cash-drawer-closing-summary" style="display: none; padding: 12px; background: var(--panel-sunken); border-radius: var(--border-radius-md); border: 1px solid var(--border-color); font-size: 0.85rem; flex-direction: column; gap: 6px; margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between;">
             <span style="color: var(--text-secondary);">เงินสดเปิดเครื่อง (ตั้งต้น):</span>
             <span id="closing-expected-start" style="font-weight: 600;">฿0.00</span>
@@ -1252,7 +1254,7 @@
       <form id="form-prompt" onsubmit="event.preventDefault();">
         <div class="form-group">
           <!-- ไม่ใส่ required — ช่องนี้ใช้แก้โน้ตลูกค้าด้วย ต้องยอมให้บันทึกค่าว่าง (ลบโน้ตทิ้ง) ได้ -->
-          <input type="text" class="form-input" id="prompt-modal-input">
+          <input type="text" class="form-input" id="prompt-modal-input" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
         </div>
         <div class="modal-footer">
           <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-prompt')">ยกเลิก</button>
@@ -1271,15 +1273,15 @@
       </div>
       <form id="form-customer">
         <div class="form-group">
-          <label class="form-label">ชื่อ-นามสกุล *</label>
+          <label class="form-label" for="cust-name">ชื่อ-นามสกุล *</label>
           <input type="text" class="form-input" id="cust-name" required placeholder="เช่น สมชาย ใจดี">
         </div>
         <div class="form-group">
-          <label class="form-label">เบอร์โทรศัพท์ *</label>
+          <label class="form-label" for="cust-phone">เบอร์โทรศัพท์ *</label>
           <input type="tel" class="form-input" id="cust-phone" required placeholder="เช่น 0812345678">
         </div>
         <div class="form-group">
-          <label class="form-label">บันทึกพิเศษ/อาการพึงระวัง</label>
+          <label class="form-label" for="cust-note">บันทึกพิเศษ/อาการพึงระวัง</label>
           <input type="text" class="form-input" id="cust-note" placeholder="เช่น ผิวแพ้ง่าย, ปวดไหล่ขวาเป็นพิเศษ">
         </div>
         <div class="modal-footer">
@@ -1299,11 +1301,11 @@
       </div>
       <form id="form-staff">
         <div class="form-group">
-          <label class="form-label">ชื่อเล่น / ชื่อเรียก *</label>
+          <label class="form-label" for="staff-name">ชื่อเล่น / ชื่อเรียก *</label>
           <input type="text" class="form-input" id="staff-name" required placeholder="เช่น ช่างบอย, หมอเนตร">
         </div>
         <div class="form-group">
-          <label class="form-label">ความเชี่ยวชาญพิเศษ *</label>
+          <label class="form-label" for="staff-role">ความเชี่ยวชาญพิเศษ *</label>
           <select class="form-input" id="staff-role" required>
             <option value="ช่างตัดผม">ช่างตัดผม (Barber)</option>
             <option value="ผู้นวดผ่อนคลาย">ผู้นวดผ่อนคลาย (Masseur)</option>
@@ -1311,7 +1313,7 @@
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">ระดับสิทธิ์การเข้าระบบ *</label>
+          <label class="form-label" for="staff-access-level">ระดับสิทธิ์การเข้าระบบ *</label>
           <select class="form-input" id="staff-access-level" required>
             <option value="staff">พนักงาน (ขาย + คิว)</option>
             <option value="manager">ผู้จัดการ (+ รายงาน, ยกเลิกบิล, ปิดร้าน)</option>
@@ -1319,7 +1321,7 @@
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">PIN เข้าระบบ (4-6 หลัก)</label>
+          <label class="form-label" for="staff-pin">PIN เข้าระบบ (4-6 หลัก)</label>
           <input type="password" class="form-input" id="staff-pin" maxlength="6" inputmode="numeric"
                  placeholder="ตั้ง PIN 4-6 หลัก (เว้นว่าง = เข้าระบบไม่ได้)" autocomplete="off"
                  oninput="this.value = this.value.replace(/[^0-9]/g, '')">
@@ -1343,27 +1345,27 @@
       <form id="form-service">
         <!-- ชนิด: บริการ (มีเวลาให้บริการ) / สินค้า (ขายเป็นชิ้น มีต้นทุน) — เจ้าของสั่ง 8–9 ต.ค. 2569 · app.applyServiceTypeUI -->
         <div class="form-group">
-          <label class="form-label">ชนิด *</label>
+          <label class="form-label" for="serv-type">ชนิด *</label>
           <select class="form-input" id="serv-type" onchange="app.applyServiceTypeUI()">
             <option value="service">บริการ (มีเวลาให้บริการ)</option>
             <option value="product">สินค้า (ขายเป็นชิ้น)</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" id="serv-name-label">ชื่อบริการ *</label>
+          <label class="form-label" for="serv-name" id="serv-name-label">ชื่อบริการ *</label>
           <input type="text" class="form-input" id="serv-name" required placeholder="เช่น ตัดแต่งทรงผมสไตล์วินเทจ">
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">ราคา (บาท) *</label>
+            <label class="form-label" for="serv-price">ราคา (บาท) *</label>
             <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="serv-price" required placeholder="เช่น 250">
           </div>
           <div class="form-group" id="serv-duration-group">
-            <label class="form-label">ระยะเวลา (นาที) *</label>
+            <label class="form-label" for="serv-duration">ระยะเวลา (นาที) *</label>
             <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="serv-duration" placeholder="เช่น 45">
           </div>
           <div class="form-group" id="serv-cost-group" style="display: none;">
-            <label class="form-label">ต้นทุนต่อชิ้น (บาท)</label>
+            <label class="form-label" for="serv-cost">ต้นทุนต่อชิ้น (บาท)</label>
             <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="serv-cost" disabled placeholder="เช่น 8 (ว่าง = ยังไม่ทราบ)">
           </div>
         </div>
@@ -1372,11 +1374,11 @@
         </p>
         <div class="form-row">
           <div class="form-group" style="flex: 2;">
-            <label class="form-label" id="serv-commission-label">ค่าคอมมิชชั่นพนักงาน *</label>
+            <label class="form-label" for="serv-commission" id="serv-commission-label">ค่าคอมมิชชั่นพนักงาน *</label>
             <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="serv-commission" required value="10" placeholder="เช่น 10 หรือ 50">
           </div>
           <div class="form-group" style="flex: 1;">
-            <label class="form-label">ประเภท *</label>
+            <label class="form-label" for="serv-commission-type">ประเภท *</label>
             <select class="form-input" id="serv-commission-type" required>
               <option value="percent">เปอร์เซ็นต์ (%)</option>
               <option value="fixed">จำนวนเงิน (฿)</option>
@@ -1384,7 +1386,7 @@
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">หมวดหมู่ *</label>
+          <label class="form-label" for="serv-category">หมวดหมู่ *</label>
           <select class="form-input" id="serv-category" required>
             <option value="barber">ตัดผมชาย (Barber)</option>
             <option value="massage">นวดผ่อนคลาย (Massage/Spa)</option>
@@ -1408,11 +1410,11 @@
       </div>
       <form id="form-category">
         <div class="form-group">
-          <label class="form-label">ชื่อหมวดหมู่ *</label>
+          <label class="form-label" for="cat-name">ชื่อหมวดหมู่ *</label>
           <input type="text" class="form-input" id="cat-name" required placeholder="เช่น ทำเล็บ (Nail), สัก (Tattoo)">
         </div>
         <div class="form-group">
-          <label class="form-label">ไอคอน</label>
+          <label class="form-label" for="cat-icon">ไอคอน</label>
           <select class="form-input" id="cat-icon"></select>
         </div>
         <div class="form-group">
@@ -1626,15 +1628,17 @@
             <i class="fa-solid fa-triangle-exclamation"></i> พื้นที่อันตราย (Void/ลบรายการ)
           </h4>
           <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 10px;">
-            เมื่อลบรายการแล้ว ยอดขายจะหายไปถาวร — ต้องระบุก่อนว่า "เงินของบิลนี้เคลื่อนไหวจริงหรือไม่"
-            ระบบจะไม่ถือเองว่าคืนเงินให้ลูกค้าแล้ว
+            เมื่อลบรายการแล้ว ยอดขายจะหายไปถาวร — ต้องเลือกก่อนว่า "เงินของบิลนี้" ต้องเอาออกจากยอดที่ควรมี หรือยังอยู่ที่ร้าน
+            ระบบไม่เลือกให้เอง
           </p>
           <div class="form-group" style="margin-bottom: 10px;">
-            <label class="form-label" style="font-size: 0.78rem;">เงินของบิลนี้</label>
+            <label class="form-label" for="void-money-outcome" style="font-size: 0.78rem;">เงินของบิลนี้</label>
+            <!-- ตรวจ 19 ต.ค. 2569 ข้อ 1: ป้ายถาม "ต้องเอาเงินของบิลนี้ออกจากยอดที่ควรมีไหม" (ค่า refunded/none และสูตรเงินเหมือนเดิม)
+                 เดิมถาม "มีเงินเคลื่อนไหวไหม" — บิลซ้ำ/ออกบิลใหม่แทนไม่มีเงินเคลื่อนไหว แต่ต้องเอาออก ไม่งั้นปิดกะขาด -->
             <select id="void-money-outcome" class="form-input" style="background: var(--bg-surface-solid); font-size: 0.85rem;">
               <option value="">— เลือกก่อนยกเลิกบิล —</option>
-              <option value="refunded">คืนเงินให้ลูกค้าแล้ว (เงินออกจากลิ้นชัก)</option>
-              <option value="none">ไม่มีเงินเคลื่อนไหว (บิลออกผิด/ซ้ำ หรือไม่ได้คืนเงิน)</option>
+              <option value="refunded">เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน)</option>
+              <option value="none">เงินของบิลนี้ยังอยู่ที่ร้าน (ไม่ได้คืนเงินสด / คืนทางโอน)</option>
             </select>
             <p id="void-money-hint" style="font-size: 0.72rem; color: var(--text-muted); margin: 6px 0 0;"></p>
           </div>

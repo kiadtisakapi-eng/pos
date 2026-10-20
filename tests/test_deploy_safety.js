@@ -1,12 +1,16 @@
 // Execute copies of the real PowerShell scripts with a fake Git function: never commit/push/rebase real Git.
-const fs = require('fs'), path = require('path'), assert = require('assert/strict');
+const fs = require('fs'), os = require('os'), path = require('path'), assert = require('assert/strict');
 const { spawnSync } = require('child_process');
-const root = path.resolve(__dirname, '..'), base = path.join(root, 'audit', 'fixes-20261007', 'deploy-safety');
-fs.mkdirSync(base, { recursive: true });
+const { writeAppSkeleton } = require('./deploy_test_kit');
+// ผลตรวจ 19 ต.ค. 2569 ข้อ 70: เดิมเก็บสำเนาชั่วคราว (~13.5 MB ต่อรอบ) ไว้ใน audit/ ของโปรเจกต์ทุกครั้งที่รัน ไม่เคยลบ
+// ตอนนี้สร้างใต้โฟลเดอร์ชั่วคราวของระบบ และลบทิ้งใน finally (ลบได้เฉพาะโฟลเดอร์ที่เราสร้างเอง — ด่านเดียวกับ test_codex_deploy_20261013.js)
+const root = path.resolve(__dirname, '..'), base = fs.mkdtempSync(path.join(os.tmpdir(), 'pos-deploy-safety-'));
 let passed = 0;
 function scenario(name, script, settings) {
   const dir = fs.mkdtempSync(path.join(base, name + '-')); fs.mkdirSync(path.join(dir, 'tests')); fs.mkdirSync(path.join(dir, '.git'));
   for (const f of [script, 'app.js', 'sw.js']) fs.copyFileSync(path.join(root, f), path.join(dir, f));
+  // ข้อ 13: สคริปต์ตรวจว่าไฟล์ที่ index.html/sw.js/manifest.json อ้างมีอยู่จริงและถูกติดตาม → วางโครงแอป + ตอบ git ls-files ด้วยรายชื่อนี้
+  settings = Object.assign({ tracked: writeAppSkeleton(dir, root).concat([script, 'app.js']) }, settings);
   fs.writeFileSync(path.join(dir, 'tests/run-all.js'), 'process.exit(0);');
   fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(settings));
   if (settings.lock) { fs.writeFileSync(path.join(dir, '.git/index.lock'), 'mock Git owner'); fs.utimesSync(path.join(dir, '.git/index.lock'), new Date(0), new Date(0)); }
@@ -29,6 +33,7 @@ function git {
         return (($global:cfg.changed | Where-Object { $_ }) -join [char]0) + [char]0
       }
       'rev-list' { return '0' }
+      'ls-files' { return ((@($global:cfg.tracked) | Where-Object { $_ }) -join [char]0) + [char]0 }
       'symbolic-ref' { return 'feature/review-fixes' }
       'rev-parse' { return 'origin/feature/review-fixes' }
       'fetch' { return }
@@ -134,4 +139,9 @@ try {
     assert.ok(r.commands.findIndex(a => a[0] === 'branch') < r.commands.findIndex(a => a[0] === 'commit'));
   });
   console.log(`=== ผ่าน ${passed} · ไม่ผ่าน 0 ===`);
-} catch (e) { console.error('FAIL', e.stack); process.exit(1); }
+} catch (e) { console.error('FAIL', e.stack); process.exitCode = 1; }
+finally {
+  const resolved = path.resolve(base);
+  if (path.dirname(resolved) !== path.resolve(os.tmpdir()) || !path.basename(resolved).startsWith('pos-deploy-safety-')) throw new Error('Unsafe temp directory');
+  fs.rmSync(resolved, { recursive: true, force: true });
+}

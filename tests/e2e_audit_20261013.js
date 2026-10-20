@@ -144,7 +144,8 @@ const clipped = (pg, id) => pg.evaluate(id => {
   await p.evaluate(() => app.openTransactionEdit('TX-1790000000002-CASHBILL'));
   await p.waitForTimeout(300);
   const optCash = await p.evaluate(() => document.querySelector('#void-money-outcome option[value="refunded"]').textContent);
-  t('บิลเงินสด: ตัวเลือกคืนเงิน "เงินออกจากลิ้นชัก"', /เงินออกจากลิ้นชัก/.test(optCash), optCash);
+  // ตรวจ 19 ต.ค. 2569 ข้อ 1: ป้ายใหม่ถามว่า "เอาเงินของบิลนี้ออกจากยอดที่ควรมี" (เดิม "คืนเงินให้ลูกค้าแล้ว (เงินออกจากลิ้นชัก)")
+  t('บิลเงินสด: ตัวเลือกข้อแรก "เอาเงินของบิลนี้ออกจากยอดที่ควรมี"', /ออกจากยอดที่ควรมี/.test(optCash), optCash);
   await p.evaluate(() => app.closeModal('modal-edit-transaction'));
 
   console.log('\n[11] ตัวเลขบนการ์ดไม่ถูกตัด (iPad 1024×768)');

@@ -30,7 +30,8 @@ t('ปลดล็อกความสูงกล่องพรีวิว (
   ok(/#thermal-receipt-preview/.test(P)); ok(/#quote-preview/.test(P));
   ok(/max-height:\s*none/.test(P));});
 t('ซ่อนหัวหน้าต่างและปุ่ม (ไม่ให้ติดไปบนกระดาษ)',()=>{
-  ['modal-header','modal-close','modal-footer','btn-print-receipt','btn-print-quote']
+  // ตรวจ 19 ต.ค. 2569 ข้อ 67: ตัด btn-print-receipt (id ที่ไม่มีในหน้าแล้ว — ปุ่มพิมพ์ใบเสร็จอยู่ใน modal-footer ที่ซ่อนอยู่แล้ว)
+  ['modal-header','modal-close','modal-footer','btn-print-quote']
     .forEach(c=>ok(P.includes(c),'ไม่ซ่อน '+c));});
 t('กำหนดขอบกระดาษเอง ไม่ใช้ค่าเริ่มต้นที่กว้างเกิน',()=>ok(/@page\s*\{[^}]*margin/.test(P)));
 // รอบตรวจ 6 ข้อ 3: เดิมเทสต์นี้ "บังคับ" ให้มี size: 80mm auto ซึ่งเป็นรูปแบบที่เบราว์เซอร์ทิ้งทั้งบรรทัด

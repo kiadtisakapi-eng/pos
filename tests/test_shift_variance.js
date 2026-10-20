@@ -18,6 +18,8 @@ function FakeSheet(headers,rows){
       const cell={ getDisplayValue:()=>String(grid[r-1]&&grid[r-1][c-1]!==undefined?grid[r-1][c-1]:''),
         getDisplayValues:()=>{const o=[];for(let i=0;i<nr;i++){const w=[];for(let j=0;j<nc;j++)w.push(String((grid[r-1+i]&&grid[r-1+i][c-1+j])??''));o.push(w)}return o},
         setValue:v=>{while(grid.length<r)grid.push([]);const row=grid[r-1];while(row.length<c)row.push('');row[c-1]=v;return cell},
+        // หัวตารางเขียนด้วย setValues ครั้งเดียว (20 ต.ค. 2569 · ข้อ 9)
+        setValues:vals=>{vals.forEach((rv,i)=>rv.forEach((v,j)=>{while(grid.length<r+i)grid.push([]);const row=grid[r-1+i];while(row.length<c+j)row.push('');row[c-1+j]=v;}));return cell},
         setBackground:()=>cell,setFontColor:()=>cell,setFontWeight:()=>cell,setNumberFormat:()=>cell,
         setHorizontalAlignment:()=>cell,setFontSize:()=>cell,merge:()=>cell };
       return cell; },

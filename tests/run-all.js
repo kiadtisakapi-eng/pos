@@ -33,6 +33,16 @@ files.push('test_codex_cloud_20261017.js', 'test_codex_app_20261017.js');
 files.push('test_claude_recheck_20261018.js');
 // รอบ 2: C01–C05 ที่ Codex เจอหลังงานแก้ F01–F11
 files.push('test_claude_recheck_20261018b.js');
+// แก้ตามผลตรวจทั้งระบบ 19 ต.ค. 2569 (73 ข้อ · แก้ 20 ต.ค. 2569)
+files.push('test_fix_20261020_appA_lock.js', 'test_fix_20261020_appA_storage.js', 'test_fix_20261020_appA_cloudtext.js',
+  'test_fix_20261020_appA_reset.js', 'test_fix_20261020_appA_checkout.js', 'test_fix_20261020_appA_ui.js');
+files.push('test_fix_20261020_appB_void.js', 'test_fix_20261020_appB_shift.js', 'test_fix_20261020_appB_cloud.js',
+  'test_fix_20261020_appB_reports.js', 'test_fix_20261020_appB_misc.js');
+files.push('test_fix_20261020_appC.js', 'test_fix_20261020_appC_cloud.js');
+files.push('test_fix_20261020_gas.js', 'test_fix_20261020_gas_index.js', 'test_fix_20261020_gas_recovery.js', 'test_fix_20261020_vat_smoke.js');
+files.push('test_fix_20261020_deploy_assets.js', 'test_fix_20261020_deploy_gate.js');
+// ตรวจ 20 ต.ค. 2569: crypto ของ harness_db (กัน Dexie commit ก่อนเวลาแบบสุ่มตอนเครื่องหนัก — ต้นเหตุจริงของ test_batch6 P6 ที่ตกนาน ๆ ครั้ง)
+files.push('test_fix_20261020_harness_crypto.js');
 // ตัวตัดสินผ่าน/ไม่ผ่านอยู่ใน runner_judge.js (ใช้ร่วมกับ run-all-ui.js) — ต้องมีบรรทัดสรุป · อ่าน stderr · ค้างเกิน 5 นาที = ไม่ผ่าน
 const { runTestFile, parseArgs } = require('./runner_judge');
 const args = parseArgs((process.argv || []).slice(2));

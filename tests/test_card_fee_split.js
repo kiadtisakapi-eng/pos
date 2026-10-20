@@ -447,7 +447,9 @@ await section('[9]', async () => {
   ok(other.app.isValidBackupObject(p), other.app._lastBackupRejectReason);
   other.app.sanitizeBackupData(p);
   const q = (other.app._lastSanitizeQuarantine || []).filter(x => x.kind === 'transaction');
-  await other.app.applyBackupData(p);
+  // ตรวจ 19 ต.ค. 2569 ข้อ 3: เครื่องที่มีข้อมูลอยู่แล้วคงตั้งค่าเงินของเครื่องเป็นค่าเริ่มต้น — เทสต์นี้ตรวจว่า "อัตราในไฟล์ไปกลับครบ"
+  // จึงเลือกใช้ตั้งค่าเงินจากไฟล์ (แบบที่เจ้าของพิมพ์ยืนยัน "ใช้ค่าในไฟล์")
+  await other.app.applyBackupData(p, { moneySettings: 'file' });
   await settle(30);
   await t('กู้ลงเครื่องอื่น: บิลครบทุกใบ ไม่มีใบไหนถูกแยกไปตรวจ', () => { eq(q, []); eq(other.app.state.transactions.length, nBills); });
   await t('บิลแบ่งจ่าย/ค่าธรรมเนียมกลับมาเหมือนเดิม · อัตรา 7% ตามไฟล์ · ลงฐานข้อมูลจริง', async () => {

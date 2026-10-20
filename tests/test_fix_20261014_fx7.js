@@ -122,7 +122,8 @@ function moveRow(gas, id, from, to, index) {
       ok(e.config === true && /ทะเบียนบิลที่ยกเลิกบนชีตเสีย/.test(e.message) && /_POS_VOID_ARCHIVE/.test(e.message) && !/ชั่วคราว/.test(e.message), JSON.stringify(e));
     } finally { env.dispose && env.dispose(); }
   });
-  await t('[11.2] ค่าทะเบียนของบิลเดียวเสีย → REGISTRY_CORRUPT scope=bill · บิลอื่นส่งต่อได้ · บิลนั้นค้างพร้อมเหตุผล', async () => {
+  // ตรวจ 19 ต.ค. 2569 ข้อ 68: บิลนั้นเป็น "บิลรอตรวจ" (conflict) พร้อมเหตุผล — เดิมค้าง pending แล้วลองส่งซ้ำตลอดไป (ส่งซ้ำก็ไม่หาย)
+  await t('[11.2] ค่าทะเบียนของบิลเดียวเสีย → REGISTRY_CORRUPT scope=bill · บิลอื่นส่งต่อได้ · บิลนั้นเป็นบิลรอตรวจพร้อมเหตุผล', async () => {
     const { env, app, gas } = await makeShop();
     try {
       await settle();
@@ -131,11 +132,12 @@ function moveRow(gas, id, from, to, index) {
       gas.props['POSVB_' + bad.id] = JSON.stringify({ invalidLegacy: 'abc', v: null, r: null });
       gas.networkDown = false;
       await app.syncPendingTransactions(true); await settle(40);
-      eq([bad.syncStatus, good1.syncStatus, good2.syncStatus], ['pending', 'synced', 'synced']);
+      eq([bad.syncStatus, good1.syncStatus, good2.syncStatus], ['conflict', 'synced', 'synced']);
+      eq(bad.syncIssue && bad.syncIssue.code, 'REGISTRY_CORRUPT');
       const real = JSON.parse(JSON.stringify(app.buildBillPayload(bad)));
       const r2 = gas.post(real);
       eq([r2.code, r2.details && r2.details.scope], ['REGISTRY_CORRUPT', 'bill'], JSON.stringify(r2));
-      ok(/ทะเบียนบิลที่ยกเลิกบนชีตเสีย/.test(String(app._lastSyncError && app._lastSyncError.message)), JSON.stringify(app._lastSyncError));
+      ok(/ทะเบียนบิลที่ยกเลิกบนชีตเสีย/.test(String(bad.syncIssue && bad.syncIssue.message)), JSON.stringify(bad.syncIssue));
     } finally { env.dispose && env.dispose(); }
   });
   await t('[11.3] Apps Script รุ่นเก่าที่ตอบ REGISTRY_UNAVAILABLE ยังเป็น "ชั่วคราว" เหมือนเดิม', async () => {

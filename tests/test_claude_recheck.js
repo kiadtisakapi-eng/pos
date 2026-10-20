@@ -315,7 +315,11 @@ async function emergencyDevice(g, key, file) {
     s.document.getElementById('report-date-input').value = day; s.app.state.selectedReportType = 'daily';
     s.app.filterReports(); assert.equal(s.document.getElementById('report-data-notice').innerText, '');
     await s.app.notePrimaryStatus(true, { recovery: { incomplete: true, startedAt: Date.now() - 1000 } });
-    s.app.state.shift.history.push({ startTime: tx.date - 1000, endTime: tx.date + 1000, startCash: 0, countedCash: 0, emergencyRecovery: true });
+    // กะเริ่มในวันทำการเดียวกับบิล — เดิมใช้ tx.date − 1 วิ: ถ้ารันเทสต์ช่วง 03:00–05:59 กะที่เปิดช่วงนั้นถูกนับเป็นวันทำการถัดไป
+    // (shiftAnchorTime) แต่บิลยังเป็นของเมื่อวาน → ตารางกะของวันบิลว่าง เทสต์ตกเฉพาะตอนตี 3–6 (ชุดเทสต์ก่อน deploy ล้มหลังปิดกะ)
+    const bizStart = Date.parse(day + 'T06:00:00+07:00');
+    const shiftStart = Math.min(bizStart + 60000, tx.date - 1000);
+    s.app.state.shift.history.push({ startTime: shiftStart, endTime: tx.date + 1000, startCash: 0, countedCash: 0, emergencyRecovery: true });
     s.app.filterReports();
     assert.match(s.document.getElementById('report-data-notice').innerText, /รับช่วงฉุกเฉิน/);
     assert.match(s.document.getElementById('report-commission-body').innerHTML, /⚠️/);

@@ -90,7 +90,7 @@ function isAppsScriptExecUrl(u) {
 const BACKUP_SCHEMA_VERSION = 3;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.11.1 (2026-10-19)';
+const APP_VERSION = '1.12.0 (2026-10-20)';
 
 // ═══ กติกาตัวเลข (เจ้าของสั่ง 26 ก.ย. 2569 — ห้ามแก้กลับ) ═══════════════════════════
 // ตัวเลขทุกตัวที่ "คนกรอก" ต้องเป็นจำนวนเต็มเท่านั้น ห้ามทศนิยมเด็ดขาด:
@@ -180,7 +180,14 @@ const CLOUD_JOB_MIN_FAIL_TRIES = 10;
 // ทางกู้/นำเข้า/ย้อนข้อมูลต้องถือเป็นความล้มเหลว ไม่ใช่ขึ้นว่าสำเร็จ (ตรวจรอบ Claude 7 ต.ค. 2569)
 const MUTATION_REFUSED_MSG = 'ระบบยังไม่ได้แทนข้อมูล เพราะมีงานดูแลข้อมูลอยู่หรือผู้ใช้เปลี่ยนระหว่างรอคิว — ลองใหม่อีกครั้ง';
 // ไฟล์สำรองใหญ่เกินนี้ = เตือนในหน้าตั้งค่าและข้อความปิดกะ (ข้อ 17)
-const BACKUP_SIZE_WARN_BYTES = 5 * 1024 * 1024;
+// ตรวจ 19 ต.ค. 2569 ข้อ 2: Apps Script รุ่นเก่าเขียนไฟล์แบบจัดหน้า (ใหญ่ขึ้น ~1.5 เท่า) ด้วยคำสั่งที่รับไม่เกิน 10 MB
+// → ไฟล์ส่งได้ถึงราว 6.5 MB แล้วการสำรองหยุด · เตือนที่ 4 MB (≈ 60% ของเพดานจริง) · เดิมเตือนที่ 5 MB ด้วยคำว่า "เสี่ยงส่งไม่ทัน"
+// Apps Script รุ่นใหม่ส่งเพดานจริงกลับมา (details.limitBytes) → เตือนที่ 60% ของเพดานนั้นแทน
+const BACKUP_SIZE_WARN_BYTES = 4 * 1024 * 1024;
+const BACKUP_LIMIT_WARN_RATIO = 0.6;
+// ตรวจ 19 ต.ค. 2569 ข้อ 21: คำตอบจาก Apps Script อ่านเป็นข้อมูลไม่ได้ (ได้หน้าเว็บของ Google แทน)
+const CLOUD_NOT_JSON_TEXT = 'ชีตตอบกลับมาไม่ใช่ข้อมูล (ได้หน้าเว็บของ Google แทน) — ถ้าเพิ่งตั้งค่า: ตอน Deploy Apps Script ต้องตั้ง ' +
+  'Who has access = Anyone · ถ้าเคยใช้ได้อยู่แล้ว: ฝั่ง Google ขัดข้องชั่วคราว รอสักครู่แล้วลองใหม่ · ข้อมูลในเครื่องยังอยู่ครบ';
 // ขนาดจริงเป็น "ไบต์" ของข้อความเมื่อส่งออกไป (UTF-8) — ไม่ใช่จำนวนตัวอักษร
 // ภาษาไทย 1 ตัว = 3 ไบต์ · เดิมใช้ .length ตัวเลขในหน้าตั้งค่า เกณฑ์เตือน 5 MB และเวลารอส่งจึงต่ำกว่าจริงเกือบ 3 เท่า (รอบตรวจ 4 ข้อ A8)
 // นับเองแทน new Blob([s]).size — ผลตรงกัน (ตัวอักษรครึ่งคู่ที่เสียนับ 3 ไบต์ เท่ากับที่เบราว์เซอร์แทนด้วย U+FFFD) และไม่ต้องจองหน่วยความจำอีกก้อน
@@ -209,6 +216,11 @@ const STATE_REVISION_KEY = 'stateRevision';
 // ปกติเบราว์เซอร์ตอบภายในไม่กี่มิลลิวินาที — ถ้าเกินนี้ให้เปิดแอปแบบอ่านอย่างเดียวไปก่อน
 // (ห้ามเดาว่าเขียนได้ เพราะถ้ามีอีกหน้าต่างถือสิทธิ์อยู่ การเขียนตอนโหลดจะทับยอดขายของมัน)
 const WRITER_DECISION_TIMEOUT_MS = 3000;
+// ตรวจ 19 ต.ค. 2569 ข้อ 4: ช่องถาม "หน้าต่างหลักยังอยู่ไหม" (BroadcastChannel) · รอคำตอบ ~1 วิ
+// ปุ่มแดง "ใช้หน้าต่างนี้" รอระบบล็อกไม่เกิน 3 วิ แล้วใช้ทางโหลดข้อมูลล่าสุดแล้วรับสิทธิ์
+const WRITER_PING_CHANNEL = 'jahn-pos-writer';
+const WRITER_PING_TIMEOUT_MS = 1000;
+const WRITER_RETRY_TIMEOUT_MS = 3000;
 
 // ═══ สิทธิ์ตามตำแหน่ง (ด่านกลางของทุกคำสั่งที่เปลี่ยนข้อมูล) ═════════════════
 // เดิมสิทธิ์ถูกบังคับที่หน้าจอ (ซ่อนปุ่ม/ห้ามเข้าแท็บ) — ใครเรียกฟังก์ชันตรง ๆ ก็ข้ามได้หมด
@@ -284,6 +296,8 @@ const CARD_FEE_DEFAULT_RATE = 10;   // อัตราตั้งต้นข�
 const CARD_FEE_MAX_RATE = 30;       // เพดานของหน้าตั้งค่า กันพิมพ์ 100 แล้วบิลบวมโดยไม่มีใครทันเห็น
 const CARD_FEE_QUICK_RATE = 5;      // ปุ่มลดด่วนในหน้าชำระเงิน (แสดงเมื่อต่ำกว่าอัตราของร้าน)
 const BILL_MAX_BAHT = 10000000;    // เพดานเดิมของ validateBillRecord/Apps Script — ต้องกันก่อนรับชำระด้วย
+// ตรวจ 19 ต.ค. 2569 ข้อ 24: ระยะเวลาบริการสูงสุดที่บันทึกได้ (1 วัน) — กันพิมพ์เลขเกินแล้วคิวค้างเป็นวัน
+const SERVICE_MAX_MINUTES = 1440;
 // ตรวจ 14 ต.ค. ข้อ 2: ยกเลิกบิลที่มีส่วนต่างเงินค้าง ต้องบันทึกส่วนต่างก่อน
 const VOID_PENDING_SETTLEMENT_MSG = 'บิลนี้ถูกแก้ยอด/ช่องทางแล้วยังไม่ได้บันทึกส่วนต่างเงิน — บันทึกในกล่อง "เงินที่รับจริงของบิลนี้" ก่อน ' +
   '(ถ้าตอนขายกดช่องทางผิด ให้กด "ตอนขายบันทึกรับเงินผิด") แล้วค่อยยกเลิกบิล';
@@ -502,7 +516,9 @@ class PosApp {
     };
     const tone = colors[type] || colors.success;   // ค่าคงที่ในไฟล์นี้ ไม่ใช่ข้อมูลจากผู้ใช้
     const toast = document.createElement('div');
-    toast.style.cssText = `background:${tone.bg};border:1px solid ${tone.border};border-radius:12px;padding:12px 16px;font-family:var(--font-family);font-size:0.88rem;color:var(--text-primary);display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,0.4);animation:toastIn 0.25s ease;backdrop-filter:blur(10px);`;
+    // ตรวจ 19 ต.ค. 2569 ข้อ 43: คลาส pos-toast = พื้นทึบตามธีม + สีโทนจาก --toast-tint (style_v2.css) — พื้นโปร่งเดิมใช้สำรองถ้า CSS ไม่โหลด
+    toast.className = 'pos-toast';
+    toast.style.cssText = `--toast-tint:${tone.bg};background:${tone.bg};border:1px solid ${tone.border};border-radius:12px;padding:12px 16px;font-family:var(--font-family);font-size:0.88rem;color:var(--text-primary);display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,0.4);animation:toastIn 0.25s ease;backdrop-filter:blur(10px);`;
     toast.innerHTML = `<span style="font-size:1.1rem">${tone.icon}</span><span style="flex:1;line-height:1.4">${escapeHtml(message)}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1rem;padding:0 4px;flex-shrink:0">×</button>`;
     if (!document.getElementById('toast-style')) {
       const s = document.createElement('style');
@@ -849,7 +865,7 @@ class PosApp {
       }
       let d;
       try { d = await res.json(); }
-      catch (parseErr) { throw new Error(this.explainCloudError(parseErr)); }
+      catch (parseErr) { throw new Error(this.explainCloudParseError(parseErr)); }
       if (connection !== (this._connectionGeneration || 0) || !this.isCloudContextCurrent(context)) throw new Error('ปลายทางคลาวด์หรือข้อมูลเปลี่ยนระหว่างรอคำตอบ — ยกเลิกผลรอบเก่า');
       if (!d || typeof d !== 'object') throw new Error('ชีตตอบกลับมาไม่ใช่ข้อมูล');
       return d;
@@ -857,6 +873,10 @@ class PosApp {
     let d = await send(wantOwner ? this._ownerKey : null);
     if (wantOwner && d && (d.code === 'OWNER_KEY_REQUIRED' || d.code === 'OWNER_KEY_INVALID')) {
       this._ownerKey = null;
+      // ตรวจ 19 ต.ค. 2569 ข้อ 53: จำ "รอบล็อกอิน + ผู้ใช้" ก่อนถาม — ถ้าระหว่างรอคำตอบเจ้าของออกจากระบบ (กดล็อก/ออกอัตโนมัติ)
+      // แล้วคนอื่นเข้าต่อ ต้องไม่จำรหัสไว้ให้คนถัดไป (เดิมจำหลังคำตอบกลับมาเสมอ)
+      const askedSession = this._sessionEpoch || 0;
+      const askedBy = this.currentUser ? this.currentUser.id : null;
       const key = await this.askOwnerKey(d.code === 'OWNER_KEY_INVALID');
       if (!key) throw new Error('ยกเลิก — ต้องใช้รหัสเจ้าของร้าน (Owner key) สำหรับคำสั่งนี้');
       d = await send(key);
@@ -864,7 +884,9 @@ class PosApp {
       // (เดิมจำเฉพาะเมื่อสำเร็จ → ย้ายเครื่องที่ข้อมูลไม่ครบแล้วเลือกฉุกเฉิน ต้องพิมพ์รหัสยาว 20 ตัวซ้ำ — ตรวจรอบ Claude รอบ 3 · D10)
       // จำได้เฉพาะคำตอบที่มาจาก "หลังด่านตรวจรหัส" แน่ ๆ — BUSY/UNAUTHORIZED/SERVER_ERROR ตอบได้ก่อนตรวจรหัส
       // (เดิมจำทุกคำตอบที่ไม่ใช่ OWNER_KEY_* → รหัสที่พิมพ์ผิดถูกจำไว้ถ้าคำขอนั้นเจอ BUSY · ผู้ตรวจแยก #10)
-      if (d && (d.status === 'success' || OWNER_KEY_CHECKED_CODES.includes(String(d.code || '')))) this._ownerKey = key;
+      const sameOwnerSession = (this._sessionEpoch || 0) === askedSession && !!askedBy && this.currentRole === 'owner' &&
+        !!this.currentUser && this.currentUser.id === askedBy;
+      if (sameOwnerSession && d && (d.status === 'success' || OWNER_KEY_CHECKED_CODES.includes(String(d.code || '')))) this._ownerKey = key;
     }
     return d;
   }
@@ -978,6 +1000,13 @@ class PosApp {
       try { this.requireLogin(); } catch (e) { console.error('[Boot] requireLogin ล้มเหลวด้วย', e); }
     }
 
+    // ตรวจ 19 ต.ค. 2569 ข้อ 4: เปิดมาแบบอ่านอย่างเดียว (มีคนถือล็อก / ระบบล็อกตอบช้า) — ถามหาหน้าต่างหลักตัวจริง
+    // ไม่มีใครตอบใน ~1 วิ (ล็อกค้างจากหน้าเดิมหลังกด "อัปเดตเลย") → แย่งล็อกแล้วรับสิทธิ์เอง ไม่ต้องรอให้พนักงานกดปุ่ม
+    if (this.isReadOnlyWindow) {
+      Promise.resolve().then(() => this.stealWriterLockIfAbandoned())
+        .catch(e => console.warn('[Writer] ตรวจล็อกค้างไม่สำเร็จ', e));
+    }
+
     // มีบางส่วนของหน้าจอวาดไม่ขึ้นเพราะข้อมูลเสีย — บอกให้เจ้าของรู้ ไม่ใช่ปล่อยให้งง
     if (this._renderFailures && this._renderFailures.length) {
       const parts = [...new Set(this._renderFailures)].join(' · ');
@@ -990,6 +1019,8 @@ class PosApp {
 
     // เน็ตกลับมา / สลับกลับมาที่แอป → ดันบิลที่ค้าง sync ขึ้นทันที (กันบิลที่ขายตอนออฟไลน์ค้าง)
     window.addEventListener('online', () => this.resumePendingCloudWork());
+    // ตรวจ 19 ต.ค. 2569 ข้อ 19: เน็ตหลุด → ป้ายเปลี่ยนเป็น "ออฟไลน์ — รอส่ง N" ทันที (เดิมค้าง "ตรงกัน")
+    window.addEventListener('offline', () => { try { this.checkSyncStatus(); } catch (e) { /* หน้าจอไม่พร้อม */ } });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && navigator.onLine) this.resumePendingCloudWork();
     });
@@ -1010,6 +1041,7 @@ class PosApp {
       // เคลียร์ธงทุกครั้งที่เริ่มโหลด — ถ้ารอบนี้สำเร็จต้องกลับมาบันทึกได้ตามปกติ
       // (resetData() เรียก loadState() ซ้ำหลังล้าง DB จึงต้องมีทางกลับ ไม่ใช่ธงค้างตลอดชีวิตแอป)
       this.loadFailed = false;
+      this._keepDamagedOwnerPin = null;
       this._loadRepairs = [];
 
       // 1. ตรวจสอบการย้ายข้อมูล (Migration) จาก LocalStorage ไป IndexedDB
@@ -1116,11 +1148,37 @@ class PosApp {
       this.state.customers = has('customers') ? val('customers') : [...DEFAULT_CUSTOMERS];
       this.state.queue = has('queue') ? val('queue') : [...DEFAULT_QUEUE];
       this.state.transactions = has('transactions') ? val('transactions') : [...DEFAULT_TRANSACTIONS];
+      // ตรวจ 19 ต.ค. 2569 ข้อ 54: แถวในเครื่องผิดชนิด (เช่น staff เป็น object) เคยทำให้แอปค้างก่อนถึงหน้าล็อกอิน
+      //   · บิล (transactions) ไม่ใช่รายการ = ข้อมูลเงินเสีย ห้ามเดา → จอ "โหลดข้อมูลร้านไม่สำเร็จ" (ไม่บันทึกทับอะไรเลย)
+      //   · รายการอื่น → ใช้รายการว่าง แล้วเก็บค่าเดิมไว้ใน "รายการที่แยกไว้ตรวจสอบ" (ดาวน์โหลดดูได้ที่หน้าตั้งค่า)
+      if (!Array.isArray(this.state.transactions)) {
+        throw new Error('ข้อมูลบิลในเครื่องเสีย (ไม่ใช่รายการบิล) — ไม่โหลดต่อเพื่อกันข้อมูลจริงถูกเขียนทับ');
+      }
+      const badListRepairs = [];
+      [['services', 'บริการ/สินค้า'], ['staff', 'พนักงาน'], ['customers', 'ลูกค้า'], ['queue', 'คิว']].forEach(([k, label]) => {
+        if (Array.isArray(this.state[k])) return;
+        const original = this.state[k];
+        console.error(`[Load] ข้อมูล ${k} ในเครื่องไม่ใช่รายการ — ใช้รายการว่างแทน (เก็บค่าเดิมไว้ตรวจ)`, original);
+        this.state[k] = [];
+        badListRepairs.push({ k, label, original });
+      });
       this.state.voidLog = Array.isArray(val('voidLog')) ? val('voidLog') : [];
       this.state.expenseLog = Array.isArray(val('expenseLog')) ? val('expenseLog') : [];
       this.state.editLog = Array.isArray(val('editLog')) ? val('editLog') : [];
       this.state.quarantine = Array.isArray(val('quarantine')) ? val('quarantine') : [];
       this.state.cloudOutbox = Array.isArray(val('cloudOutbox')) ? val('cloudOutbox') : [];
+      if (badListRepairs.length) {
+        const at = Date.now();
+        badListRepairs.forEach(({ k, label, original }) => {
+          let copy = null;
+          try { copy = original === undefined ? null : JSON.parse(JSON.stringify(original)); } catch (e) { copy = String(original); }
+          this.state.quarantine.push({ kind: 'load-list', id: k, reasons: ['bad-list-type'],
+            message: `ข้อมูล${label}ในเครื่องเสีย (ไม่ใช่รายการ) — แอปเริ่มด้วยรายการว่าง เก็บค่าเดิมไว้ตรวจ`,
+            original: copy, quarantinedAt: at });
+        });
+        const labels = badListRepairs.map(r => r.label).join(' · ');
+        setTimeout(() => this.showToast(`ข้อมูล${labels}ในเครื่องเสีย — แอปเปิดด้วยรายการว่าง และเก็บค่าเดิมไว้ใน "รายการที่แยกไว้ตรวจสอบ" (หน้าตั้งค่า) ให้แจ้งเจ้าของร้าน`, 'warning', 12000), 700);
+      }
       this.state.shift = has('shift') ? val('shift') : {
         active: false,
         startTime: null,
@@ -1176,6 +1234,8 @@ class PosApp {
       // ── ซ่อมในหน่วยความจำ (ยังไม่บันทึก) ─────────────────────────────────
       // ซ่อมแซมและตรวจสอบความซ้ำซ้อนของ ID
       const repairs = [];
+      // ข้อ 54: บันทึกครั้งเดียวหลังรู้ว่าเป็นหน้าต่างหลัก (persistLoadRepairs) — ค่าเดิมลงเครื่องพร้อมใน "รายการที่แยกไว้ตรวจสอบ"
+      if (badListRepairs.length) repairs.push('ข้อมูลผิดชนิด: ' + badListRepairs.map(r => r.label).join(' · '));
       const dedupeIds = (list, prefix, label) => {
         const seen = new Set();
         let fixed = false;
@@ -1217,6 +1277,7 @@ class PosApp {
       }
 
       this.ownerPin = has('ownerPin') ? val('ownerPin') : '';
+      this._keepDamagedOwnerPin = null;
       if (!has('ownerPin') || this.ownerPin === '' || this.ownerPin === null || this.ownerPin === undefined) {
         // เครื่องใหม่ / หลังล้างข้อมูล / กู้จากไฟล์สำรอง (ไฟล์สำรองไม่มี PIN เจ้าของ) — "ยังไม่ได้ตั้ง" ไม่ใช่ "ชำรุด"
         // ⚠️ เดิมใช้ข้อความ "PIN ชำรุด" และไม่บันทึกค่าเริ่มต้น → ขึ้นเตือนน่าตกใจซ้ำทุกครั้งที่เปิดแอป (รอบตรวจ 4 ข้อ A9)
@@ -1227,7 +1288,11 @@ class PosApp {
         setTimeout(() => this.showToast('เครื่องนี้ยังไม่ได้ตั้ง PIN เจ้าของร้าน — เข้าครั้งแรกด้วย PIN เริ่มต้น แล้วระบบจะให้ตั้ง PIN ใหม่ทันที', 'info', 7000), 500);
       } else if (typeof this.ownerPin !== 'string' || (this.ownerPin.length !== 64 && this.ownerPin.length !== 6)) {
         // มีค่าอยู่แต่ใช้ตรวจ PIN ไม่ได้จริง — ไม่บันทึกทับ (เก็บของเดิมไว้ให้ตรวจได้) · หายเองเมื่อเจ้าของเข้าแล้วตั้ง PIN ใหม่
+        // ตรวจ 19 ต.ค. 2569 ข้อ 54: เดิม "ไม่บันทึกทับ" แค่ตอนโหลด — บิลแรกที่ขาย (saveState) เขียน PIN เริ่มต้นทับของเดิมทันที
+        // ตอนนี้ buildStateRows เขียนค่าเดิมกลับไปจนกว่า PIN ในหน่วยความจำจะเปลี่ยนจริง (เจ้าของตั้ง PIN ใหม่)
+        const damaged = this.ownerPin;
         this.ownerPin = await this.hashPin(DEFAULT_OWNER_PIN);
+        this._keepDamagedOwnerPin = { original: damaged, placeholder: this.ownerPin };
         setTimeout(() => this.showToast('รหัส PIN ของเจ้าของร้านชำรุดหรือรูปแบบไม่ถูกต้อง ระบบได้รีเซ็ตกลับเป็น "123456" ชั่วคราว กรุณาเปลี่ยนเพื่อความปลอดภัยในหน้าตั้งค่า', 'warning', 6000), 500);
       } else if (this.ownerPin.length === 6) {
         // Plain text migration to hash
@@ -1384,19 +1449,45 @@ class PosApp {
   // ตอนนี้การเขียนบางคีย์ก็ขยับรุ่น → หน้าต่างที่ถือข้อมูลเก่าถูกปฏิเสธ ไม่ว่าอีกฝั่งเขียนทั้งร้านหรือบางคีย์
   // โยน err.staleState เมื่อมีหน้าต่างอื่นเขียนไปก่อน · error อื่นโยนต่อตามเดิม · ตั้งรุ่นที่จำไว้หลัง commit เท่านั้น
   async writeStateRowsCAS(rows) {
-    let next = null;
+    let next = null, storageLost = false;
     await db.transaction('rw', db.state, async () => {
       const stored = this.parseStateRevision(await db.state.get(STATE_REVISION_KEY));
       if (!this.stateRevisionMatches(stored)) {
-        const err = new Error('STALE_STATE_WRITE');
-        err.staleState = true;
-        throw err;
+        // ตรวจ 19 ต.ค. 2569 ข้อ 5: ไม่มีเลขรุ่น + หน้าต่างนี้เคยเห็นรุ่น > 0 + ไม่มีแถวที่ "ทุกการเขียนของแอป" ทิ้งไว้เลย
+        // (db_migrated / ownerPin / transactions — รวมถึงการล้างข้อมูลจากอีกหน้าต่าง ซึ่งเขียนสามแถวนี้เสมอ)
+        // = ที่เก็บข้อมูลในเครื่องหายไปเอง (iPadOS ล้างพื้นที่) ไม่ใช่ "อีกหน้าต่างเขียนก่อน"
+        // เดิมถือว่าเป็นอีกหน้าต่าง → พักเป็นอ่านอย่างเดียว · ปุ่มแดงโหลดฐานว่างทับ → ข้อมูลบนจอที่เหลืออยู่หายตาม
+        // ตอนนี้: เขียนข้อมูลทั้งร้านจากหน่วยความจำกลับลงไปพร้อมเลขรุ่นใหม่ · การล้างจริงจากอีกหน้าต่างยังถูกปฏิเสธเหมือนเดิม
+        const known = this._stateRev || null;
+        if (!stored && known && known.rev > 0) {
+          const marks = await db.state.bulkGet(['db_migrated', 'ownerPin', 'transactions']);
+          storageLost = marks.every(r => !r);
+        }
+        if (!storageLost) {
+          const err = new Error('STALE_STATE_WRITE');
+          err.staleState = true;
+          throw err;
+        }
       }
       next = { rev: (stored ? stored.rev : 0) + 1, by: this.windowToken(), at: Date.now() };
-      await db.state.bulkPut(rows.concat([{ key: STATE_REVISION_KEY, value: next }]));
+      let out = rows;
+      if (storageLost) {
+        // สั่งสำรองขึ้น Drive ไว้ในคิวงานคลาวด์ "ก่อน" ประกอบแถว — ให้ลงเครื่องพร้อมข้อมูลร้านชุดนี้
+        try { this.planChangeBackup('storage-loss'); } catch (e) { console.warn('[GUARD] ตั้งงานสำรองหลังข้อมูลหายไม่สำเร็จ', e); }
+        // แถวของผู้เรียกอยู่ท้ายสุด = ชนะ (saveKeys บางคีย์เขียนค่าใหม่ก่อนเปลี่ยนในหน่วยความจำ)
+        out = this.buildStateRows().concat(rows);
+      }
+      await db.state.bulkPut(out.concat([{ key: STATE_REVISION_KEY, value: next }]));
     });
     // commit ล้ม = ไม่ถึงบรรทัดนี้ รุ่นที่จำไว้ยังเป็นรุ่นเดิม (ไม่งั้นการบันทึกครั้งหน้าถูกปฏิเสธผิด ๆ)
     this._stateRev = next;
+    if (storageLost) {
+      console.error('[GUARD] ข้อมูลร้านในเครื่องหายไประหว่างเปิดแอป — เขียนข้อมูลจากหน้าจอนี้กลับลงเครื่องแล้ว');
+      const cloud = this.hasCloudSetupStarted();
+      this.showToast('ข้อมูลร้านในเครื่องหายไประหว่างเปิดแอป — ระบบเขียนข้อมูลจากหน้าจอนี้กลับลงเครื่องแล้ว · ' +
+        (cloud ? 'ระบบจะสำรองขึ้น Drive ภายในไม่กี่นาที อย่าเพิ่งปิดแอป และให้แจ้งเจ้าของร้าน'
+               : 'ให้เจ้าของกด "ส่งออกข้อมูลสำรอง" ที่หน้าตั้งค่าทันที อย่าเพิ่งปิดแอป'), 'error', 20000);
+    }
     return true;
   }
   onStaleStateWrite() {
@@ -1453,7 +1544,7 @@ class PosApp {
       { key: 'shopPhone', value: this.shopPhone || '' },
       { key: 'shopLogo', value: this.shopLogo || '' },
       { key: 'theme', value: this.theme || 'dark' },
-      { key: 'ownerPin', value: this.ownerPin },
+      { key: 'ownerPin', value: this.ownerPinForStorage() },
       { key: 'googleSheetsUrl', value: this.googleSheetsUrl },
       { key: 'googleSheetsApiToken', value: this.googleSheetsApiToken || '' },
       { key: 'cloudBackendId', value: this.cloudBackendId || '' },
@@ -1470,6 +1561,15 @@ class PosApp {
       // ธง "ย้ายจาก localStorage แล้ว" — ลงพร้อมข้อมูลร้านทุกครั้ง กันการย้ายทับข้อมูลจริงรอบถัดไป
       { key: 'db_migrated', value: true }
     ];
+  }
+
+  // ข้อ 54: PIN เจ้าของที่เสีย (โหลดมาใช้ไม่ได้) ใช้ PIN เริ่มต้นชั่วคราวในหน่วยความจำ แต่ในเครื่องคงค่าเดิมไว้ให้ตรวจ
+  // จนกว่าเจ้าของจะตั้ง PIN ใหม่ (ค่าในหน่วยความจำเปลี่ยนจากค่าชั่วคราว)
+  ownerPinForStorage() {
+    const keep = this._keepDamagedOwnerPin;
+    if (keep && this.ownerPin === keep.placeholder) return keep.original;
+    if (keep) this._keepDamagedOwnerPin = null;
+    return this.ownerPin;
   }
 
   // เขียนเฉพาะบางคีย์แบบ atomic — ใช้กับค่าที่ไม่ใช่ข้อมูลร้าน (ธีม) หรือคีย์เดี่ยว
@@ -1608,6 +1708,8 @@ class PosApp {
       if (this._resolveWriterDecision) this._resolveWriterDecision(isWriter);
     };
     this._writerDecision = new Promise(res => { this._resolveWriterDecision = res; });
+    // ตรวจ 19 ต.ค. 2569 ข้อ 4: หน้าต่างหลักตอบ "ยังอยู่" ให้หน้าต่างที่ถูกพักถามได้ (ดู pingLiveWriter)
+    this.openWriterChannel();
     const locks = (typeof navigator !== 'undefined' && navigator) ? navigator.locks : null;
     if (!locks || typeof locks.request !== 'function') {
       console.warn('[Writer] เบราว์เซอร์นี้ไม่รองรับ Web Locks — ข้ามการกันหน้าต่างซ้ำ');
@@ -1616,21 +1718,23 @@ class PosApp {
     }
     try {
       // ifAvailable: รู้ผลทันทีว่ามีหน้าต่างอื่นถืออยู่ไหม (callback ถูกเรียกเสมอ ได้ lock หรือ null)
-      locks.request(WRITER_LOCK_NAME, { ifAvailable: true }, (lock) => {
+      this.requestWriterLock({ ifAvailable: true }, async (lock) => {
         if (!lock) {
           this.setReadOnlyWindow(true);
           decided(false);
           this.waitForWriterLock();     // เข้าคิวรอ ถ้าหน้าต่างหลักปิดเมื่อไหร่จะได้สิทธิ์ต่อ
-          return;
+          return false;
         }
         // ตอบช้าจนแอปเปิดแบบอ่านอย่างเดียวไปก่อนแล้ว — ได้สิทธิ์ทีหลังต้องรับสิทธิ์แบบโหลดข้อมูลใหม่
+        // ข้อ 58: รับสิทธิ์ไม่สำเร็จ = ปล่อยล็อกคืน (เดิมถือค้างไว้ทั้งที่ยังอ่านอย่างเดียว)
         if (this._writerDecisionTimedOut) {
-          this.takeOverAsWriter();
-        } else {
-          this.setReadOnlyWindow(false);
-          decided(true);
+          // error ระหว่างรับสิทธิ์ต้องไม่ไหลไปถึง .catch ข้างล่าง (ซึ่งปลดอ่านอย่างเดียวโดยไม่โหลดข้อมูลใหม่)
+          try { return await this.takeOverAsWriter(); }
+          catch (e) { console.warn('[Writer] รับสิทธิ์หลังตอบช้าไม่สำเร็จ', e); return !this.isReadOnlyWindow; }
         }
-        return new Promise(() => {});   // ถือล็อกไว้จนหน้าต่างนี้ปิด (เบราว์เซอร์ปล่อยให้เอง)
+        this.setReadOnlyWindow(false);
+        decided(true);
+        return true;                    // ถือล็อกไว้จนหน้าต่างนี้ปิด (เบราว์เซอร์ปล่อยให้เอง)
       }).catch(err => {
         // ขอล็อกไม่สำเร็จด้วยเหตุอื่น — ห้ามล็อกร้านออกจากระบบเพราะเรื่องนี้
         console.warn('[Writer] ขอสิทธิ์เขียนไม่สำเร็จ ใช้งานต่อแบบเดิม', err);
@@ -1643,6 +1747,113 @@ class PosApp {
       decided(true);
     }
     return this._writerDecision;
+  }
+
+  // ขอล็อกหน้าต่างหลัก — onLock(lock|null) คืน true = ถือล็อกต่อจนหน้าต่างนี้ปิด · อย่างอื่น = ปล่อยล็อกทันที
+  // จำไว้ว่าหน้าต่างนี้ถือล็อกอยู่ไหม (ใช้ตอบ ping) · ล็อกถูกหน้าต่างอื่นแย่ง (steal) = พักหน้าต่างนี้เป็นอ่านอย่างเดียว
+  // คืน Promise ของ locks.request (reject เมื่อขอล็อกไม่ได้เลย — ผู้เรียกตัดสินใจเอง)
+  requestWriterLock(opts, onLock) {
+    const locks = navigator.locks;
+    let granted = false, lost = false;
+    const req = locks.request(WRITER_LOCK_NAME, opts, async (lock) => {
+      if (!lock) { await onLock(null); return; }
+      granted = true;
+      this._writerLockHeld = true;
+      let keep = false;
+      try { keep = (await onLock(lock)) === true; }
+      finally { if (!keep && !lost) { granted = false; this._writerLockHeld = false; } }
+      // ถูกแย่งล็อกไประหว่างรับสิทธิ์ — takeOverAsWriter เพิ่งปลดอ่านอย่างเดียว ต้องพักกลับ (สองหน้าต่างห้ามเขียนพร้อมกัน)
+      if (lost) { if (keep && !this.isReadOnlyWindow) this.setReadOnlyWindow(true); return; }
+      if (!keep) return;                 // ปล่อยล็อก — ให้หน้าต่างอื่น/การกดครั้งหน้าได้สิทธิ์
+      return new Promise(() => {});      // ถือไว้จนหน้าต่างนี้ปิด
+    });
+    return Promise.resolve(req).catch(err => {
+      if (!granted || lost) throw err;
+      // เคยได้ล็อกแล้วถูกปลดจากข้างนอก = อีกหน้าต่างแย่งสิทธิ์ไป (เพราะหน้าต่างนี้ไม่ตอบ ping ทันเวลา)
+      lost = true;
+      this._writerLockHeld = false;
+      this.onWriterLockLost(err);
+    });
+  }
+  onWriterLockLost(err) {
+    console.warn('[Writer] อีกหน้าต่างรับสิทธิ์หน้าต่างหลักไปแล้ว — หน้าต่างนี้เป็นอ่านอย่างเดียว', err);
+    if (!this.isReadOnlyWindow) {
+      this.setReadOnlyWindow(true);
+      this.showToast('อีกหน้าต่างของแอปรับสิทธิ์บันทึกไปแล้ว — หน้าต่างนี้บันทึกไม่ได้ ให้ใช้หน้าต่างนั้น', 'warning', 10000);
+    }
+    this.waitForWriterLock();
+  }
+
+  // ── ข้อ 4 (ตรวจ 19 ต.ค. 2569): ล็อกค้างหลังรีโหลด ─────────────────────────
+  // Safari บางรุ่น (WebKit bug 283528) ไม่ปล่อยล็อกของหน้าเดิมหลังกด "อัปเดตเลย" → หน้าใหม่ค้างอ่านอย่างเดียว
+  // ทั้งที่ไม่มีหน้าต่างอื่นอยู่จริง · ทางแก้: หน้าต่างหลักที่ยังมีชีวิตตอบ ping ทาง BroadcastChannel
+  // หน้าต่างที่ถูกพักและไม่ได้คำตอบใน ~1 วิ ขอล็อกแบบ steal แล้วรับสิทธิ์ (โหลดข้อมูลล่าสุดก่อนเสมอ)
+  // ด่านรุ่นข้อมูล (writeStateRowsCAS) ยังกันชั้นหลัง · ไม่มี BroadcastChannel = ไม่แย่ง (ทำแบบเดิม)
+  openWriterChannel() {
+    if (this._writerChannel !== undefined) return this._writerChannel;
+    this._writerChannel = null;
+    this._writerPings = new Map();
+    if (typeof BroadcastChannel !== 'function') return null;
+    try {
+      const ch = new BroadcastChannel(WRITER_PING_CHANNEL);
+      ch.onmessage = (ev) => {
+        const m = ev && ev.data;
+        if (!m || typeof m !== 'object' || typeof m.id !== 'string') return;
+        if (m.type === 'ping') {
+          // ตอบเฉพาะหน้าต่างที่ถือสิทธิ์อยู่จริง (หรือกำลังรับสิทธิ์) และข้อมูลโหลดสำเร็จ
+          if (!this.loadFailed && (this._writerLockHeld || !this.isReadOnlyWindow)) {
+            try { ch.postMessage({ type: 'pong', id: m.id }); } catch (e) { /* ช่องปิดแล้ว */ }
+          }
+        } else if (m.type === 'pong') {
+          const resolve = this._writerPings.get(m.id);
+          if (resolve) resolve(true);
+        }
+      };
+      this._writerChannel = ch;
+    } catch (e) {
+      console.warn('[Writer] เปิด BroadcastChannel ไม่ได้ — ไม่แย่งล็อก', e);
+      this._writerChannel = null;
+    }
+    return this._writerChannel;
+  }
+  // ถามว่ามีหน้าต่างหลักที่ยังมีชีวิตอยู่ไหม — true = มีคนตอบ · false = เงียบเกินเวลา · null = ถามไม่ได้ (ถือว่ามี)
+  pingLiveWriter(timeoutMs) {
+    const ch = this.openWriterChannel();
+    if (!ch) return Promise.resolve(null);
+    const id = this.windowToken() + ':' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    return new Promise(resolve => {
+      let timer = null;
+      const finish = (v) => { if (timer) clearTimeout(timer); this._writerPings.delete(id); resolve(v); };
+      this._writerPings.set(id, finish);
+      timer = setTimeout(() => finish(false), timeoutMs || WRITER_PING_TIMEOUT_MS);
+      try { ch.postMessage({ type: 'ping', id }); } catch (e) { finish(null); }
+    });
+  }
+  // หน้าต่างที่ถูกพัก: ถ้าไม่มีหน้าต่างหลักตอบ → แย่งล็อกแล้วรับสิทธิ์ · คืน true เมื่อขายต่อได้แล้ว
+  // hooks.onGranted = เรียกทันทีที่ได้ล็อก (ก่อนโหลดข้อมูล) — ปุ่มแดงใช้หยุดตัวจับเวลา 3 วิ
+  async stealWriterLockIfAbandoned(hooks) {
+    if (!this.isReadOnlyWindow || this._writerLockHeld || this.loadFailed) return false;
+    const locks = (typeof navigator !== 'undefined' && navigator) ? navigator.locks : null;
+    if (!locks || typeof locks.request !== 'function') return false;
+    const alive = await this.pingLiveWriter(WRITER_PING_TIMEOUT_MS);
+    if (alive !== false) return false;               // มีหน้าต่างหลักตอบ / ถามไม่ได้ = ไม่แย่ง
+    if (!this.isReadOnlyWindow || this._writerLockHeld) return !this.isReadOnlyWindow;
+    console.warn('[Writer] ไม่มีหน้าต่างหลักตอบ — ล็อกน่าจะค้างจากหน้าที่ปิดไปแล้ว ขอแย่งสิทธิ์');
+    return new Promise(resolve => {
+      let settled = false;
+      const done = v => { if (!settled) { settled = true; resolve(v); } };
+      try {
+        this.requestWriterLock({ steal: true }, async (lock) => {
+          if (!lock) { done(false); return false; }
+          if (hooks && typeof hooks.onGranted === 'function') hooks.onGranted();
+          let ok = false;
+          try { ok = (await this.takeOverAsWriter()) === true; }
+          catch (e) { console.warn('[Writer] รับสิทธิ์หลังแย่งล็อกไม่สำเร็จ', e); }
+          done(ok);
+          return ok;
+        }).catch(err => { console.warn('[Writer] แย่งล็อกไม่สำเร็จ', err); done(false); });
+      } catch (err) { console.warn('[Writer] แย่งล็อกไม่สำเร็จ', err); done(false); }
+    });
   }
 
   // รอผลสิทธิ์เขียนตอนเปิดแอป — ไม่เกิน WRITER_DECISION_TIMEOUT_MS
@@ -1665,14 +1876,21 @@ class PosApp {
   waitForWriterLock() {
     const locks = (typeof navigator !== 'undefined' && navigator) ? navigator.locks : null;
     if (!locks || typeof locks.request !== 'function') return;
-    locks.request(WRITER_LOCK_NAME, async (lock) => {
-      if (!lock) return;
-      await this.takeOverAsWriter();
-      return new Promise(() => {});   // ถือต่อจนหน้าต่างนี้ปิด
-    }).catch(err => console.warn('[Writer] รอสิทธิ์เขียนไม่สำเร็จ', err));
+    if (this._writerLockQueued) return;              // เข้าคิวไว้แล้ว — ไม่ซ้อน
+    this._writerLockQueued = true;
+    try {
+      this.requestWriterLock({}, async (lock) => {
+        this._writerLockQueued = false;
+        if (!lock) return false;
+        if (!this.isReadOnlyWindow) return true;     // ได้สิทธิ์ทางอื่นไปแล้ว (เช่นปุ่มแดงแบบโหลดใหม่) — แค่ถือล็อก
+        // ข้อ 58: รับสิทธิ์ไม่สำเร็จ = ปล่อยล็อกคืน ไม่ถือค้างทั้งที่ยังอ่านอย่างเดียว
+        try { return await this.takeOverAsWriter(); }
+        catch (e) { console.warn('[Writer] รับสิทธิ์ไม่สำเร็จ', e); return !this.isReadOnlyWindow; }
+      }).catch(err => { this._writerLockQueued = false; console.warn('[Writer] รอสิทธิ์เขียนไม่สำเร็จ', err); });
+    } catch (err) { this._writerLockQueued = false; console.warn('[Writer] รอสิทธิ์เขียนไม่สำเร็จ', err); }
   }
 
-  // รับสิทธิ์เขียนต่อจากหน้าต่างที่เพิ่งปิดไป
+  // รับสิทธิ์เขียนต่อจากหน้าต่างที่เพิ่งปิดไป — คืน true เมื่อเป็นหน้าต่างหลักแล้วจริง
   async takeOverAsWriter() {
     // ⚠️ ต้องโหลดข้อมูลล่าสุดจากเครื่องก่อน "เสมอ" ห้ามข้าม
     // ระหว่างที่หน้าต่างนี้อ่านอย่างเดียว หน้าต่างหลักอาจขายไปแล้วหลายบิล
@@ -1706,7 +1924,8 @@ class PosApp {
       }
       return true;
     });
-    if (!tookOver) return;
+    // ข้อ 58: คืนผลจริง — ผู้เรียกที่ถือล็อกอยู่ต้องปล่อยล็อกเมื่อรับสิทธิ์ไม่สำเร็จ
+    if (tookOver !== true) return false;
     // สิ่งที่ loadState ซ่อมไว้ (ID ซ้ำ/PIN แบบเก่า) — ตอนนี้เป็นหน้าต่างหลักแล้วจึงบันทึกได้
     await this.persistLoadRepairs();
     // ตรวจ 14 ต.ค. ข้อ 16: เครื่องใหม่ที่ได้สิทธิ์ช้ากว่าตอนเปิดแอป — จำรหัสเครื่องตอนนี้ (นอกคิว) เหมือนที่ init ทำ
@@ -1733,6 +1952,7 @@ class PosApp {
     // ไม่งั้นค้างรอจนกว่าจะมีการขาย/เน็ตกลับ/สลับแอป
     try { Promise.resolve(this.resumePendingCloudWork()).catch(e => console.warn('[Writer] resume cloud work failed', e)); }
     catch (e) { console.warn('[Writer] resume cloud work failed', e); }
+    return true;
   }
 
   // ── ตรวจผู้ใช้ที่ล็อกอินค้างอยู่กับข้อมูลชุดปัจจุบัน ─────────────────────────
@@ -1802,6 +2022,7 @@ class PosApp {
       '<b>แอปนี้เปิดอยู่อีกหน้าต่างหนึ่งแล้ว</b><br>' +
       'หน้าต่างนี้<b>บันทึกอะไรไม่ได้</b> เพื่อกันยอดขายที่อีกหน้าต่างเพิ่งขายถูกเขียนทับหาย<br>' +
       '<span style="opacity:0.85;font-size:0.88rem">ให้กลับไปใช้หน้าต่างเดิม หรือปิดหน้าต่างเดิมแล้วกดปุ่มข้างล่าง</span><br>' +
+      '<span style="opacity:0.85;font-size:0.88rem">ถ้าไม่มีหน้าต่างอื่นเปิดอยู่ ให้ปัดปิดแอปแล้วเปิดใหม่</span><br>' +
       '<button type="button" id="read-only-retry-btn" style="margin-top:10px;padding:8px 18px;border-radius:8px;border:none;' +
       'background:#fff;color:#7f1d1d;font-weight:700;cursor:pointer">ปิดหน้าต่างอื่นแล้ว — ใช้หน้าต่างนี้</button>';
     document.body.appendChild(el);
@@ -1820,11 +2041,12 @@ class PosApp {
     const reset = (text) => { if (btn) { btn.disabled = false; btn.innerText = text; } };
     if (btn) { btn.disabled = true; btn.innerText = 'กำลังตรวจสอบ...'; }
     const viaReload = async () => {
-      try { await this.takeOverAsWriter(); }
+      let ok = false;
+      try { ok = (await this.takeOverAsWriter()) === true; }
       catch (e) { console.warn('[Writer] รับสิทธิ์แบบโหลดข้อมูลใหม่ไม่สำเร็จ', e); }
-      if (this.isReadOnlyWindow) {
+      if (!ok || this.isReadOnlyWindow) {
         reset('โหลดข้อมูลไม่สำเร็จ — ลองใหม่');
-        this.showToast('โหลดข้อมูลล่าสุดไม่สำเร็จ — ยังบันทึกไม่ได้ ลองกดใหม่ หรือปิดแอปแล้วเปิดใหม่', 'error', 8000);
+        this.showToast('โหลดข้อมูลล่าสุดไม่สำเร็จ — ยังบันทึกไม่ได้ ลองกดใหม่ หรือปัดปิดแอปแล้วเปิดใหม่', 'error', 8000);
         return false;
       }
       return true;
@@ -1833,24 +2055,49 @@ class PosApp {
     if (!locks || typeof locks.request !== 'function') return viaReload();
     return new Promise(resolve => {
       let settled = false;
-      const done = v => { if (!settled) { settled = true; resolve(v); } };
+      let entered = false;   // ได้ล็อกแล้ว กำลังโหลดข้อมูล — ตัวจับเวลาต้องไม่ซ้อนอีกทาง
+      let timer = null;
+      const done = v => { if (timer) { clearTimeout(timer); timer = null; } if (!settled) { settled = true; resolve(v); } };
       const fallback = (err) => {
+        if (settled || entered) return;
+        entered = true;
         console.warn('[Writer] ขอสิทธิ์ผ่าน Web Locks ไม่ได้ — โหลดข้อมูลล่าสุดแล้วรับสิทธิ์แทน', err);
         viaReload().then(done, () => done(false));
       };
+      // ข้อ 4: ระบบล็อกไม่ตอบเลย (ปุ่มเคยค้าง "กำลังตรวจสอบ..." ตลอด) → เกิน 3 วิ ใช้ทางโหลดข้อมูลล่าสุดแล้วรับสิทธิ์
+      timer = setTimeout(() => { timer = null; fallback(new Error('ระบบล็อกไม่ตอบภายใน ' + WRITER_RETRY_TIMEOUT_MS + ' ms')); },
+        WRITER_RETRY_TIMEOUT_MS);
       let req;
       try {
-        req = locks.request(WRITER_LOCK_NAME, { ifAvailable: true }, async (lock) => {
+        req = this.requestWriterLock({ ifAvailable: true }, async (lock) => {
+          if (settled) return !!lock && !this.isReadOnlyWindow;   // หมดเวลาแล้วรับสิทธิ์ทางโหลดใหม่ไปแล้ว — ได้ล็อกทีหลังก็ถือไว้
           if (!lock) {
+            // มีคนถือล็อก — ถามก่อนว่ายังมีชีวิตไหม (ล็อกค้างจากหน้าที่ปิดไปแล้ว = ไม่มีใครตอบ → แย่งสิทธิ์)
+            let stole = false;
+            const ok = await this.stealWriterLockIfAbandoned({ onGranted: () => {
+              if (settled || entered) return;
+              stole = true; entered = true;
+              if (timer) { clearTimeout(timer); timer = null; }
+            } });
+            if (settled) return false;
+            if (ok) { done(true); return false; }
+            if (stole) {
+              reset('โหลดข้อมูลไม่สำเร็จ — ลองใหม่');
+              this.showToast('โหลดข้อมูลล่าสุดไม่สำเร็จ — ยังบันทึกไม่ได้ ลองกดใหม่ หรือปัดปิดแอปแล้วเปิดใหม่', 'error', 8000);
+              done(false);
+              return false;
+            }
+            if (entered) return false;       // ตัวจับเวลา 3 วิ เริ่มทางโหลดใหม่ไปแล้ว — รอผลทางนั้น
             reset('ยังเปิดอยู่อีกหน้าต่าง — ลองใหม่');
-            this.showToast('ยังมีอีกหน้าต่างเปิดแอปนี้อยู่ — ปิดให้หมดก่อนแล้วกดใหม่', 'warning', 6000);
+            this.showToast('ยังมีอีกหน้าต่างเปิดแอปนี้อยู่ — ปิดให้หมดก่อนแล้วกดใหม่ · ถ้าไม่มีหน้าต่างอื่น ให้ปัดปิดแอปแล้วเปิดใหม่', 'warning', 8000);
             done(false);
-            return;
+            return false;
           }
+          entered = true;
+          if (timer) { clearTimeout(timer); timer = null; }
           const ok = await viaReload();
           done(ok);
-          if (!ok) return;                 // ปล่อยล็อก — ยังเป็นหน้าต่างอ่านอย่างเดียว
-          return new Promise(() => {});    // ถือล็อกไว้จนหน้าต่างนี้ปิด
+          return ok;                       // ไม่สำเร็จ = ปล่อยล็อก ยังเป็นหน้าต่างอ่านอย่างเดียว · สำเร็จ = ถือไว้จนหน้าต่างนี้ปิด
         });
       } catch (err) { fallback(err); return; }
       Promise.resolve(req).catch(err => { if (!settled) fallback(err); });
@@ -2230,11 +2477,43 @@ class PosApp {
   // กฎ: ข้อความที่รู้จักให้แปลเป็นวิธีแก้ · ข้อความที่ไม่รู้จักส่งกลับตามเดิม ห้ามกลืนหาย
   // (ข้อความเต็มยังถูก console.error ไว้ทุกจุดอยู่แล้ว สำหรับตอนต้องไล่ปัญหาจริง)
   explainCloudError(raw) {
-    const msg = String((raw && raw.message) || raw || '').trim();
-    if (!msg) return this._rememberExplained('เชื่อมต่อ Google Sheets ไม่สำเร็จ (ไม่มีรายละเอียดเพิ่มเติม)');
+    const msg = String((raw && raw.message) || (raw && typeof raw === 'object' ? '' : raw) || '').trim();
+    // รหัสจากคำตอบของ Apps Script (ผู้เรียกส่งทั้งก้อนมาได้) — ไม่มี = ดูจากข้อความอย่างเดียวแบบเดิม
+    const code = String((raw && typeof raw === 'object' && typeof raw.code === 'string') ? raw.code : '');
+    if (!msg && !code) return this._rememberExplained('เชื่อมต่อ Google Sheets ไม่สำเร็จ (ไม่มีรายละเอียดเพิ่มเติม)');
     // ต้องแปลซ้ำแล้วได้ผลเดิม — ข้อความเดียวกันเดินผ่านตัวนี้ได้ 2 รอบ
     // (รอบแรกตอนโยน error รอบสองตอนเอาไปแสดงบนหน้าจอ) ถ้าไม่กัน จะได้หางต่อท้ายซ้อนกัน
     if (this._cloudErrorExplained && this._cloudErrorExplained.has(msg)) return msg;
+
+    // ── ตรวจ 19 ต.ค. 2569 ข้อ 21: ข้อความภาษาอังกฤษดิบที่ iPad (Safari) เคยโชว์ตรง ๆ ─────────────
+    // เน็ตหลุด: Safari "Load failed" · Chrome "Failed to fetch" · Firefox "NetworkError…" · iOS "…appears to be offline" / "…connection was lost"
+    if (this.isNetworkErrorText(msg)) {
+      return this._rememberExplained('ต่อเน็ตไม่ได้ — ข้อมูลในเครื่องปลอดภัย ระบบจะส่งเองเมื่อเน็ตกลับมา ' +
+        '(ถ้าเน็ตใช้ได้ปกติแต่ยังขึ้นข้อความนี้ ให้เจ้าของตรวจ URL ของ Apps Script ที่หน้าตั้งค่า)');
+    }
+    // Apps Script รุ่นใหม่: โฟลเดอร์สำรองถูกลบถาวรจาก Drive (ล้างถังขยะ/ครบ 30 วัน)
+    if (code === 'BACKUP_FOLDER_MISSING' || /BACKUP_FOLDER_MISSING/.test(msg)) {
+      return this._rememberExplained('โฟลเดอร์สำรองบน Google Drive ถูกลบถาวรแล้ว — ให้เจ้าของเปิด Apps Script เลือกฟังก์ชัน resetPosBackupFolder ' +
+        'แล้วกด Run 1 ครั้ง (หรือลบค่า POS_BACKUP_FOLDER_ID ที่ Project Settings → Script properties) ' +
+        'การสำรองครั้งถัดไปจะสร้างโฟลเดอร์ใหม่ให้เอง · ข้อมูลในเครื่องยังอยู่ครบ');
+    }
+    // Drive เต็ม (Google ตอบ "…Drive storage quota has been exceeded")
+    if (/storage quota|drive storage|quota has been exceeded for drive/i.test(msg)) {
+      return this._rememberExplained('พื้นที่ Google Drive ของบัญชีร้านเต็ม — ลบไฟล์ที่ไม่ใช้ใน Drive (แล้วล้างถังขยะ) หรือซื้อพื้นที่เพิ่ม ' +
+        'แล้วกดสำรองใหม่ · ข้อมูลในเครื่องยังอยู่ครบ');
+    }
+    // แอปใหม่กว่า Apps Script ที่วางไว้ — คำสั่งใหม่ที่ Apps Script รุ่นเก่าไม่รู้จัก
+    if (code === 'INVALID_ACTION' || /คำสั่งที่ไม่รู้จัก/.test(msg)) {
+      return this._rememberExplained('Apps Script ที่วางไว้เป็นรุ่นเก่ากว่าแอป — ให้เจ้าของเปิด Apps Script วางโค้ดจากไฟล์ google_apps_script.js ' +
+        'รุ่นล่าสุดทับทั้งหมด แล้วกด Deploy → Manage deployments → แก้ deployment เดิม → Version: New version → Deploy · ข้อมูลในเครื่องยังอยู่ครบ');
+    }
+    // ข้อผิดพลาดที่ Apps Script จับได้เอง (doPost ตอบ "ข้อผิดพลาด: <ข้อความของ Google>") — ไม่ใช่ปัญหาตั้งค่าของร้าน
+    // ต้องมาก่อนกฎ "ไม่ใช่ JSON" ข้างล่าง (เดิม SyntaxError ฝั่ง Google ถูกแปลผิดเป็น "ตั้ง Who has access")
+    if (/^ข้อผิดพลาด\s*:/.test(msg)) {
+      const detail = msg.replace(/^ข้อผิดพลาด\s*:\s*/, '').slice(0, 200);
+      return this._rememberExplained('ฝั่ง Google ขัดข้องชั่วคราว — รอสักครู่แล้วลองใหม่ ข้อมูลในเครื่องยังอยู่ครบ' +
+        (detail ? ` (รายละเอียดสำหรับผู้ดูแลระบบ: ${detail})` : ''));
+    }
 
     // ── รหัสเชื่อมต่อ ──────────────────────────────────────────────
     if (/unauthorized|ไม่ได้รับอนุญาต/i.test(msg)) {
@@ -2248,8 +2527,9 @@ class PosApp {
     // ── Deploy ผิด (เจอบ่อยสุดตอนตั้งค่าครั้งแรก) ─────────────────────
     // ตั้ง Who has access เป็น "Only myself" → Google ส่งหน้าล็อกอิน HTML กลับมา
     // แล้ว res.json() พังเป็น "Unexpected token '<'" ซึ่งไม่มีทางเดาได้เลยว่าหมายถึงอะไร
-    if (/unexpected token|is not valid json|json\.parse|<!doctype|<html/i.test(msg)) {
-      return this._rememberExplained('ชีตตอบกลับมาไม่ใช่ข้อมูล (น่าจะเป็นหน้าล็อกอินของ Google) — ตอน Deploy Apps Script ต้องตั้ง Who has access = Anyone');
+    // ข้อ 21: Safari ใช้ "The string did not match the expected pattern." · JavaScriptCore ใช้ "JSON Parse error"
+    if (/unexpected token|is not valid json|json\.parse|json parse error|unexpected end of json|did not match the expected pattern|<!doctype|<html/i.test(msg)) {
+      return this._rememberExplained(CLOUD_NOT_JSON_TEXT);
     }
     if (/HTTP (401|403)/.test(msg)) {
       return this._rememberExplained('Apps Script ไม่ยอมให้เครื่องนี้เรียกใช้ — ตอน Deploy ต้องตั้ง Who has access = Anyone แล้วคัดลอก URL ใหม่มาใส่ในหน้าตั้งค่า');
@@ -2303,6 +2583,20 @@ class PosApp {
     }
 
     return msg; // ไม่รู้จัก — ส่งกลับตามเดิม ดีกว่าเดาแล้วบอกผิด
+  }
+
+  // ข้อ 21: ข้อความ "เน็ตหลุด" ของแต่ละเบราว์เซอร์ (fetch ล้มก่อนได้คำตอบ)
+  isNetworkErrorText(msg) {
+    return /^(TypeError:\s*)?(load failed|failed to fetch)\b|networkerror|network request failed|internet connection appears to be offline|network connection was lost|could not connect to the server|a server with the specified hostname could not be found/i
+      .test(String(msg || '').trim());
+  }
+  // ข้อ 21: อ่านเนื้อคำตอบเป็น JSON ไม่ได้ — ข้อความ error ต่างกันทุกเบราว์เซอร์ จึงไม่ดูข้อความ
+  // ยกเว้นหมดเวลา (ตัวจับเวลาของเราเอง) และเน็ตหลุดกลางทางระหว่างอ่าน ซึ่งมีวิธีแก้คนละแบบ
+  explainCloudParseError(err) {
+    const msg = String((err && err.message) || err || '').trim();
+    if (/หมดเวลารอ/.test(msg) || this.isNetworkErrorText(msg)) return this.explainCloudError(err);
+    console.warn('[Cloud] อ่านคำตอบเป็น JSON ไม่ได้:', msg);
+    return this._rememberExplained(CLOUD_NOT_JSON_TEXT);
   }
 
   // จำข้อความที่แปลแล้วไว้ชุดเล็ก ๆ เพื่อกันแปลซ้ำซ้อน (ดูหมายเหตุใน explainCloudError)
@@ -2506,8 +2800,11 @@ class PosApp {
   async autoBackupToGoogleDrive(opts) {
     // A slower older upload must not finish after a newer snapshot and become the latest backup.
     const generation = this._dataGeneration, connection = this._connectionGeneration || 0;
-    const run = () => (generation === this._dataGeneration && connection === (this._connectionGeneration || 0))
-      ? this._doBackupToGoogleDrive(opts) : false;
+    const run = () => {
+      if (generation === this._dataGeneration && connection === (this._connectionGeneration || 0)) return this._doBackupToGoogleDrive(opts);
+      this._cloudFailReason = 'ข้อมูลหรือปลายทางคลาวด์เปลี่ยนระหว่างรอ — ลองใหม่อีกครั้ง';   // ข้อ 38: บอกเหตุจริง
+      return false;
+    };
     const p = (this._backupChain || Promise.resolve()).then(run, run);
     this._backupChain = p.then(() => {}, () => {});
     return p;
@@ -2515,9 +2812,17 @@ class PosApp {
 
   async _doBackupToGoogleDrive(opts) {
     const silent = !!(opts && opts.silent);
-    if (!this.canWriteData(silent ? '' : 'สำรองข้อมูลขึ้น Drive')) return false;   // snapshot เก่าจะไปทับไฟล์สำรองที่ดีอยู่
-    if (!this.hasCloudSyncConfig()) return false;
-    if (this.loadFailed) return false; // state เป็นค่าว่าง — สำรองไปก็ได้ไฟล์เปล่าไปทับของดีบน Drive
+    // ตรวจ 19 ต.ค. 2569 ข้อ 38: ทุกทางที่ไม่ได้สำรองฝากสาเหตุจริงไว้ที่ _cloudFailReason
+    // (ล้างข้อมูล/ล้างยอดขายเคยบอก "ลองใหม่เมื่อเน็ตพร้อม" ทุกครั้ง ทั้งที่สาเหตุคือยังตั้งค่าไม่ครบ/เครื่องรอง ซึ่งลองกี่ทีก็ไม่ผ่าน)
+    if (!this.canWriteData(silent ? '' : 'สำรองข้อมูลขึ้น Drive')) {   // snapshot เก่าจะไปทับไฟล์สำรองที่ดีอยู่
+      this._cloudFailReason = 'หน้าต่างนี้เปิดซ้ำอยู่ (อ่านอย่างเดียว) — สำรองได้จากหน้าต่างหลักเท่านั้น';
+      return false;
+    }
+    if (!this.hasCloudSyncConfig()) { this._cloudFailReason = this.getCloudSetupMessage() || 'ยังตั้งค่า Google Sheets ไม่ครบ'; return false; }
+    if (this.loadFailed) {   // state เป็นค่าว่าง — สำรองไปก็ได้ไฟล์เปล่าไปทับของดีบน Drive
+      this._cloudFailReason = 'โหลดข้อมูลร้านไม่สำเร็จ — ไม่สำรอง เพื่อกันไฟล์ว่างไปทับไฟล์ดีบน Drive';
+      return false;
+    }
     if (this.isRecoveryIncomplete()) { this._cloudFailReason = this.recoveryWarning(); if (!silent) this.showToast(this._cloudFailReason, 'warning', 10000); return false; }
 
     const requestedContext = this.cloudContext();
@@ -2525,10 +2830,10 @@ class PosApp {
       data: this.cloneForRollback(this.buildBackupPayload()), generation: this._dataGeneration,
       connection: this._connectionGeneration || 0, context: this.cloudContext(), at: Date.now()
     }) : false, { background: true });
-    if (!capture) return false;
+    if (!capture) { this._cloudFailReason = 'ข้อมูลหรือปลายทางคลาวด์เปลี่ยนระหว่างรอ — ลองใหม่อีกครั้ง'; return false; }
     const backupData = capture.data;
     const stillCurrent = () => this.isCloudContextCurrent(capture.context);
-    if (!stillCurrent()) return false;
+    if (!stillCurrent()) { this._cloudFailReason = 'ข้อมูลหรือปลายทางคลาวด์เปลี่ยนระหว่างรอ — ลองใหม่อีกครั้ง'; return false; }
     // ── ไฟล์ที่กู้กลับไม่ได้ ห้ามส่งขึ้นไปนับเป็น "มีไฟล์สำรอง" ──────────────────
     // ใช้ด่านตัวเดียวกับตอนกู้จริง ถ้าไม่ผ่านตอนนี้ วันที่ต้องกู้ก็ไม่ผ่านเหมือนกัน
     if (!this.isValidBackupObject(backupData)) {
@@ -2549,6 +2854,7 @@ class PosApp {
 
     if (!silent) this.showToast('กำลังสำรองข้อมูลไป Google Drive...', 'info');
 
+    let failLimitBytes = 0;
     try {
       const response = await this.fetchWithTimeout(this.googleSheetsUrl, {
         method: 'POST',
@@ -2561,7 +2867,10 @@ class PosApp {
         throw new Error(this.explainCloudError(`HTTP ${response.status}`));
       }
 
-      const result = await response.json();
+      let result;
+      // ข้อ 21: อ่านคำตอบไม่ได้ด้วยเหตุใดก็ตาม (Safari: "The string did not match the expected pattern.") = ไม่ใช่ JSON
+      try { result = await response.json(); }
+      catch (parseErr) { throw new Error(this.explainCloudParseError(parseErr)); }
       if (!stillCurrent()) return false;
       if (result && result.code === 'NOT_PRIMARY_DEVICE') {
         // ข้อ 19: ไฟล์สำรองบน Drive รับจากเครื่องหลักเท่านั้น (กันเครื่องรองไล่ลบไฟล์ของเครื่องหลัก)
@@ -2577,6 +2886,7 @@ class PosApp {
         const verified = d.verified === true;   // ไม่มีฟิลด์นี้ = Apps Script รุ่นเก่า (ไม่ได้อ่านกลับตรวจ)
         const recorded = await this.recordBackupStatus({
           ok: true, snapshotAt: capture.at, verified, fileName: String(d.fileName || ''), sizeBytes,
+          limitBytes: this.backupLimitFromDetails(d),   // ข้อ 2: ไม่มีค่า = Apps Script รุ่นก่อน (เพดาน 10 MB แบบจัดหน้า)
           txCount: Array.isArray(backupData.transactions) ? backupData.transactions.length : 0,
           message: verified ? '' : 'Apps Script รุ่นเก่า — ยังไม่ได้อ่านไฟล์กลับตรวจ'
         }, capture.context);
@@ -2586,14 +2896,19 @@ class PosApp {
         console.log('Google Drive Backup success:', d);
         return true;
       } else {
-        throw new Error(this.explainCloudError(result && result.message) || 'คลาวด์แจ้งเตือนข้อผิดพลาด');
+        // ข้อ 2: คำตอบล้มเหลวของ Apps Script รุ่นใหม่ก็บอกเพดานมาด้วย (เช่นไฟล์ใหญ่เกิน) — จำไว้ให้คำเตือนตรงกับเพดานจริง
+        const ed = (result && result.details && typeof result.details === 'object') ? result.details : null;
+        const lim = ed ? this.backupLimitFromDetails(ed) : 0;
+        if (lim) failLimitBytes = lim;
+        // ข้อ 21: ส่งทั้งข้อความและรหัส (เช่น BACKUP_FOLDER_MISSING) ให้ตัวแปลข้อความเลือกวิธีแก้ได้ถูก
+        throw new Error(this.explainCloudError(result && (result.code ? result : result.message)) || 'คลาวด์แจ้งเตือนข้อผิดพลาด');
       }
     } catch (err) {
       if (!stillCurrent()) return false;
       console.error('Auto backup failed:', err);
       this._cloudFailReason = this.explainCloudError(err);   // รอบตรวจ 5 ข้อ 3 — ตั้งก่อน await (กันถูกล้างระหว่างรอ)
       const failMsg = this._cloudFailReason;
-      await this.recordBackupStatus({ ok: false, message: this.explainCloudError(err), sizeBytes }, capture.context);
+      await this.recordBackupStatus({ ok: false, message: this.explainCloudError(err), sizeBytes, limitBytes: failLimitBytes }, capture.context);
       if (!stillCurrent()) return false;
       this._cloudFailReason = failMsg;
       if (!silent) this.showToast('สำรองข้อมูลขึ้น Google Drive ล้มเหลว: ' + this.explainCloudError(err), 'error', 8000);
@@ -2621,6 +2936,10 @@ class PosApp {
       const now = Date.now();
       const next = Object.assign({}, prev, { lastAttemptAt: now, lastOk: !!st.ok, lastMessage: String(st.message || '') });
       if (Number(st.sizeBytes) > 0) next.lastSizeBytes = Number(st.sizeBytes);
+      // ข้อ 2: เพดานไฟล์สำรองตามที่ Apps Script บอก · สำเร็จแต่ไม่บอก = Apps Script รุ่นก่อน → ลบค่าเก่าทิ้ง (ใช้เกณฑ์ 4 MB)
+      // (อยู่ในสถานะของเครื่อง — ไม่อยู่ในไฟล์สำรอง จึงไม่กระทบด่านตรวจไฟล์สำรอง)
+      if (Number(st.limitBytes) > 0) next.lastLimitBytes = Number(st.limitBytes);
+      else if (st.ok) delete next.lastLimitBytes;
       if (st.ok) {
         Object.assign(next, { lastSuccessAt: Number(st.snapshotAt) || now, lastVerified: !!st.verified,
           lastFileName: st.fileName || '', lastTxCount: Number(st.txCount) || 0 });
@@ -2650,10 +2969,10 @@ class PosApp {
       text = `⚠️ สำรองครั้งล่าสุดล้มเหลว (${when(st.lastAttemptAt)}): ${st.lastMessage || 'ไม่ทราบสาเหตุ'} · ` +
         `สำเร็จครั้งล่าสุด: ${st.lastSuccessAt ? when(st.lastSuccessAt) : 'ยังไม่เคย'}`;
     }
-    // ข้อ 17: ขนาดไฟล์สำรอง — เกินเกณฑ์ต้องเริ่มวางแผน (ส่งช้า/หมดเวลา)
+    // ข้อ 17: ขนาดไฟล์สำรอง — เกินเกณฑ์ต้องเริ่มวางแผน · ข้อ 2 (ตรวจ 19 ต.ค. 2569): บอกตรง ๆ ว่าถึงเพดานแล้วการสำรองจะหยุด
     const sz = Number(st && st.lastSizeBytes) || 0;
-    const big = sz > BACKUP_SIZE_WARN_BYTES;
-    if (sz > 0) text += ` · ขนาดไฟล์ ${(sz / 1048576).toFixed(sz < 1048576 ? 2 : 1)} MB` + (big ? ' ⚠️ ใหญ่เกินเกณฑ์ ควรเก็บบิลเก่าออก (ปรึกษาผู้ดูแลระบบ)' : '');
+    const big = this.isBackupSizeNearLimit(st);
+    if (sz > 0) text += ` · ขนาดไฟล์ ${(sz / 1048576).toFixed(sz < 1048576 ? 2 : 1)} MB` + (big ? ' ⚠️ ' + this.backupSizeAdvice(st) : '');
     // เครื่องถูกพักงานสำรอง: บรรทัดนี้ต้องไม่โชว์ "สำรองล่าสุด ✓" เฉย ๆ เพราะจะไม่มีครั้งถัดไปจนกว่าจะตั้งเครื่องหลัก
     const paused = this.hasCloudSyncConfig() && this.isPrimaryBlocked();
     const recovering = this.isRecoveryIncomplete();
@@ -2787,6 +3106,14 @@ class PosApp {
     if (!st || !st.lastAttemptAt) return '';
     const t = Number(now) || Date.now();
     const when = ts => fmtBkk(Number(ts));
+    // ตรวจ 19 ต.ค. 2569 ข้อ 2: งานสำรองล้มนานจนถูกหยุดแล้ว — จะไม่ลองเองอีก ต้องบอกให้ชัดว่าหยุดแล้วและต้องกดอะไร
+    // (เดิมบอกแค่ "ครั้งล่าสุดล้มเหลว" — เจ้าของคิดว่าระบบยังพยายามอยู่)
+    const stoppedJob = (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [])
+      .some(it => it && it.needBackup && this.isCloudJobExpired(it, 'backup', t));
+    if (stoppedJob) {
+      return 'การสำรองขึ้น Drive หยุดแล้ว — กด ลองใหม่ ที่ ตั้งค่า → งานคลาวด์ที่หยุดส่ง ' +
+        `(สำเร็จครั้งล่าสุด: ${st.lastSuccessAt ? when(st.lastSuccessAt) : 'ยังไม่เคย'})`;
+    }
     if (!st.lastOk) {
       return `สำรองข้อมูลขึ้น Drive ครั้งล่าสุดล้มเหลว (${when(st.lastAttemptAt)}) — ` +
         `สำเร็จครั้งล่าสุด: ${st.lastSuccessAt ? when(st.lastSuccessAt) : 'ยังไม่เคย'}`;
@@ -2795,11 +3122,63 @@ class PosApp {
       return `ไม่ได้สำรองข้อมูลขึ้น Drive มา ${Math.floor((t - Number(st.lastSuccessAt)) / 86400000)} วัน ` +
         `(สำเร็จครั้งล่าสุด ${when(st.lastSuccessAt)})`;
     }
-    if (Number(st.lastSizeBytes) > BACKUP_SIZE_WARN_BYTES) {
-      return `ไฟล์สำรองใหญ่ ${(Number(st.lastSizeBytes) / 1048576).toFixed(1)} MB — เกินเกณฑ์ ${BACKUP_SIZE_WARN_BYTES / 1048576} MB ` +
-        `เสี่ยงส่งไม่ทันเวลา ควรวางแผนเก็บบิลเก่าออก`;
+    if (this.isBackupSizeNearLimit(st)) {
+      return `ไฟล์สำรองใหญ่ ${(Number(st.lastSizeBytes) / 1048576).toFixed(1)} MB — ` + this.backupSizeAdvice(st);
     }
     return '';
+  }
+
+  // ── ข้อ 38 (ตรวจ 19 ต.ค. 2569): ข้อความเมื่อสำรองก่อนล้างข้อมูลไม่สำเร็จ — บอกเหตุจริงที่ตัวสำรองฝากไว้
+  backupRefusedText(actionLabel) {
+    const why = String(this._cloudFailReason || '').trim();
+    return `สำรองข้อมูลไม่สำเร็จ — ยกเลิก${actionLabel}เพื่อความปลอดภัย · ` +
+      (why ? `สาเหตุ: ${why}` : 'ลองใหม่เมื่อเน็ตพร้อม');
+  }
+  // ── ข้อ 11/57 (ตรวจ 19 ต.ค. 2569): งานที่ยังค้างส่งขึ้นชีต — ล้างข้อมูลทิ้งตอนนี้ = ชีตไม่ตรงกับร้านถาวร
+  pendingSheetWork() {
+    const bills = (Array.isArray(this.state.transactions) ? this.state.transactions : [])
+      .filter(tx => tx && tx.syncStatus !== 'synced').length;
+    const voidDeletes = (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [])
+      .filter(it => it && it.needVoidDelete && it.voidDelete).length;
+    return { bills, voidDeletes };
+  }
+  // คืน true = ปฏิเสธแล้ว (ขึ้นข้อความบอกว่าค้างอะไรและต้องทำอะไร) · ไม่ได้ต่อชีต = ไม่มีงานที่ต้องส่ง
+  refusePendingSheetWork(actionLabel) {
+    if (!this.googleSheetsUrl) return false;
+    const { bills, voidDeletes } = this.pendingSheetWork();
+    if (!bills && !voidDeletes) return false;
+    const parts = [];
+    if (bills) parts.push(`บิล ${bills} ใบที่ยังไม่ขึ้นชีต (ค้างส่ง/รอตรวจ)`);
+    if (voidDeletes) parts.push(`คำสั่งลบแถวบิลที่ยกเลิก ${voidDeletes} รายการ`);
+    this.showToast(`ยังมีงานค้างส่งขึ้นชีต: ${parts.join(' · ')} — ${actionLabel}ตอนนี้ ชีตจะไม่ตรงกับร้านถาวร จึงยังไม่${actionLabel} · ` +
+      'ต่อเน็ตแล้วกดป้ายสถานะคลาวด์ให้ส่งงานค้างจนครบ (งานที่ส่งไม่ผ่านดูที่ ตั้งค่า → งานคลาวด์ที่หยุดส่ง / บิลรอตรวจ) แล้วค่อยทำใหม่', 'error', 12000);
+    return true;
+  }
+
+  // ── ข้อ 2 (ตรวจ 19 ต.ค. 2569): เพดานขนาดไฟล์สำรอง ──────────────────────────
+  // Apps Script รุ่นใหม่บอกเพดานจริงมาใน details.limitBytes · ไม่มี = รุ่นก่อน (เพดานจริง ~6.5 MB ของข้อมูลที่ส่ง)
+  backupLimitFromDetails(d) {
+    const n = Number(d && d.limitBytes);
+    return (Number.isFinite(n) && n >= 1048576 && n <= 1024 * 1048576) ? Math.floor(n) : 0;
+  }
+  backupSizeWarnBytes(st) {
+    const lim = Number(st && st.lastLimitBytes) || 0;
+    return lim > 0 ? Math.floor(lim * BACKUP_LIMIT_WARN_RATIO) : BACKUP_SIZE_WARN_BYTES;
+  }
+  isBackupSizeNearLimit(st) {
+    const sz = Number(st && st.lastSizeBytes) || 0;
+    return sz > 0 && sz >= this.backupSizeWarnBytes(st);
+  }
+  // ข้อความเดียวกันทั้งหน้าตั้งค่าและรายงานปิดกะ — บอกว่าจะเกิดอะไรและต้องทำอะไร
+  backupSizeAdvice(st) {
+    const lim = Number(st && st.lastLimitBytes) || 0;
+    if (lim > 0) {
+      return `ใกล้เพดาน ${Math.round(lim / 1048576)} MB ของ Apps Script แล้ว · เมื่อถึงเพดาน การสำรองขึ้น Drive จะหยุด ` +
+        '(ขายและส่งชีตได้ตามปกติ) — ให้เจ้าของดาวน์โหลดไฟล์สำรองเก็บไว้ และปรึกษาผู้ดูแลระบบเรื่องเก็บบิลเก่าออกจากเครื่อง';
+    }
+    return 'Apps Script ที่ใช้อยู่รับไฟล์สำรองได้ราว 6 MB · เมื่อถึงเพดาน การสำรองขึ้น Drive จะหยุด (ขายและส่งชีตได้ตามปกติ) — ' +
+      'ให้เจ้าของวางโค้ด google_apps_script.js รุ่นล่าสุดใน Apps Script (Deploy → Manage deployments → New version) ' +
+      'ซึ่งรับไฟล์ใหญ่ขึ้นมาก แล้วกดสำรองใหม่';
   }
 
   // ผูกปลายทางคลาวด์ (ข้อ 1) — เรียกจาก "ในคิวงานบันทึก" เท่านั้น (ผู้เรียกบันทึกลงเครื่อง/คืนค่าเอง)
@@ -2888,11 +3267,16 @@ class PosApp {
       if (d.details.backendId && d.details.backendId !== this.cloudBackendId) {
         const bound = await this.withMutation('ผูกปลายทางคลาวด์', async () => {
           if (!this.isCloudContextCurrent(context)) return false;
-          const before = this.cloneForRollback({ transactions: this.state.transactions, cloudOutbox: this.state.cloudOutbox });
+          // ตรวจ 19 ต.ค. 2569 ข้อ 26: ไม่คืนด้วยสำเนาลึก (รอบส่งที่กำลังวิ่งเขียนผลลงบิล/งานตัวเดิม — คืนสำเนา = Telegram ส่งซ้ำ)
+          // bindCloudBackend แก้แค่สถานะซิงก์ของบิล + ต่อท้ายงานในคิว → จำเฉพาะช่องนั้นแล้วคืนลงอ็อบเจกต์ตัวเดิม (แบบ _saveShopSettingsLocked)
+          const prevTxSync = (this.state.transactions || []).map(tx => (tx && typeof tx === 'object')
+            ? { ref: tx, keys: ['syncStatus', 'syncIssue', 'syncedBackendId'].map(k => [k, Object.prototype.hasOwnProperty.call(tx, k), this.cloneForRollback(tx[k])]) } : null);
+          const restoreOutbox = this.snapshotOutboxForRollback();
           const prevId = this.cloudBackendId, prevStatus = this.backupStatus, prevPrimary = this.primaryStatus;
           const moved = this.bindCloudBackend(d.details.backendId, false);
           if (!await this.saveState()) {
-            Object.assign(this.state, before); this.cloudBackendId = prevId;
+            prevTxSync.forEach(f => { if (f) f.keys.forEach(([k, had, v]) => { if (had) f.ref[k] = v; else delete f.ref[k]; }); });
+            restoreOutbox(); this.cloudBackendId = prevId;
             this.backupStatus = prevStatus; this.primaryStatus = prevPrimary;
             return false;
           }
@@ -3109,7 +3493,9 @@ class PosApp {
     if (!built.length) return [];
     const ok = await this.withMutation('นำบิลจากชีตเข้าเครื่อง', async () => {
       const before = this.state.transactions.slice();
-      const outboxBefore = this.cloneForRollback(this.state.cloudOutbox || []);
+      // ตรวจ 19 ต.ค. 2569 ข้อ 26: คืนคิวด้วยงานตัวเดิม (enqueueSummaryRefresh แก้ rev/monthKeys ในตัว หรือต่อท้าย) — ไม่ใช่สำเนาลึก
+      if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
+      const restoreOutbox = this.snapshotOutboxForRollback();
       built.forEach(tx => {
         const old = this.state.transactions.findIndex(t => t && t.id === tx.id);
         if (old >= 0) { if (this.state.transactions[old].sheetOnly) this.state.transactions.splice(old, 1); else return; }
@@ -3119,7 +3505,7 @@ class PosApp {
         // ยอดวัน/เดือนของบิลนี้เปลี่ยน → สรุปงวดนั้นต้องส่งใหม่ (ระหว่างพักฉุกเฉินงานนี้รอในคิวจนปลดพัก)
         this.enqueueSummaryRefresh(tx.date);
       });
-      if (!await this.saveState()) { this.state.transactions = before; this.state.cloudOutbox = outboxBefore; return false; }
+      if (!await this.saveState()) { this.state.transactions = before; restoreOutbox(); return false; }
       return true;
     }, { maintenance: this._maintenance });
     return ok ? built.map(tx => tx.id) : null;
@@ -3146,7 +3532,8 @@ class PosApp {
   }
 
   // recoveryStartedAt = เวลาเริ่มรับช่วงฉุกเฉิน — บิลที่ขายหลังเวลานั้นคือยอดของเครื่องฉุกเฉิน (ถ้าเครื่องนั้นยังใช้ได้ กู้จากเครื่องนั้นแทน)
-  askAcceptMissing(missing, different, recoveryStartedAt) {
+  // batch = { round, remaining } เมื่อยืนยันเป็นรอบ (ตรวจ 19 ต.ค. 2569 ข้อ 10 — ชีตส่งรายการได้ครั้งละไม่เกิน 3,000 ใบ)
+  askAcceptMissing(missing, different, recoveryStartedAt, batch) {
     const all = missing.concat(different);
     const baht = n => '฿' + (Number(n) || 0).toLocaleString('th-TH');
     const sum = all.reduce((a, x) => a + (Number(x.total) || 0), 0);
@@ -3154,8 +3541,12 @@ class PosApp {
     const afterTakeover = x => started > 0 && (this.parseSheetWhen(x.when, x.month) || 0) >= started;
     const emergencyCount = all.filter(afterTakeover).length;
     const sample = all.slice(0, 5).map(x => `· ${x.id} ${x.when || ''} ${baht(x.total)}${String(x.kind || '').startsWith('different') ? ' (ข้อมูลต่าง)' : ''}${afterTakeover(x) ? ' (ขายระหว่างฉุกเฉิน)' : ''}`).join('\n');
-    return this.askTypedConfirm(
-      `ชีตยังมีบิลที่เครื่องนี้ไม่มี ${missing.length} ใบ และข้อมูลต่าง ${different.length} ใบ (ยอดบนชีตรวม ${baht(sum)})\n${sample}` +
+    const remaining = batch ? Math.max(0, Number(batch.remaining) || 0) : 0;
+    const roundLine = batch
+      ? `รอบที่ ${Number(batch.round) || 1} · เหลืออีก ${remaining} ใบ` + (remaining ? ' (ยืนยันรอบนี้แล้วระบบจะถามรอบถัดไปต่อ)' : ' (รอบสุดท้าย)') + '\n'
+      : '';
+    return this.askTypedConfirm(roundLine +
+      `${batch ? 'รอบนี้: ' : ''}ชีตยังมีบิลที่เครื่องนี้ไม่มี ${missing.length} ใบ และข้อมูลต่าง ${different.length} ใบ (ยอดบนชีตรวม ${baht(sum)})\n${sample}` +
       (all.length > 5 ? `\n…และอีก ${all.length - 5} ใบ` : '') +
       (emergencyCount ? `\n\n⚠️ ในนี้มี ${emergencyCount} ใบที่ขายระหว่างรับช่วงฉุกเฉิน — ถ้าเครื่องฉุกเฉินเครื่องนั้นยังเปิดได้ ให้ส่งออกไฟล์สำรองจากเครื่องนั้นมากู้แทน (รายละเอียดและค่าคอมยังอยู่ครบ)` : '') +
       '\n\nใช้เมื่อเครื่องเดิมเสียถาวรและหาไฟล์ที่ครบไม่ได้เท่านั้น:\n' +
@@ -3189,7 +3580,7 @@ class PosApp {
     const post = (extra) => this.cloudPost('claim_primary', Object.assign({ recoveryConfirmed: transfer.recoveryConfirmed,
       bills: this.transferBillsPayload(), voidIntents: this.pendingVoidIntents(), sheetOnly: this.transferSheetOnlyPayload() }, extra || {}),
       60000, { owner: true });
-    let d, added = null, imported = 0, acceptInFlight = false;
+    let d, added = null, imported = 0, kept = 0, acceptInFlight = false;
     // ถอนบิลจากชีตที่เพิ่งนำเข้า "เฉพาะเมื่อชีตปฏิเสธชัดเจน" — คำตอบหาย/บริบทเปลี่ยนระหว่างรอ = ไม่รู้ว่าชีตปลดพักไปแล้วหรือยัง
     // ต้องคงไว้ (ถ้าชีตปลดแล้ว การถอนทำให้สรุปขาดถาวร · ผู้ตรวจแยก #1) กดซ้ำได้ปลอดภัย: บิลจากชีตเลขเดิมไม่ถูกนำเข้าซ้ำ
     const undoAdded = async () => { if (added && added.length) { const ids = added; added = null; await this.removeSheetOnlyBills(ids); } };
@@ -3212,20 +3603,27 @@ class PosApp {
       // บิลที่เจ้าของเคยยอมรับว่ารายละเอียดหายแล้ว (มีในทะเบียนบนชีต) แต่เครื่องนี้ยังไม่มี — นำเข้าเป็นบิลจากชีตแล้วตรวจต่อ
       // ไม่ต้องยอมรับซ้ำ (เช่นกู้ไฟล์เก่าลงเครื่องใหม่หลังปลดพักไปแล้ว · เดิมย้ายผ่านโดยไม่มีบิลกลุ่มนี้ แล้วสรุปขาด)
       if (d && d.code === 'PRIMARY_TRANSFER_INCOMPLETE') {
-        const prevAccepted = (Array.isArray(detailsOf(d).missing) ? detailsOf(d).missing : []).filter(x => x && x.accepted);
-        if (prevAccepted.length && !(Array.isArray(detailsOf(d).voided) && detailsOf(d).voided.length)) {
-          const ok = await this.askConfirm(`ชีตมีบิล ${prevAccepted.length} ใบที่เจ้าของเคยยอมรับว่ารายละเอียดหายถาวรแล้ว (บิลจากชีต) แต่เครื่องนี้ยังไม่มี\n\n` +
+        const acceptedListed = (r) => (r && r.code === 'PRIMARY_TRANSFER_INCOMPLETE' && !(Array.isArray(detailsOf(r).voided) && detailsOf(r).voided.length))
+          ? (Array.isArray(detailsOf(r).missing) ? detailsOf(r).missing : []).filter(x => x && x.accepted) : [];
+        let prevAccepted = acceptedListed(d);
+        if (prevAccepted.length) {
+          const ok = await this.askConfirm(`ชีตมีบิล ${prevAccepted.length}${detailsOf(d).truncated ? '+' : ''} ใบที่เจ้าของเคยยอมรับว่ารายละเอียดหายถาวรแล้ว (บิลจากชีต) แต่เครื่องนี้ยังไม่มี\n\n` +
             'นำเข้าเป็น "บิลจากชีต" (อ่านอย่างเดียว ไม่มีค่าคอม) แล้วตรวจต่อ?');
           if (!ok || !current()) return false;
-          const ids = await this.addSheetOnlyBills(prevAccepted);
-          if (ids === null || !current()) return false;
-          imported = ids.length;
-          d = await post();
-          if (!current()) return false;
+          // ข้อ 10: รายการต่อคำตอบมีเพดาน 3,000 ใบ — นำเข้าต่อจนชีตไม่แจ้งบิลกลุ่มนี้อีก (ถามครั้งเดียว)
+          for (let pass = 0; prevAccepted.length && pass < 200; pass++) {
+            const ids = await this.addSheetOnlyBills(prevAccepted);
+            if (ids === null || !current()) return false;
+            imported += ids.length;
+            d = await post();
+            if (!current()) return false;
+            if (!ids.length) break;
+            prevAccepted = acceptedListed(d);
+          }
         }
       }
       if (d && d.code === 'PRIMARY_TRANSFER_INCOMPLETE') {
-        const det = detailsOf(d);
+        let det = detailsOf(d);
         const voided = Array.isArray(det.voided) ? det.voided : [];
         if (voided.length) {
           const n = await this.markTransferVoidedConflicts(voided);
@@ -3235,21 +3633,35 @@ class PosApp {
             : 'ตั้งเครื่องหลักไม่สำเร็จ: ' + this.explainCloudError(d.message), 'warning', 12000);
           return false;
         }
-        const missing = (Array.isArray(det.missing) ? det.missing : []).filter(x => x && !x.accepted);
-        const different = Array.isArray(det.different) ? det.different : [];
-        if (det.acceptable === true && transfer.recoveryConfirmed && (missing.length || different.length)) {
+        const missingOf = (x) => (Array.isArray(x.missing) ? x.missing : []).filter(m => m && !m.accepted);
+        const differentOf = (x) => (Array.isArray(x.different) ? x.different : []);
+        let missing = missingOf(det), different = differentOf(det);
+        // ข้อ 10 (ตรวจ 19 ต.ค. 2569): บิลที่ต้องยอมรับเกิน 3,000 ใบ — ชีตรับเป็นรอบ: บันทึกรอบนี้แล้วตอบ "ยังไม่ครบ" พร้อมรายการรอบถัดไป
+        // (details.batchAccepted) · บิลจากชีตของรอบที่ชีตบันทึกแล้วต้องคงไว้ (ถอนออก = ชีตจำว่ายอมรับแล้วแต่เครื่องไม่มี)
+        // Apps Script รุ่นก่อน: รายการถูกตัด = acceptable:false → ไม่ถามเลย (ทางเดิม)
+        const toAcceptOf = (x) => { const n = Number(x && x.counts && x.counts.toAccept); return Number.isFinite(n) && n > 0 ? n : null; };
+        let round = 0;
+        while (det.acceptable === true && transfer.recoveryConfirmed && (missing.length || different.length) && round < 200) {
+          round++;
           const startedAt = Number(det.recoveryStartedAt) || Number(this.primaryStatus && this.primaryStatus.recovery && this.primaryStatus.recovery.startedAt) || 0;
-          const accept = await this.askAcceptMissing(missing, different, startedAt);
+          const listed = missing.length + different.length;
+          const batch = (round > 1 || det.truncated === true)
+            ? { round, remaining: Math.max(0, (toAcceptOf(det) || listed) - listed) } : undefined;
+          const accept = await this.askAcceptMissing(missing, different, startedAt, batch);
           if (!current()) return false;
-          if (accept) {
-            added = await this.addSheetOnlyBills(missing);
-            if (added === null) return false;
-            if (!current()) { await undoAdded(); return false; }
-            acceptInFlight = true;
-            d = await post({ acceptMissing: true, acceptIds: missing.concat(different).map(x => x.id) });
-            acceptInFlight = false;
-            if (!current()) { unknownOutcome(); return false; }
-          }
+          if (!accept) break;
+          added = await this.addSheetOnlyBills(missing);
+          if (added === null) return false;
+          if (!current()) { await undoAdded(); return false; }
+          acceptInFlight = true;
+          d = await post({ acceptMissing: true, acceptIds: missing.concat(different).map(x => x.id) });
+          acceptInFlight = false;
+          if (!current()) { unknownOutcome(); return false; }
+          const next = detailsOf(d);
+          if (!(d && d.code === 'PRIMARY_TRANSFER_INCOMPLETE' && Number(next.batchAccepted) > 0)) break;
+          // ชีตบันทึกรอบนี้แล้ว (ยังไม่ปลดพัก) — เก็บบิลจากชีตของรอบนี้ไว้ แล้วถามรอบถัดไป
+          kept += added.length; added = null;
+          det = next; missing = missingOf(det); different = differentOf(det);
         }
         if (d && d.code === 'PRIMARY_TRANSFER_INCOMPLETE') {
           await undoAdded();
@@ -3281,7 +3693,7 @@ class PosApp {
     if (!await this.notePrimaryStatus(true, d.details && d.details.primary, this.cloudContext())) return false;
     const voidedOnTransfer = Array.isArray(d.details && d.details.voidedOnTransfer) ? d.details.voidedOnTransfer.length : 0;
     const pendingVoidRecorded = Number(d.details && d.details.pendingVoidRecorded) || 0;
-    const sheetOnlyCount = (added ? added.length : 0) + imported;
+    const sheetOnlyCount = (added ? added.length : 0) + imported + kept;
     this.showToast(this.isRecoveryIncomplete() ? this.recoveryWarning()
       : 'ตั้งเครื่องนี้เป็นเครื่องหลักแล้ว' + (sheetOnlyCount ? ` · นำบิลจากชีต ${sheetOnlyCount} ใบเข้ามา (ไม่มีรายละเอียดค่าคอม)` : '') +
         (voidedOnTransfer ? ` · ยกเลิกบิลที่ค้างมากับไฟล์สำรอง ${voidedOnTransfer} ใบบนชีตแล้ว` : '') +
@@ -3326,6 +3738,9 @@ class PosApp {
       this.showToast('เฉพาะเจ้าของร้านเท่านั้นที่รีเซ็ตข้อมูลทั้งหมดได้', 'warning');
       return;
     }
+    // ตรวจ 19 ต.ค. 2569 ข้อ 11: ต่อชีตไว้แล้วยังมีงานค้างส่ง (บิลที่ยังไม่ขึ้นชีต / คำสั่งลบแถวบิลที่ยกเลิก) → ไม่ล้าง
+    // เดิมล้างเงียบ ๆ: บิลที่ยังไม่ขึ้นไม่มีวันขึ้น · แถวบิลที่ยกเลิกแล้วค้างนับในชีตถาวร (แบบเดียวกับ clearSalesData)
+    if (this.refusePendingSheetWork('ล้างข้อมูลทั้งหมด')) return;
 
     const KEYWORD = 'ลบทั้งหมด';
     const typed = window.prompt(
@@ -3343,9 +3758,10 @@ class PosApp {
     // ด่านสุดท้าย: ต้องมีสำเนาบน Drive ก่อน ไม่งั้นไม่มีอะไรให้กู้เลย
     if (this.googleSheetsUrl) {
       this.showToast('กำลังสำรองข้อมูลก่อนรีเซ็ต...', 'info');
+      this._cloudFailReason = '';
       const ok = await this.autoBackupToGoogleDrive();
       if (!ok) {
-        this.showToast('สำรองข้อมูลไม่สำเร็จ — ยกเลิกการรีเซ็ตเพื่อความปลอดภัย ลองใหม่เมื่อเน็ตพร้อม', 'error', 6000);
+        this.showToast(this.backupRefusedText('การรีเซ็ต'), 'error', 10000);   // ข้อ 38: บอกเหตุจริง
         return;
       }
     } else {
@@ -3360,6 +3776,8 @@ class PosApp {
     // ล้างฐานข้อมูลในคิวงานบันทึก — งานที่ค้างอยู่ต้องจบก่อน และห้ามมีงานใหม่แทรกระหว่างล้างกับโหลดใหม่
     const cleared = await this.withMutation('ล้างข้อมูลทั้งหมด', async () => {
       if (!this.requireOwnerForDataAction('รีเซ็ตข้อมูลทั้งหมด') || !this.canWriteData('ล้างข้อมูลทั้งหมด')) return false;
+      // ระหว่างรอสำรองขึ้น Drive อาจมีงานค้างใหม่ — ตรวจซ้ำ ณ จุดล้างจริง (ข้อ 11)
+      if (this.refusePendingSheetWork('ล้างข้อมูลทั้งหมด')) return false;
       // Build complete defaults first; clear + defaults + identity are one IndexedDB transaction.
       const fresh = new PosApp();
       fresh.deviceId = this.deviceId;
@@ -3411,14 +3829,9 @@ class PosApp {
   async _clearSalesDuringMaintenance() {
     if (!this.requireOwnerForDataAction('ล้างยอดขาย')) return false;
     if (!this.canWriteData('ล้างยอดขาย')) return false;
-    const notOnSheet = () => (Array.isArray(this.state.transactions) ? this.state.transactions : [])
-      .filter(tx => tx && tx.syncStatus !== 'synced').length;
-    const pendingWarn = (n) => this.showToast(
-      `ยังมีบิล ${n} ใบที่ยังไม่ขึ้นชีต (ค้างส่ง/รอตรวจ) — ล้างแล้วบิลพวกนี้จะหายถาวร จึงยังไม่ล้าง · ซิงก์ให้ครบก่อน`, 'error', 8000);
-    if (this.googleSheetsUrl) {
-      const n = notOnSheet();
-      if (n > 0) { pendingWarn(n); return false; }
-    }
+    // ตรวจ 19 ต.ค. 2569 ข้อ 57: คำสั่งลบแถวบิลที่ยกเลิกค้างอยู่ก็ไม่ล้าง (เดิมเก็บคำสั่งลบไว้แต่ตัดงานส่งสรุปใหม่ทิ้ง
+    // → สรุปบนชีตยังนับบิลที่ลบแถวไปแล้ว) · ใช้ด่านเดียวกับ resetData
+    if (this.refusePendingSheetWork('ล้างยอดขาย')) return false;
 
     const KEYWORD = 'ล้างยอดขาย';
     const txCount = Array.isArray(this.state.transactions) ? this.state.transactions.length : 0;
@@ -3438,9 +3851,10 @@ class PosApp {
     // ด่านสุดท้าย: ต้องมีสำเนาบน Drive ก่อน (กู้กลับได้ด้วยปุ่มกู้ข้อมูล) — แบบเดียวกับ resetData
     if (this.googleSheetsUrl) {
       this.showToast('กำลังสำรองข้อมูลก่อนล้างยอดขาย...', 'info');
+      this._cloudFailReason = '';
       const backedUp = await this.autoBackupToGoogleDrive();
       if (!backedUp) {
-        this.showToast('สำรองข้อมูลไม่สำเร็จ — ยกเลิกการล้างยอดขายเพื่อความปลอดภัย ลองใหม่เมื่อเน็ตพร้อม', 'error', 6000);
+        this.showToast(this.backupRefusedText('การล้างยอดขาย'), 'error', 10000);   // ข้อ 38: บอกเหตุจริง
         return false;
       }
     } else {
@@ -3454,18 +3868,17 @@ class PosApp {
     return this.withMutation('การล้างยอดขาย', async () => {
       if (!this.requireOwnerForDataAction('ล้างยอดขาย')) return false;
       // ระหว่างรอสำรองขึ้น Drive อาจมีบิลใหม่ที่ยังไม่ขึ้นชีต — ตรวจซ้ำ ณ จุดล้างจริง
-      if (this.googleSheetsUrl) {
-        const n = notOnSheet();
-        if (n > 0) { pendingWarn(n); return false; }
-      }
+      if (this.refusePendingSheetWork('ล้างยอดขาย')) return false;
       // ล้างยอดขาย = ลบเงินทั้งชุดออกจากระบบ ถ้าเขียนเครื่องไม่สำเร็จแล้วปล่อยผ่าน
       // หน้าจอจะว่างเปล่าเหมือนล้างสำเร็จ แต่เปิดแอปใหม่ยอดกลับมาทั้งหมด — สองสถานะที่ไม่ตรงกัน
       const restoreCartDiscount = this.snapshotCartDiscountForRollback();
+      // ตรวจ 19 ต.ค. 2569 ข้อ 57/26: คิวงานคลาวด์คืนด้วย snapshotOutboxForRollback (อาเรย์และงานตัวเดิม) ไม่ใช่สำเนาลึก
+      // — รอบส่งที่วิ่งอยู่เขียนผล (เช่น needTelegram=false) ลงงานตัวเดิม · คืนด้วยสำเนาลึก = Telegram ปิดกะส่งซ้ำ
+      const restoreOutbox = this.snapshotOutboxForRollback();
       const prevAll = this.cloneForRollback({
         transactions: this.state.transactions, queue: this.state.queue, cart: this.state.cart,
         voidLog: this.state.voidLog, expenseLog: this.state.expenseLog, editLog: this.state.editLog,
-        quarantine: this.state.quarantine,
-        cloudOutbox: this.state.cloudOutbox, shift: this.state.shift
+        quarantine: this.state.quarantine, shift: this.state.shift
       });
       this.state.transactions = [];
       this.state.queue = [];
@@ -3476,8 +3889,8 @@ class PosApp {
       this.state.quarantine = [];  // รายการที่แยกตรวจสอบก็เป็นของยอดชุดเก่า (เจ้าของสั่งล้างยอดเองแล้ว)
 
       // งานคลาวด์ที่ค้าง: ต้องตัด "งานสรุป" ทิ้ง (ไม่งั้น outbox เก่าจะ flush สรุป "ศูนย์" ไปทับชีตของวันเก่า)
-      // แต่ต้อง "เก็บคำสั่งลบแถวบิลไว้" — เดิมล้างทิ้งทั้งก้อน ทำให้บิลที่ยกเลิกไปแล้วแต่ยังลบในชีตไม่สำเร็จ
-      // (เน็ตหลุด/GAS ล่ม) ค้างเป็นแถวผีในชีตถาวร ไม่มีอะไรมาลบให้อีกเลย → ยอดแท็บบิลไม่ตรงกับชีตสรุป
+      // คำสั่งลบแถวบิลที่ยังค้าง ถูกด่าน refusePendingSheetWork ปฏิเสธไปแล้ว (ข้อ 57) — ตัวกรองนี้เหลือไว้เป็นชั้นกันหลัง
+      // (ถ้ามีหลุดมา ต้องเก็บคำสั่งลบไว้ ไม่งั้นแถวบิลที่ยกเลิกค้างในชีตถาวร)
       this.state.cloudOutbox = (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [])
         .filter(it => it.needVoidDelete && it.voidDelete)
         .map(it => ({ ...it, needSummary: false, needTelegram: false, telegramMessage: '' }));
@@ -3492,6 +3905,7 @@ class PosApp {
       this.clearDateKeyCache();   // บิลถูกล้างทั้งชุด — ผลที่จำไว้ไม่มีความหมายแล้ว
       if (!await this.persistOrRollback('การล้างยอดขาย', () => {
         Object.assign(this.state, prevAll);
+        restoreOutbox();
         restoreCartDiscount();
         this.clearDateKeyCache();
       })) { this.renderEveryScreen(); return false; }
@@ -3547,12 +3961,16 @@ class PosApp {
     });
 
     // Modal Trigger Buttons in Settings
+    // ตรวจ 19 ต.ค. 2569 ข้อ 12: เลือกลูกค้าใหม่ลงตะกร้าให้อัตโนมัติ "เฉพาะ" เมื่อเปิดจากปุ่มลงทะเบียนด่วนในตะกร้า
+    // (เดิมเพิ่มจากหน้าลูกค้าก็ถูกเลือกค้างในตะกร้า → บิลของลูกค้า walk-in คนถัดไปลงชื่อสมาชิกคนนั้น)
     document.getElementById('btn-add-customer').addEventListener('click', () => {
+      this._customerModalForCart = false;
       document.getElementById('customer-modal-title').innerText = 'เพิ่มลูกค้าใหม่';
       document.getElementById('form-customer').reset();
       this.openModal('modal-customer');
     });
     document.getElementById('btn-add-customer-quick').addEventListener('click', () => {
+      this._customerModalForCart = true;
       document.getElementById('customer-modal-title').innerText = 'ลงทะเบียนลูกค้าด่วน';
       document.getElementById('form-customer').reset();
       this.openModal('modal-customer');
@@ -3601,8 +4019,8 @@ class PosApp {
     if (feeCustom) feeCustom.addEventListener('input', () => this.onCardFeeCustomInput());
     document.getElementById('btn-reset-data').addEventListener('click', () => this.resetData());
 
-    // Customer search bar
-    document.getElementById('search-customer').addEventListener('keyup', (e) => {
+    // Customer search bar — ข้อ 36 (ตรวจ 19 ต.ค. 2569): ฟัง 'input' (เดิม keyup: วาง/พูด/คำแนะนำแป้นพิมพ์บน iPad ไม่กรอง)
+    document.getElementById('search-customer').addEventListener('input', (e) => {
       this.renderCustomerTable(e.target.value);
     });
 
@@ -3693,7 +4111,9 @@ class PosApp {
     switch (screen) {
       case 'pos':
         this.renderPos();
-        this.renderQueueScreen(); // หน้าขายโชว์คิวงานด้วย ต้องตรงเสมอ (ถูกกว่าวาดหน้ารายงานมาก)
+        // ตรวจ 19 ต.ค. 2569 ข้อ 66: หน้าขายไม่ได้แสดงรายการคิว (คิวอยู่หน้า "คิวงาน" ซึ่ง switchTab วาดให้ตอนเปิดเสมอ)
+        // วาดหน้าคิวไว้ด้วยเพื่อให้ตัวเลขคิวตรงทันทีหลังขาย — ราคาถูกกว่าวาดหน้ารายงานมาก
+        this.renderQueueScreen();
         break;
       case 'queue':     this.renderQueueScreen();   break;
       case 'customers': this.renderCustomerTable(); break;
@@ -3714,14 +4134,17 @@ class PosApp {
   }
 
   renderDashboard() {
+    // ตรวจ 19 ต.ค. 2569 ข้อ 18: ใช้ "เวลาล่าสุดที่เคยเห็น" แบบเดียวกับหน้ารายงาน — ตั้งวันที่ iPad ย้อนหลังแล้ว
+    // ผู้จัดการ/พนักงานต้องไม่เห็นยอด/5 บิลล่าสุด/ชื่อลูกค้าของวันเก่า (เดิมใช้นาฬิกาเครื่องตรง ๆ)
+    const nowTs = Math.max(Date.now(), this.clockFloorTs());
     // 1. ตั้งค่าวันที่ภาษาไทย — แสดง "วันทำการ" (หลังเที่ยงคืนก่อนตี 6 ยังนับเป็นคืนเดิม)
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-    const bizDateLabel = fmtBkkDate(this.getBusinessTime(Date.now()), options);
-    const afterMidnight = bkkHour(Date.now()) < BUSINESS_DAY_CUTOFF_HOUR;   // ชั่วโมงตามเวลาไทย ไม่ใช่เขตเวลาของเครื่อง (ตรวจ 8 ต.ค. 2569 ข้อ 9)
+    const bizDateLabel = fmtBkkDate(this.getBusinessTime(nowTs), options);
+    const afterMidnight = bkkHour(nowTs) < BUSINESS_DAY_CUTOFF_HOUR;   // ชั่วโมงตามเวลาไทย ไม่ใช่เขตเวลาของเครื่อง (ตรวจ 8 ต.ค. 2569 ข้อ 9)
     document.getElementById('dashboard-date').innerText = bizDateLabel + (afterMidnight ? ' (หลังเที่ยงคืน — ยอดยังนับเป็นคืนนี้)' : '');
 
     // 1.5 ตั้งค่าคำทักทายแบบพลวัตตามช่วงเวลา
-    const hour = bkkHour(Date.now());
+    const hour = bkkHour(nowTs);
     let greeting = 'สวัสดีครับ ยินดีต้อนรับ';
     if (hour >= 5 && hour < 12) {
       greeting = 'อรุณสวัสดิ์ ยินดีต้อนรับ';
@@ -3736,7 +4159,7 @@ class PosApp {
     if (greetingEl) greetingEl.innerText = greeting;
 
     // กรองรายการธุรกรรมเฉพาะ "วันทำการ" วันนี้ — ตี 1 ยังเห็นยอดทั้งคืนต่อเนื่อง ไม่รีเซ็ตตอนเที่ยงคืน
-    const todayStr = this.getBusinessISODate(Date.now());
+    const todayStr = this.currentBusinessDateKey();
     const todayAll = this.state.transactions.filter(tx => {
       return this.getBusinessISODate(tx.date) === todayStr;
     });
@@ -3756,9 +4179,16 @@ class PosApp {
     document.getElementById('kpi-revenue').innerText = `฿${todayRevenue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` +
       (todaySplit.excluded ? ` (+รอตรวจ ${todaySplit.excluded})` : '');
     // เทรนด์เทียบยอดขายเมื่อวาน (วันทำการก่อนหน้า)
-    const _ydayStr = this.getBusinessISODate(Date.now() - 86400000);
-    const _ydayRevenue = this.summaryBillsOf(this.state.transactions.filter(tx => this.getBusinessISODate(tx.date) === _ydayStr))
-      .bills.reduce((s, tx) => s + (Number(tx.total) || 0), 0);
+    // ตรวจ 19 ต.ค. 2569 ข้อ 35: เทียบ "ช่วงเวลาเดียวกัน" (นับจาก 06:00 ของวันทำการ) — เดิมเทียบยอดวันนี้ถึงตอนนี้
+    // กับเมื่อวานทั้งวัน ร้านกลางคืนจึงเห็นลูกศรแดง ↓9x% เกือบทั้งวัน · เวลาไทยไม่มีเวลาออมแสง ใช้ mod 24 ชม. ได้ตรง
+    const _sinceCutoff = ts => ((Number(ts) + (7 - BUSINESS_DAY_CUTOFF_HOUR) * 3600000) % 86400000 + 86400000) % 86400000;
+    const _elapsed = _sinceCutoff(nowTs);
+    const _ydayStr = this.getBusinessISODate(nowTs - 86400000);
+    const _ydayRevenue = this.summaryBillsOf(this.state.transactions.filter(tx => {
+      if (this.getBusinessISODate(tx.date) !== _ydayStr) return false;
+      const t = new Date(tx.date).getTime();
+      return Number.isFinite(t) && _sinceCutoff(t) <= _elapsed;
+    })).bills.reduce((s, tx) => s + (Number(tx.total) || 0), 0);
     const _trendEl = document.getElementById('kpi-revenue-trend');
     if (_trendEl && !this.canViewPastSales()) {
       // "เทียบเมื่อวาน" คือยอดของวันก่อน — ดูย้อนหลังได้เฉพาะเจ้าของ (เจ้าของสั่ง 26 ก.ย. 2569)
@@ -3769,10 +4199,10 @@ class PosApp {
         const _pct = ((todayRevenue - _ydayRevenue) / _ydayRevenue) * 100;
         const _up = _pct >= 0;
         _trendEl.className = 'kpi-trend ' + (_up ? 'up' : 'down');
-        _trendEl.innerHTML = `<i class="fa-solid fa-arrow-${_up ? 'up' : 'down'}"></i> ${Math.abs(_pct).toFixed(0)}% เทียบเมื่อวาน`;
+        _trendEl.innerHTML = `<i class="fa-solid fa-arrow-${_up ? 'up' : 'down'}"></i> ${Math.abs(_pct).toFixed(0)}% เทียบเมื่อวานช่วงเวลาเดียวกัน`;
       } else if (todayRevenue > 0) {
         _trendEl.className = 'kpi-trend up';
-        _trendEl.innerHTML = `<i class="fa-solid fa-arrow-up"></i> เริ่มขายวันนี้`;
+        _trendEl.innerHTML = `<i class="fa-solid fa-arrow-up"></i> เมื่อวานช่วงเวลานี้ยังไม่มียอด`;
       } else {
         _trendEl.className = 'kpi-trend';
         _trendEl.innerHTML = '';
@@ -4743,6 +5173,8 @@ class PosApp {
   // ตรวจ 14 ต.ค. ข้อ 3: เดิมรีเซ็ตส่วนลดเฉพาะปุ่มล้างตะกร้า — ออกจากระบบ/ปิดกะ/ล้างยอด/กู้ข้อมูล/ลบรายการจนหมด
   // ส่วนลดค้างในช่อง แล้วบิลถัดไป (คนละลูกค้า/คนละพนักงาน) ถูกลดเงียบ ๆ
   // หมายเหตุบิลล้างไปพร้อมกัน — เหตุผลเดียวกัน: ข้อความของลูกค้าคนก่อนต้องไม่ติดไปบิลถัดไป
+  // ตรวจ 19 ต.ค. 2569 ข้อ 12: ช่องเลือกลูกค้าล้างไปพร้อมกัน (กลับเป็น Walk-in) — เดิมล้างตะกร้า/ลบรายการสุดท้าย/สลับผู้ใช้
+  // แล้วลูกค้าสมาชิกที่เลือกไว้ค้าง → บิลของคนถัดไปลงชื่อสมาชิกคนนั้น และนับครั้งที่มา/ระดับสมาชิกเพิ่มเอง
   resetCartState() {
     if (this.state) this.state.cart = [];
     const doc = (typeof document !== 'undefined' && document.getElementById) ? document : null;
@@ -4750,15 +5182,23 @@ class PosApp {
     if (discountInput) discountInput.value = 0;
     const noteInput = doc ? doc.getElementById('checkout-bill-note') : null;
     if (noteInput) noteInput.value = '';
+    const custSel = doc ? doc.getElementById('cart-customer-select') : null;
+    if (custSel) custSel.value = '';
   }
-  // คืนช่องส่วนลด (และหมายเหตุบิลที่พิมพ์ค้างไว้) เมื่องานที่ล้างตะกร้าบันทึกไม่สำเร็จ
+  // คืนช่องส่วนลด (และหมายเหตุบิล · ลูกค้าที่เลือกไว้) เมื่องานที่ล้างตะกร้าบันทึกไม่สำเร็จ
   snapshotCartDiscountForRollback() {
     const doc = (typeof document !== 'undefined' && document.getElementById) ? document : null;
     const el = doc ? doc.getElementById('cart-discount') : null;
     const value = el ? el.value : null;
     const noteEl = doc ? doc.getElementById('checkout-bill-note') : null;
     const noteValue = noteEl ? noteEl.value : null;
-    return () => { if (el) el.value = value; if (noteEl) noteEl.value = noteValue; };
+    const custEl = doc ? doc.getElementById('cart-customer-select') : null;
+    const custValue = custEl ? custEl.value : null;
+    return () => {
+      if (el) el.value = value;
+      if (noteEl) noteEl.value = noteValue;
+      if (custEl) custEl.value = custValue;
+    };
   }
 
   // ── หมายเหตุ (เจ้าของสั่ง 14 ต.ค. 2569) — ตัวทำความสะอาดตัวเดียว ใช้ทั้งตอนบันทึกและตอนแสดง ─────────
@@ -4818,10 +5258,6 @@ class PosApp {
       const bq1 = document.getElementById('btn-print-quote');
       if (bq1) bq1.disabled = false;
 
-      // สร้างตัวเลือกรายชื่อพนักงานสำหรับใส่ในกล่อง Dropdown ของตะกร้าสินค้า
-      const staffOptions = this.state.staff.map(st => 
-        `<option value="${escapeHtml(st.id)}">${escapeHtml(st.name)} (${escapeHtml(st.role)})</option>`
-      ).join('');
 
       // ขายหน้าร้าน (สินค้าค่าคอม 0) = แถวเตี้ย ป้ายเล็กไม่มีกรอบ — ตะกร้าบน iPad แนวนอนเห็นได้หลายแถวขึ้น (ขายน้ำทีละหลายขวด)
       cartList.innerHTML = this.state.cart.map(item => `
@@ -4841,7 +5277,7 @@ class PosApp {
           </div>` : `
           <div class="cart-item-staff">
             <i class="fa-solid fa-user-circle"></i> ${item.isProduct === true ? 'คนขาย' : 'ผู้ให้บริการ'}:
-            <select onchange="app.changeItemStaff('${safeId(item.uniqueCartId)}', this.value)">
+            <select onchange="app.changeItemStaff('${safeId(item.uniqueCartId)}', this.value)" aria-label="${item.isProduct === true ? 'คนขาย' : 'ผู้ให้บริการ'}: ${escapeHtml(item.name)}">
               ${this.state.staff.some(st => st.id === item.staffId) ? '' :
                 // ผู้ให้บริการของรายการนี้ถูกลบไปแล้ว — ต้องมีตัวเลือกว่างให้เห็นชัดและเลือกคนใหม่ได้ทุกคน
                 // (เดิมจอโชว์ชื่อคนแรกแต่รายการยังผูกคนที่ถูกลบ เลือกชื่อเดิมซ้ำไม่เกิด change → ชำระเงินไม่ได้)
@@ -5246,7 +5682,7 @@ class PosApp {
       opts.innerHTML = rates.map(r => {
         const on = !customOn && rate === r;
         return `<button type="button" class="btn-small ${on ? 'primary' : 'secondary'} card-fee-opt" data-rate="${r}" ` +
-          `style="min-height:40px;padding:4px 10px;font-size:0.8rem;" onclick="app.selectCardFeeRate(${r})">${r === 0 ? 'ไม่คิด' : r + '%'}</button>`;
+          `style="min-height:44px;padding:4px 10px;font-size:0.8rem;" onclick="app.selectCardFeeRate(${r})">${r === 0 ? 'ไม่คิด' : r + '%'}</button>`;
       }).join('');
     }
     setText('card-fee-service-label', svcTotal === null ? '—' : money(svcTotal));
@@ -5639,178 +6075,179 @@ class PosApp {
     const customerSelect = this.requireEl('cart-customer-select', 'ช่องเลือกลูกค้า');
     const selectedCustId = customerSelect.value;
     
+    // ตรวจ 19 ต.ค. 2569 ข้อ 50: ตั้งแต่ "นับครั้งลูกค้า +1" จนบันทึกลงเครื่อง อยู่ใน try เดียว — ขั้นใดโยน error
+    // (ประกอบบิล · ตรวจบิล · คิว · งานสำรอง · บันทึก) ต้องคืนทุกอย่างที่ทำไปแล้ว ไม่งั้นบิลครึ่ง ๆ ค้างในหน่วยความจำ
+    // แล้วถูกบันทึกไปกับงานถัดไป · รอบชำระเงิน (_checkoutAttempt) ยังอยู่ = กดยืนยันใหม่ได้ (ใช้ไปแล้วเฉพาะเมื่อบันทึกสำเร็จ)
+    let txId = null, transaction = null, newQueueItem = null, midBackupJob = null;
     let customerName = 'ลูกค้าทั่วไป (Walk-in)';
     let updatedCustomer = null;
     let customerBeforeCheckout = null;
     let customerIdForBill = null;
-    if (selectedCustId === 'google') {
-      customerName = 'ลูกค้าทั่วไป (Google)';
-    } else if (selectedCustId === 'returning') {
-      customerName = 'ลูกค้าเก่า';
-    } else if (selectedCustId) {
-      const customer = this.state.customers.find(c => c.id === selectedCustId);
-      if (customer) {
-        customerName = customer.name;
-        customerIdForBill = customer.id;
-        updatedCustomer = customer;
-        customerBeforeCheckout = {
-          visitCount: customer.visitCount,
-          tier: customer.tier
-        };
-        // เพิ่มประวัติการเข้าใช้งาน — เฉพาะบิลที่มีบริการ (ซื้อสินค้าอย่างเดียวไม่นับ · ยกเลิกบิลใช้กติกาเดียวกัน)
-        if (this.billCountsAsVisit(cart)) {
-          customer.visitCount = (Number(customer.visitCount) || 0) + 1;
-          // อัปเกรดระดับสมาชิกอัตโนมัติ
-          if (customer.visitCount >= 10) {
-            customer.tier = 'แพลทินัม (Platinum)';
-          } else if (customer.visitCount >= 5) {
-            customer.tier = 'ทอง (Gold)';
+    try {
+      if (selectedCustId === 'google') {
+        customerName = 'ลูกค้าทั่วไป (Google)';
+      } else if (selectedCustId === 'returning') {
+        customerName = 'ลูกค้าเก่า';
+      } else if (selectedCustId) {
+        const customer = this.state.customers.find(c => c.id === selectedCustId);
+        if (customer) {
+          customerName = customer.name;
+          customerIdForBill = customer.id;
+          updatedCustomer = customer;
+          customerBeforeCheckout = {
+            visitCount: customer.visitCount,
+            tier: customer.tier
+          };
+          // เพิ่มประวัติการเข้าใช้งาน — เฉพาะบิลที่มีบริการ (ซื้อสินค้าอย่างเดียวไม่นับ · ยกเลิกบิลใช้กติกาเดียวกัน)
+          if (this.billCountsAsVisit(cart)) {
+            customer.visitCount = (Number(customer.visitCount) || 0) + 1;
+            // อัปเกรดระดับสมาชิกอัตโนมัติ
+            if (customer.visitCount >= 10) {
+              customer.tier = 'แพลทินัม (Platinum)';
+            } else if (customer.visitCount >= 5) {
+              customer.tier = 'ทอง (Gold)';
+            }
           }
         }
       }
-    }
 
-    const billTime = Date.now();
-    const txId = `TX-${billTime}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
+      const billTime = Date.now();
+      txId = `TX-${billTime}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
     
-    // 1. สร้างประวัติธุรกรรมเก็บไว้
-    const transaction = {
-      id: txId,
-      date: billTime,
-      customerName: customerName,
-      // ข้อ 3 ตรวจ 11 ต.ค. 2569: บิลที่ไม่นับเป็นการมาใช้บริการ (ซื้อสินค้าอย่างเดียว) ไม่จดรหัสลูกค้า — ชื่อลูกค้ายังอยู่
-      // รหัสนี้ใช้ที่เดียวคือ "คืนจำนวนครั้ง" ตอนยกเลิกบิล · ถ้าถอยไปรุ่นก่อนมีระบบสินค้า (ซึ่งลดครั้งทุกบิลที่มีรหัส)
-      // แล้วยกเลิกบิลน้ำ จำนวนครั้ง/ระดับของลูกค้าจะลดผิดถาวร
-      customerId: this.billCountsAsVisit(cart) ? customerIdForBill : null,
-      services: cart.map(item => item.name),
-      details: (() => {
-        // กระจายส่วนลดตามสัดส่วน + เกลี่ยเศษสตางค์ให้ผลรวม netPrice = total เป๊ะ
-        const netPrices = this.distributeDiscount(cart.map(i => i.price), subtotal, discount);
-        return cart.map((item, i) => {
-        const netPrice = netPrices[i];
-        const isVatable = this.isVatableCategory(item.category);
-        const commType = item.commissionType || 'percent';
-        const commVal = item.commission || 0;
-        // ค่าคอมแบบ % คิดบน netPrice แล้วปัดเป็นบาทเต็ม (กติกาตัวเลข); แบบ fixed เป็นจำนวนคงที่ไม่ขึ้นกับส่วนลด
-        const commissionAmount = commissionAmountFor(netPrice, commType, commVal);
-        return {
-          name: item.name,
-          price: item.price,          // ราคาเต็ม (แสดงบนใบเสร็จ)
-          netPrice: netPrice,         // ราคาหลังหักส่วนลด (ใช้คิดค่าคอม + รายงาน)
-          staffId: item.staffId,
-          staffName: item.staffName,
-          commission: commVal,
-          commissionType: commType,
-          // ค่าคอมคิดจาก netPrice ซึ่งเป็นยอด "ก่อน VAT" เสมอ
-          // ถ้าเผลอคิดจากยอดรวม VAT เท่ากับจ่ายคอมจากเงินภาษีที่ต้องส่งสรรพากร
-          commissionAmount: commissionAmount,
-          category: item.category || '',
-          vatable: isVatable,
-          // สินค้า (8–9 ต.ค. 2569) — ใช้ในรายงานสินค้าเท่านั้น: ไม่ส่งขึ้นชีต (buildBillPayload ส่งแค่ price/netPrice/vatable)
-          // จึงไม่กระทบลายนิ้วมือบิลบนชีต · ตัวตรวจบิลไม่ใช้ช่องพวกนี้ตัดสินว่าบิลเสีย (ต้นทุนแปลก = แค่ "ไม่ทราบต้นทุน")
-          serviceId: item.id || '',                 // รหัสรายการ — จัดกลุ่มรายงานแม้เปลี่ยนชื่อ · ทางต่อระบบสต็อกในอนาคต
-          isProduct: item.isProduct === true,
-          ...(item.isProduct === true && this.productCostOf(item.cost) !== null
-            ? { unitCost: this.productCostOf(item.cost) } : {})   // ต้นทุนต่อชิ้น ณ ตอนขาย (ไม่มี = ไม่ทราบ)
-        };
-        }).concat(feeAmount > 0 ? [{
-          // ค่าธรรมเนียมบัตร = บรรทัดพิเศษ (ดู SPLIT_PAYMENT ข้างบนสุด) — ไม่มีผู้ให้บริการ ไม่มีค่าคอม ส่วนลดไม่ลด
-          kind: CARD_FEE_LINE_KIND,
-          name: CARD_FEE_LINE_NAME,
-          price: feeNet,
-          netPrice: feeNet,
-          staffId: '',
-          staffName: '',
-          commission: 0,
-          commissionType: 'fixed',
-          commissionAmount: 0,
-          category: '',
-          vatable: !!plan.fee.vatable
-        }] : []);
-      })(),
-      subtotal: (Math.round(subtotal * 100) + Math.round(feeNet * 100)) / 100,  // บริการ + ค่าธรรมเนียมก่อน VAT
-      discount: discount,
-      vatRate:     billTotals.vatRate,      // อัตราที่ใช้จริงตอนออกบิลใบนี้
-      nonVatBase:  billTotals.nonVatBase,   // ยอดที่ไม่คิด VAT
-      vatableBase: billTotals.vatableBase,  // ฐานภาษี
-      vatAmount:   billTotals.vatAmount,    // ภาษีขาย — ต้องนำส่งสรรพากร
-      rounding:    billTotals.rounding,     // เงินปัดเศษ — รายได้ร้าน ไม่ใช่ภาษี
-      total: total,                      // = nonVatBase + vatableBase + vatAmount + rounding
-      cashReceived: cashReceived,
-      cashChange: cashChange,
-      paymentMethod: method,
-      // เงินที่รับจริง ณ ตอนขาย (ข้อ 16) — บันทึกครั้งเดียว ห้ามเปลี่ยนตามการแก้บิลภายหลัง
-      // ยอด/ช่องทางของบิลแก้ได้ แต่เงินที่เข้าลิ้นชักไปแล้วไม่ได้เปลี่ยนตาม — ส่วนต่างต้องมีคนบันทึกเอง
-      // บิลแบ่งจ่าย: parts = ก้อนเงินจริง (ลิ้นชักนับเฉพาะก้อนเงินสด)
-      tender: method === SPLIT_PAYMENT
-        ? { method, amount: total, parts: plan.parts.map(p => ({ method: p.method, amount: p.amount })),
-            received: null, change: null, at: billTime, shiftStart: Number(shift.startTime) }
-        : { method, amount: total, received: cashReceived, change: cashChange, at: billTime, shiftStart: Number(shift.startTime) },
-      // สินค้าขายหน้าร้านไม่มีผู้ให้บริการ — ไม่ใส่ชื่อว่างลงช่อง "พนักงาน" ของชีต (บิลสินค้าล้วน = รายชื่อว่าง)
-      staffNames: [...new Set(cart.filter(item => !this.isFrontCounterLine(item)).map(item => item.staffName))],
-      soldBy: this.currentUser ? this.currentUser.name : '',
-      // รุ่นของบิล — ชีตใช้ปฏิเสธคำขอเก่าที่มาถึงทีหลัง (ดู syncSingleTransaction)
-      rev: 1,
-      checkoutAttemptId: attempt.id,
-      emergencySale: this.isRecoveryIncomplete() || undefined,
-      syncStatus: 'pending' // สถานะเริ่มต้นของการซิงก์ออนไลน์
-    };
-    // ไม่มีหมายเหตุ = ไม่มีช่องนี้เลย (บิลหน้าตาเหมือนรุ่นก่อนทุกอย่าง · ชีตไม่แตะคอลัมน์หมายเหตุ)
-    if (billNote) transaction.billNote = billNote;
-    // แบ่งจ่าย: ก้อนเงิน "ตามบิล" (ผลรวม = ยอดบิล) — ยอดแยกช่องทางทุกจุดบวกจากตัวนี้ (ดู paymentPartsOf)
-    if (method === SPLIT_PAYMENT) transaction.payments = plan.parts.map(p => ({ method: p.method, amount: p.amount }));
-    // ค่าธรรมเนียมบัตรที่ล็อกไว้ตอนขาย (อัตราที่ใช้จริง · อัตราของร้านตอนนั้น · ยอดรูดก่อนค่าธรรมเนียม · ค่าธรรมเนียม)
-    // ลดต่ำกว่าอัตราของร้าน = บันทึกชื่อคนลด (เจ้าของสั่ง: ไม่ต้องใส่ PIN แต่ต้องเห็นใน Telegram ปิดกะ)
-    if (plan && plan.fee) {
-      transaction.cardFee = { rate: plan.fee.rate, baseRate: plan.fee.baseRate, base: plan.fee.base,
-        amount: plan.fee.amount, net: plan.fee.net, fullAmount: plan.fee.fullAmount };
-      if (plan.fee.rate < plan.fee.baseRate) transaction.cardFee.reducedBy = this.currentUser ? this.currentUser.name : '';
-    }
-
-    // ตรวจ 14 ต.ค. ข้อ 4: ด่านสุดท้าย — บิลที่จะลงเครื่องต้องผ่านตัวตรวจบิลตัวเดียวกับที่ใช้ตัดสินการส่งชีต/สรุป
-    // (ไม่งั้นบิลที่รับเงินแล้วกลายเป็น "รอตรวจ" ทันที และยอดหายจากสรุปบนชีต)
-    {
-      const bad = this.validateBillRecord(transaction).filter(p => p && p.fatal);
-      if (bad.length && updatedCustomer && customerBeforeCheckout) {
-        // คืนจำนวนครั้ง/ระดับของลูกค้าที่บวกไปข้างบน — บิลไม่ได้เกิดจริง (ผู้ตรวจอิสระ 14 ต.ค. R2)
-        updatedCustomer.visitCount = customerBeforeCheckout.visitCount;
-        updatedCustomer.tier = customerBeforeCheckout.tier;
+      // 1. สร้างประวัติธุรกรรมเก็บไว้
+      transaction = {
+        id: txId,
+        date: billTime,
+        customerName: customerName,
+        // ข้อ 3 ตรวจ 11 ต.ค. 2569: บิลที่ไม่นับเป็นการมาใช้บริการ (ซื้อสินค้าอย่างเดียว) ไม่จดรหัสลูกค้า — ชื่อลูกค้ายังอยู่
+        // รหัสนี้ใช้ที่เดียวคือ "คืนจำนวนครั้ง" ตอนยกเลิกบิล · ถ้าถอยไปรุ่นก่อนมีระบบสินค้า (ซึ่งลดครั้งทุกบิลที่มีรหัส)
+        // แล้วยกเลิกบิลน้ำ จำนวนครั้ง/ระดับของลูกค้าจะลดผิดถาวร
+        customerId: this.billCountsAsVisit(cart) ? customerIdForBill : null,
+        services: cart.map(item => item.name),
+        details: (() => {
+          // กระจายส่วนลดตามสัดส่วน + เกลี่ยเศษสตางค์ให้ผลรวม netPrice = total เป๊ะ
+          const netPrices = this.distributeDiscount(cart.map(i => i.price), subtotal, discount);
+          return cart.map((item, i) => {
+          const netPrice = netPrices[i];
+          const isVatable = this.isVatableCategory(item.category);
+          const commType = item.commissionType || 'percent';
+          const commVal = item.commission || 0;
+          // ค่าคอมแบบ % คิดบน netPrice แล้วปัดเป็นบาทเต็ม (กติกาตัวเลข); แบบ fixed เป็นจำนวนคงที่ไม่ขึ้นกับส่วนลด
+          const commissionAmount = commissionAmountFor(netPrice, commType, commVal);
+          return {
+            name: item.name,
+            price: item.price,          // ราคาเต็ม (แสดงบนใบเสร็จ)
+            netPrice: netPrice,         // ราคาหลังหักส่วนลด (ใช้คิดค่าคอม + รายงาน)
+            staffId: item.staffId,
+            staffName: item.staffName,
+            commission: commVal,
+            commissionType: commType,
+            // ค่าคอมคิดจาก netPrice ซึ่งเป็นยอด "ก่อน VAT" เสมอ
+            // ถ้าเผลอคิดจากยอดรวม VAT เท่ากับจ่ายคอมจากเงินภาษีที่ต้องส่งสรรพากร
+            commissionAmount: commissionAmount,
+            category: item.category || '',
+            vatable: isVatable,
+            // สินค้า (8–9 ต.ค. 2569) — ใช้ในรายงานสินค้าเท่านั้น: ไม่ส่งขึ้นชีต (buildBillPayload ส่งแค่ price/netPrice/vatable)
+            // จึงไม่กระทบลายนิ้วมือบิลบนชีต · ตัวตรวจบิลไม่ใช้ช่องพวกนี้ตัดสินว่าบิลเสีย (ต้นทุนแปลก = แค่ "ไม่ทราบต้นทุน")
+            serviceId: item.id || '',                 // รหัสรายการ — จัดกลุ่มรายงานแม้เปลี่ยนชื่อ · ทางต่อระบบสต็อกในอนาคต
+            isProduct: item.isProduct === true,
+            ...(item.isProduct === true && this.productCostOf(item.cost) !== null
+              ? { unitCost: this.productCostOf(item.cost) } : {})   // ต้นทุนต่อชิ้น ณ ตอนขาย (ไม่มี = ไม่ทราบ)
+          };
+          }).concat(feeAmount > 0 ? [{
+            // ค่าธรรมเนียมบัตร = บรรทัดพิเศษ (ดู SPLIT_PAYMENT ข้างบนสุด) — ไม่มีผู้ให้บริการ ไม่มีค่าคอม ส่วนลดไม่ลด
+            kind: CARD_FEE_LINE_KIND,
+            name: CARD_FEE_LINE_NAME,
+            price: feeNet,
+            netPrice: feeNet,
+            staffId: '',
+            staffName: '',
+            commission: 0,
+            commissionType: 'fixed',
+            commissionAmount: 0,
+            category: '',
+            vatable: !!plan.fee.vatable
+          }] : []);
+        })(),
+        subtotal: (Math.round(subtotal * 100) + Math.round(feeNet * 100)) / 100,  // บริการ + ค่าธรรมเนียมก่อน VAT
+        discount: discount,
+        vatRate:     billTotals.vatRate,      // อัตราที่ใช้จริงตอนออกบิลใบนี้
+        nonVatBase:  billTotals.nonVatBase,   // ยอดที่ไม่คิด VAT
+        vatableBase: billTotals.vatableBase,  // ฐานภาษี
+        vatAmount:   billTotals.vatAmount,    // ภาษีขาย — ต้องนำส่งสรรพากร
+        rounding:    billTotals.rounding,     // เงินปัดเศษ — รายได้ร้าน ไม่ใช่ภาษี
+        total: total,                      // = nonVatBase + vatableBase + vatAmount + rounding
+        cashReceived: cashReceived,
+        cashChange: cashChange,
+        paymentMethod: method,
+        // เงินที่รับจริง ณ ตอนขาย (ข้อ 16) — บันทึกครั้งเดียว ห้ามเปลี่ยนตามการแก้บิลภายหลัง
+        // ยอด/ช่องทางของบิลแก้ได้ แต่เงินที่เข้าลิ้นชักไปแล้วไม่ได้เปลี่ยนตาม — ส่วนต่างต้องมีคนบันทึกเอง
+        // บิลแบ่งจ่าย: parts = ก้อนเงินจริง (ลิ้นชักนับเฉพาะก้อนเงินสด)
+        tender: method === SPLIT_PAYMENT
+          ? { method, amount: total, parts: plan.parts.map(p => ({ method: p.method, amount: p.amount })),
+              received: null, change: null, at: billTime, shiftStart: Number(shift.startTime) }
+          : { method, amount: total, received: cashReceived, change: cashChange, at: billTime, shiftStart: Number(shift.startTime) },
+        // สินค้าขายหน้าร้านไม่มีผู้ให้บริการ — ไม่ใส่ชื่อว่างลงช่อง "พนักงาน" ของชีต (บิลสินค้าล้วน = รายชื่อว่าง)
+        staffNames: [...new Set(cart.filter(item => !this.isFrontCounterLine(item)).map(item => item.staffName))],
+        soldBy: this.currentUser ? this.currentUser.name : '',
+        // รุ่นของบิล — ชีตใช้ปฏิเสธคำขอเก่าที่มาถึงทีหลัง (ดู syncSingleTransaction)
+        rev: 1,
+        checkoutAttemptId: attempt.id,
+        emergencySale: this.isRecoveryIncomplete() || undefined,
+        syncStatus: 'pending' // สถานะเริ่มต้นของการซิงก์ออนไลน์
+      };
+      // ไม่มีหมายเหตุ = ไม่มีช่องนี้เลย (บิลหน้าตาเหมือนรุ่นก่อนทุกอย่าง · ชีตไม่แตะคอลัมน์หมายเหตุ)
+      if (billNote) transaction.billNote = billNote;
+      // แบ่งจ่าย: ก้อนเงิน "ตามบิล" (ผลรวม = ยอดบิล) — ยอดแยกช่องทางทุกจุดบวกจากตัวนี้ (ดู paymentPartsOf)
+      if (method === SPLIT_PAYMENT) transaction.payments = plan.parts.map(p => ({ method: p.method, amount: p.amount }));
+      // ค่าธรรมเนียมบัตรที่ล็อกไว้ตอนขาย (อัตราที่ใช้จริง · อัตราของร้านตอนนั้น · ยอดรูดก่อนค่าธรรมเนียม · ค่าธรรมเนียม)
+      // ลดต่ำกว่าอัตราของร้าน = บันทึกชื่อคนลด (เจ้าของสั่ง: ไม่ต้องใส่ PIN แต่ต้องเห็นใน Telegram ปิดกะ)
+      if (plan && plan.fee) {
+        transaction.cardFee = { rate: plan.fee.rate, baseRate: plan.fee.baseRate, base: plan.fee.base,
+          amount: plan.fee.amount, net: plan.fee.net, fullAmount: plan.fee.fullAmount };
+        if (plan.fee.rate < plan.fee.baseRate) transaction.cardFee.reducedBy = this.currentUser ? this.currentUser.name : '';
       }
-      if (bad.length) fail('ข้อมูลบิลนี้ไม่ผ่านการตรวจ (' + bad.map(p => p.msg).join(' · ') + ') — ยังไม่ได้บันทึก ห้ามรับเงิน · แจ้งเจ้าของตรวจราคา/ค่าคอมในหน้าตั้งค่า');
-    }
-    this.state.transactions.push(transaction);
 
-    // 2. สร้างคิวงานของวันนี้ส่งไปที่รอให้บริการ
-    // สินค้าส่งให้ลูกค้าได้ทันที ไม่ต้องรอคิว (8–9 ต.ค. 2569) — คิวมีเฉพาะบรรทัดบริการ · บิลสินค้าล้วน = ไม่มีคิว
-    const queueLines = cart.filter(item => item.isProduct !== true);
-    const newQueueItem = queueLines.length === 0 ? null : {
-      id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      customerName: customerName,
-      services: queueLines.map(item => ({
-        name: item.name,
-        price: item.price,
-        staffId: item.staffId,
-        staffName: item.staffName
-      })),
-      status: 'waiting', // คิวงานเริ่มต้นด้วยสถานะรอเรียก (Waiting)
-      startTime: null,
-      totalDuration: queueLines.reduce((sum, item) => sum + (Number(item.duration) || 0), 0),
-      totalAmount: total,
-      txId: txId   // ผูกคิวกับบิล — ยกเลิกบิลแล้วต้องเอาคิวที่ยังไม่เสร็จออกด้วย (ข้อ 11)
-    };
+      // ตรวจ 14 ต.ค. ข้อ 4: ด่านสุดท้าย — บิลที่จะลงเครื่องต้องผ่านตัวตรวจบิลตัวเดียวกับที่ใช้ตัดสินการส่งชีต/สรุป
+      // (ไม่งั้นบิลที่รับเงินแล้วกลายเป็น "รอตรวจ" ทันที และยอดหายจากสรุปบนชีต)
+      {
+        const bad = this.validateBillRecord(transaction).filter(p => p && p.fatal);
+        // ไม่ผ่าน = โยน error → catch ข้างล่างคืนจำนวนครั้ง/ระดับของลูกค้าที่บวกไปข้างบน (บิลไม่ได้เกิดจริง · ผู้ตรวจอิสระ 14 ต.ค. R2)
+        if (bad.length) fail('ข้อมูลบิลนี้ไม่ผ่านการตรวจ (' + bad.map(p => p.msg).join(' · ') + ') — ยังไม่ได้บันทึก ห้ามรับเงิน · แจ้งเจ้าของตรวจราคา/ค่าคอมในหน้าตั้งค่า');
+      }
+      this.state.transactions.push(transaction);
 
-    if (newQueueItem) this.state.queue.push(newQueueItem);
+      // 2. สร้างคิวงานของวันนี้ส่งไปที่รอให้บริการ
+      // สินค้าส่งให้ลูกค้าได้ทันที ไม่ต้องรอคิว (8–9 ต.ค. 2569) — คิวมีเฉพาะบรรทัดบริการ · บิลสินค้าล้วน = ไม่มีคิว
+      const queueLines = cart.filter(item => item.isProduct !== true);
+      newQueueItem = queueLines.length === 0 ? null : {
+        id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        customerName: customerName,
+        services: queueLines.map(item => ({
+          name: item.name,
+          price: item.price,
+          staffId: item.staffId,
+          staffName: item.staffName
+        })),
+        status: 'waiting', // คิวงานเริ่มต้นด้วยสถานะรอเรียก (Waiting)
+        startTime: null,
+        totalDuration: queueLines.reduce((sum, item) => sum + (Number(item.duration) || 0), 0),
+        totalAmount: total,
+        txId: txId   // ผูกคิวกับบิล — ยกเลิกบิลแล้วต้องเอาคิวที่ยังไม่เสร็จออกด้วย (ข้อ 11)
+      };
 
-    // สำรองขึ้น Drive ระหว่างกะ (ข้อ 4) — คิวลงพร้อมบิลใน save เดียวกัน · บันทึกไม่สำเร็จ = เอาออกด้วย
-    const midBackupJob = this.planMidShiftBackup(txId);
+      if (newQueueItem) this.state.queue.push(newQueueItem);
 
-    // ต้องบันทึกยอดขาย/คิว/จำนวนครั้งลูกค้าในเครื่องให้สำเร็จก่อน
-    // ถ้า IndexedDB มีปัญหา ห้ามแสดงใบเสร็จหรือส่งขึ้นคลาวด์ เพราะผู้ใช้จะเข้าใจว่าบิลถูกเก็บแล้ว
-    try {
+      // สำรองขึ้น Drive ระหว่างกะ (ข้อ 4) — คิวลงพร้อมบิลใน save เดียวกัน · บันทึกไม่สำเร็จ = เอาออกด้วย
+      midBackupJob = this.planMidShiftBackup(txId);
+
+      // ต้องบันทึกยอดขาย/คิว/จำนวนครั้งลูกค้าในเครื่องให้สำเร็จก่อน
+      // ถ้า IndexedDB มีปัญหา ห้ามแสดงใบเสร็จหรือส่งขึ้นคลาวด์ เพราะผู้ใช้จะเข้าใจว่าบิลถูกเก็บแล้ว
       await this.saveStateOrThrow('รายการขาย');
-    } catch (saveErr) {
-      this.state.transactions = this.state.transactions.filter(tx => tx.id !== txId);
-      if (newQueueItem) this.state.queue = this.state.queue.filter(item => item.id !== newQueueItem.id);
+    } catch (saleErr) {
+      // แต่ละขั้นของการคืนค่าต้องไม่ล้มเอง (เช่นคิวเสียจนเป็น null) — ไม่งั้นขั้นถัดไป (คืนจำนวนครั้งลูกค้า) ไม่ได้ทำ
+      if (txId && Array.isArray(this.state.transactions)) this.state.transactions = this.state.transactions.filter(tx => tx.id !== txId);
+      if (newQueueItem && Array.isArray(this.state.queue)) this.state.queue = this.state.queue.filter(item => item.id !== newQueueItem.id);
       if (midBackupJob && Array.isArray(this.state.cloudOutbox)) {
         this.state.cloudOutbox = this.state.cloudOutbox.filter(it => it !== midBackupJob);
       }
@@ -5819,7 +6256,7 @@ class PosApp {
         updatedCustomer.tier = customerBeforeCheckout.tier;
       }
       this.clearDateKeyCache();
-      throw saveErr;
+      throw saleErr;
     }
     // รอบชำระเงินนี้ใช้ไปแล้ว — กดยืนยันซ้ำต้องไม่ได้บิลที่สอง
     this._checkoutAttempt = null;
@@ -6207,7 +6644,14 @@ class PosApp {
   // ยกเลิกคิวงาน
   removeQueue(queueId) {
     if (!this.authorize('queue.update', 'ยกเลิกคิว')) return;
-    this.showConfirm('คุณต้องการยกเลิกคิวงานนี้ใช่หรือไม่?', () => this.withMutation('การยกเลิกคิว', async () => {
+    // ตรวจ 19 ต.ค. 2569 ข้อ 33: บอกว่ากำลังยกเลิกคิวของใคร/บริการอะไร และบอกว่าบิลยังอยู่ (ลบผิดแถวแล้วรู้ทัน)
+    const q = (this.state.queue || []).find(x => x && x.id === queueId);
+    const qSvcs = q && Array.isArray(q.services) ? q.services.map(x => x && x.name).filter(Boolean).join(', ') : '';
+    const qMsg = q
+      ? `ยกเลิกคิวของ "${q.customerName || 'ลูกค้าทั่วไป'}"${qSvcs ? ` (${qSvcs})` : ''} ใช่หรือไม่?\n\n` +
+        'เอาออกจากคิวงานเท่านั้น — บิลที่ชำระแล้วยังอยู่ ไม่ได้ยกเลิกบิล ไม่คืนเงิน (ถ้าต้องยกเลิกบิล ให้ทำที่หน้ารายงาน)'
+      : 'คุณต้องการยกเลิกคิวงานนี้ใช่หรือไม่? (บิลที่ชำระแล้วยังอยู่)';
+    this.showConfirm(qMsg, () => this.withMutation('การยกเลิกคิว', async () => {
       if (!this.authorize('queue.update', 'ยกเลิกคิว')) return;
       const prevQueue = this.state.queue;
       this.state.queue = this.state.queue.filter(q => q.id !== queueId);
@@ -6258,6 +6702,8 @@ class PosApp {
       phoneInput.focus(); return;
     }
     const note = noteInput.value.trim() || 'ไม่มี';
+    // ข้อ 12: จำตอนกดบันทึกว่าเปิดหน้าต่างนี้จากปุ่มลงทะเบียนด่วนในตะกร้าหรือไม่
+    const selectInCart = this._customerModalForCart === true;
 
     return this.withMutation('ข้อมูลลูกค้า', async () => {
       // ── Duplicate check (ในคิว — กันกดเพิ่มซ้อนกันแล้วได้เบอร์ซ้ำสองแถว) ──
@@ -6287,9 +6733,12 @@ class PosApp {
       this.renderPos();
       this.renderCustomerTable();
       
-      // ตั้งค่าตัวเลือกใน POS Cart เป็นลูกค้าคนนี้ให้อัตโนมัติ
-      const sel = document.getElementById('cart-customer-select');
-      if (sel) sel.value = newCustomer.id;
+      // ตั้งค่าตัวเลือกใน POS Cart เป็นลูกค้าคนนี้ให้อัตโนมัติ — เฉพาะเมื่อเพิ่มจากปุ่มลงทะเบียนด่วนในตะกร้า (ข้อ 12)
+      if (selectInCart) {
+        this._customerModalForCart = false;
+        const sel = document.getElementById('cart-customer-select');
+        if (sel) sel.value = newCustomer.id;
+      }
     });
   }
   editCustomerNote(custId) {
@@ -6315,7 +6764,13 @@ class PosApp {
   }
   deleteCustomer(custId) {
     if (!this.authorize('customer.write', 'ลบลูกค้า')) return;
-    this.showConfirm('คุณต้องการลบรายชื่อลูกค้านี้ใช่หรือไม่? (ประวัติการสะสมยอดจะไม่ย้อนกลับ)', () => this.withMutation('การลบลูกค้า', async () => {
+    // ข้อ 33: บอกชื่อ เบอร์ และจำนวนครั้งที่มา ของลูกค้าที่กำลังจะลบ
+    const cust = (this.state.customers || []).find(c => c && c.id === custId);
+    const custMsg = cust
+      ? `ลบลูกค้า "${cust.name || '-'}" (${cust.phone || 'ไม่มีเบอร์'} · มาแล้ว ${Number(cust.visitCount) || 0} ครั้ง) ใช่หรือไม่?\n\n` +
+        'ลบแล้วกู้กลับไม่ได้ (บิลเก่ายังอยู่ · ประวัติการสะสมยอดจะไม่ย้อนกลับ)'
+      : 'คุณต้องการลบรายชื่อลูกค้านี้ใช่หรือไม่? (ประวัติการสะสมยอดจะไม่ย้อนกลับ)';
+    this.showConfirm(custMsg, () => this.withMutation('การลบลูกค้า', async () => {
       if (!this.authorize('customer.write', 'ลบลูกค้า')) return;
       const prevCustomers = this.state.customers;
       this.state.customers = this.state.customers.filter(c => c.id !== custId);
@@ -6330,8 +6785,12 @@ class PosApp {
     if (!this.authorize('settings.write', 'จัดการพนักงาน')) return;
     const nameInput = document.getElementById('staff-name');
     const roleSelect = document.getElementById('staff-role');
-    const accessSelect = document.getElementById('staff-access-level');
-    const pinInput = document.getElementById('staff-pin');
+    // ตรวจ 19 ต.ค. 2569 ข้อ 61: ช่องสิทธิ์/PIN อ่านผ่าน requireEl — หาช่องไม่เจอ = หยุดพร้อมป้ายแดง (ไม่เดาเป็นพนักงานไม่มี PIN)
+    let accessSelect, pinInput;
+    try {
+      accessSelect = this.requireEl('staff-access-level', 'ช่องระดับสิทธิ์พนักงาน');
+      pinInput = this.requireEl('staff-pin', 'ช่อง PIN พนักงาน');
+    } catch (e) { return; }   // uiContractFail แจ้งบนจอแล้ว
     const name = nameInput.value.trim();
 
     if (!name) {
@@ -6446,7 +6905,13 @@ class PosApp {
       this.showToast('ไม่สามารถลบพนักงานทั้งหมดได้ ต้องมีพนักงานอย่างน้อย 1 คนในระบบเพื่อให้บริการ', 'info');
       return;
     }
-    this.showConfirm('ยืนยันลบพนักงานคนนี้ออกจากระบบใช่หรือไม่?', () => this.withMutation('การลบพนักงาน', async () => {
+    // ข้อ 33: บอกชื่อและสิทธิ์ของพนักงานที่กำลังจะลบ — ลบผิดคน = PIN/สิทธิ์ของคนนั้นหายทันที
+    const st = (this.state.staff || []).find(x => x && x.id === staffId);
+    const stMsg = st
+      ? `ลบพนักงาน "${st.name || '-'}" (${st.role ? st.role + ' · ' : ''}สิทธิ์${this.roleLabel(st.accessLevel || 'staff')}) ออกจากระบบใช่หรือไม่?\n\n` +
+        'PIN และสิทธิ์ของคนนี้จะใช้ไม่ได้ทันที (บิลและค่าคอมที่ผ่านมายังอยู่)'
+      : 'ยืนยันลบพนักงานคนนี้ออกจากระบบใช่หรือไม่?';
+    this.showConfirm(stMsg, () => this.withMutation('การลบพนักงาน', async () => {
       if (!this.authorize('settings.write', 'ลบพนักงาน')) return;
       if (this.state.staff.length <= 1) {
         this.showToast('ต้องมีพนักงานอย่างน้อย 1 คนในระบบ', 'info'); return;
@@ -6464,14 +6929,15 @@ class PosApp {
   async addService() {
     if (!this.authorize('settings.write', 'จัดการบริการ')) return;
     const nameInput           = document.getElementById('serv-name');
-    const priceInput          = document.getElementById('serv-price');
-    const durationInput       = document.getElementById('serv-duration');
-    const catSelect           = document.getElementById('serv-category');
-    const commissionInput     = document.getElementById('serv-commission');
-    const commissionTypeSelect= document.getElementById('serv-commission-type');
     // ชนิด + ต้นทุน (สินค้า · 8–9 ต.ค. 2569) — หาช่องไม่เจอ = หยุด ไม่เดาว่าเป็นบริการ/ต้นทุนไม่ทราบ
-    let typeSelect, costInput;
+    // ตรวจ 19 ต.ค. 2569 ข้อ 61: ช่องตัวเลข (ราคา/เวลา/ค่าคอม) + หมวด (ตัดสิน VAT) อ่านผ่าน requireEl ด้วย
+    let typeSelect, costInput, priceInput, durationInput, catSelect, commissionInput, commissionTypeSelect;
     try {
+      priceInput           = this.requireEl('serv-price', 'ช่องราคาบริการ/สินค้า');
+      durationInput        = this.requireEl('serv-duration', 'ช่องระยะเวลาบริการ');
+      catSelect            = this.requireEl('serv-category', 'ช่องหมวดบริการ/สินค้า');
+      commissionInput      = this.requireEl('serv-commission', 'ช่องค่าคอมมิชชั่น');
+      commissionTypeSelect = this.requireEl('serv-commission-type', 'ช่องประเภทค่าคอม');
       typeSelect = this.requireEl('serv-type', 'ช่องชนิดบริการ/สินค้า');
       costInput  = this.requireEl('serv-cost', 'ช่องต้นทุนสินค้า');
     } catch (e) { return; }   // uiContractFail แจ้งบนจอแล้ว
@@ -6489,7 +6955,11 @@ class PosApp {
 
     if (!svcName) { this.showToast(isProduct ? 'กรุณากรอกชื่อสินค้า' : 'กรุณากรอกชื่อบริการ','warning'); nameInput.focus(); return; }
     if (price === null || price <= 0) { this.showToast('ราคาต้องเป็นจำนวนเต็มบาทมากกว่า 0 (ไม่มีทศนิยม)','warning'); priceInput.focus(); return; }
+    // ตรวจ 19 ต.ค. 2569 ข้อ 24: เพดาน — เดิมราคา 99,999,999 บันทึกได้ แล้วไปล้มตอนชำระเงินต่อหน้าลูกค้า
+    // (ตรวจเฉพาะค่าที่กำลังบันทึก — รายการเก่าที่ไม่ได้แก้ไม่ถูกบังคับ)
+    if (price > BILL_MAX_BAHT) { this.showToast(`ราคาต้องไม่เกิน ฿${BILL_MAX_BAHT.toLocaleString('th-TH')} — ตรวจว่าพิมพ์เลขศูนย์เกินหรือไม่`,'warning', 6000); priceInput.focus(); return; }
     if (dur === null)      { this.showToast('ระยะเวลาต้องเป็นจำนวนเต็มนาที ไม่ติดลบ (ไม่มีทศนิยม)','warning'); durationInput.focus(); return; }
+    if (dur > SERVICE_MAX_MINUTES) { this.showToast(`ระยะเวลาต้องไม่เกิน ${SERVICE_MAX_MINUTES.toLocaleString('th-TH')} นาที (1 วัน) — ตรวจว่าพิมพ์เลขเกินหรือไม่`,'warning', 6000); durationInput.focus(); return; }
     if (!kindKnown) kind = dur === 0 ? 'product' : 'service';
     const editingId = this.state.editingServiceId;
     // ชื่อซ้ำ (ไม่สนช่องว่าง/ตัวพิมพ์) ห้ามบันทึก — การ์ดหน้าขายซ้ำกัน และรายงานแยกรายการตามชื่อจะปนกัน
@@ -6521,6 +6991,7 @@ class PosApp {
       if (rawCost !== '') {
         cost = parseWholeNumberInput(rawCost);
         if (cost === null) { this.showToast('ต้นทุนต้องเป็นจำนวนเต็มบาท ไม่ติดลบ (เช่น 7.50 ให้ใส่ 8) — เว้นว่างได้ถ้ายังไม่ทราบ','warning', 6000); costInput.focus(); return; }
+        if (cost > BILL_MAX_BAHT) { this.showToast(`ต้นทุนต้องไม่เกิน ฿${BILL_MAX_BAHT.toLocaleString('th-TH')} — ตรวจว่าพิมพ์เลขศูนย์เกินหรือไม่`,'warning', 6000); costInput.focus(); return; }
       }
     }
     // ค่าคอมแบบ % ต้องอยู่ใน 0–100 — เกิน 100% = จ่ายคอมมากกว่ายอดขาย และบิลที่ขายไปจะแก้ส่วนลดย้อนหลังไม่ได้
@@ -7447,7 +7918,7 @@ class PosApp {
   //   บิลตั้งแต่มีระบบสินค้า: isProduct (true/false) + unitCost (ต้นทุน ณ ตอนขาย) จดไว้ในบรรทัด — เชื่อตามนั้น
   //   บิลก่อนนั้น (ไม่มีช่อง isProduct): เป็นสินค้าเมื่อชื่อตรงกับสินค้าในรายการปัจจุบัน "ที่เป็นสินค้าอยู่แล้วตอนขายบิลนั้น"
   //     (ข้อ 2 ตรวจ 11 ต.ค. 2569 · billDate = วันของบิล) — เดิมไม่ดูเวลา: ตั้งสินค้าชื่อตรงกับบริการเก่าที่เปลี่ยนชื่อ/ลบไปแล้ว
-  //     (ข้อมูลจริงมีบิล "Kasai" 49 ใบ) บิลบริการเก่าทั้งหมดกลายเป็นสินค้าในรายงาน · เปลี่ยนบริการเป็นสินค้า ประวัติก่อนหน้าก็กลายเป็นสินค้า
+  //     บิลบริการเก่าทั้งหมดกลายเป็นสินค้าในรายงาน · เปลี่ยนบริการเป็นสินค้า ประวัติก่อนหน้าก็กลายเป็นสินค้า
   //   ต้นทุน: จดตอนขาย ('sale') > ต้นทุนปัจจุบัน ('current' = ประมาณ ต้องติดป้าย) > ไม่ทราบ (null — ห้ามนับเป็น 0)
   productLineInfo(line, idx, billDate) {
     const out = { isProduct: false, service: null, unitCost: null, costSource: null };
@@ -8046,21 +8517,68 @@ class PosApp {
       `ต้องให้เจ้าของเลือกทางแก้ทีละใบ${owner ? '' : ' (เข้าสู่ระบบด้วยบัญชีเจ้าของเพื่อแก้)'}</p>${rows}` +
       (list.length > 50 ? `<p style="font-size:0.75rem;color:var(--text-muted);">แสดง 50 จาก ${list.length} ใบ</p>` : '');
   }
-  checkSyncStatus() {
-    const pendingTxs = this.state.transactions.filter(tx => this.isBillAwaitingSync(tx));
-    const conflictTxs = this.state.transactions.filter(tx => tx && tx.syncStatus === 'conflict');
-    // งานคลาวด์ที่ลองครบ 3 ครั้งแล้วยังไม่สำเร็จ = ไม่ใช่แค่ "เน็ตสะดุด" อีกต่อไป
-    const stuckJobs = (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [])
+  // ── ตรวจ 19 ต.ค. 2569 ข้อ 19: งานคลาวด์ที่ "ยังรอส่ง" (ไม่ใช่แค่งานที่ล้มครบ 3 ครั้ง) ─────────────────────
+  // นับต่อ "งาน" ที่ยังมีบริการค้างส่ง: ลบแถวบิลที่ยกเลิก · สรุปวัน/เดือน · Telegram · ไฟล์สำรอง
+  // ไม่นับ: บริการที่หยุดส่ง/หมดอายุ (ป้าย "งานคลาวด์ค้าง" + กล่องในหน้าตั้งค่าบอกอยู่แล้ว)
+  //        สรุป/สำรองระหว่างเครื่องนี้ถูกพัก (ไม่ใช่เครื่องหลัก/รับช่วงฉุกเฉินยังไม่ครบ — ป้าย "พัก" บอกอยู่แล้ว)
+  //        งานสำรองหลังแก้/ยกเลิกบิลที่ตั้งเวลารวมรอบไว้ (ยังไม่เคยล้ม และยังไม่ถึงเวลา = ไม่ใช่ของค้าง)
+  //        ลบแถว/สรุป/สำรองเมื่อยังตั้ง Google Sheets ไม่ครบ (ไม่มีปลายทาง)
+  // เดิมป้ายนับแค่บิลค้าง + งานที่ล้มครบ 3 ครั้ง → ยกเลิก/ปิดกะตอนออฟไลน์ แถวบิลยังอยู่บนชีต แต่ป้ายขึ้น "ตรงกัน"
+  pendingCloudJobCount(now) {
+    const t = Number(now) || Date.now();
+    const paused = this.isPrimaryBlocked() || this.isRecoveryIncomplete();
+    const sheets = this.hasCloudSyncConfig();
+    const FLAGS = { voidDelete: 'needVoidDelete', summary: 'needSummary', telegram: 'needTelegram', backup: 'needBackup' };
+    return (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : []).filter(it => {
+      if (!it || typeof it !== 'object') return false;
+      return Object.keys(FLAGS).some(svc => {
+        if (!it[FLAGS[svc]]) return false;
+        if (this.isCloudJobExpired(it, svc, t)) return false;
+        if ((svc === 'summary' || svc === 'backup') && paused) return false;
+        if (svc !== 'telegram' && !sheets) return false;
+        if (svc === 'backup' && it.reason === 'change') {
+          const r = it.retry && it.retry.backup;
+          if (r && !(r.tries > 0) && Number(r.nextAt) > t) return false;
+        }
+        return true;
+      });
+    }).length;
+  }
+  // งานคลาวด์ที่ลองครบ 3 ครั้งแล้วยังไม่สำเร็จ / ถูกหยุดส่ง = ไม่ใช่แค่ "เน็ตสะดุด" อีกต่อไป
+  stuckCloudJobCount() {
+    return (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [])
       .filter(it => it && ((it.tries || 0) >= 3 ||
         // ข้อ 14 ตรวจ 11 ต.ค. 2569: งานที่ชีตปฏิเสธถาวรแล้วถูกหยุดส่ง (เช่น INVALID_SUMMARY) ค้างอยู่ที่ 1 ครั้ง
         // เดิมไม่นับ → ป้ายขึ้น "ตรงกัน" ทั้งที่สรุปของงวดนั้นไม่ได้ขึ้นชีต
         (it.retry && Object.values(it.retry).some(r => r && ((r.tries || 0) >= 3 || r.stopped))))).length;
+  }
+  // สถานะเดียวที่ทั้งป้าย (checkSyncStatus) และข้อความตอนกดป้าย (syncPendingTransactions) ใช้ — ข้อ 19/20
+  cloudSyncSnapshot() {
+    const txs = Array.isArray(this.state.transactions) ? this.state.transactions : [];
+    return {
+      pendingTxs: txs.filter(tx => this.isBillAwaitingSync(tx)).length,
+      conflicts: txs.filter(tx => tx && tx.syncStatus === 'conflict').length,
+      stuckJobs: this.stuckCloudJobCount(),
+      pendingJobs: this.pendingCloudJobCount(),
+      offline: typeof navigator !== 'undefined' && navigator.onLine === false
+    };
+  }
+  checkSyncStatus() {
+    const pendingTxs = this.state.transactions.filter(tx => this.isBillAwaitingSync(tx));
+    const conflictTxs = this.state.transactions.filter(tx => tx && tx.syncStatus === 'conflict');
+    const stuckJobs = this.stuckCloudJobCount();
+    const pendingJobs = this.pendingCloudJobCount();
+    // ข้อ 19: iPad ออฟไลน์ (Safari บอกได้) — เดิมป้ายขึ้น "คลาวด์ออนไลน์ (ตรงกัน)" ทั้งที่มีงานรอส่ง
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     if (!this.googleSheetsUrl) {
       // ยังไม่ตั้งค่า URL — ไม่ใช่สถานะ "ค้างซิงก์" (ไม่มีปลายทางให้ส่ง) แสดงเป็นออฟไลน์พร้อมจำนวนบิลในเครื่องแทน
       // เดิมโชว์ "ค้างซิงก์ ⚠️" ถาวรสำหรับร้านที่ตั้งใจใช้ออฟไลน์ล้วน ทำให้เข้าใจผิดว่าระบบมีปัญหา
       this.updateSyncBadgeStatus('offline', pendingTxs.length);
     } else if (!this.isValidCloudApiToken(this.googleSheetsApiToken || '')) {
       this.updateSyncBadgeStatus('setup', pendingTxs.length);
+    } else if (offline && pendingTxs.length + pendingJobs > 0) {
+      // ออฟไลน์ + มีของรอส่ง (บิล + งาน) — บอกสาเหตุตรง ๆ ว่ารอเน็ต ไม่ใช่ระบบเสีย
+      this.updateSyncBadgeStatus('net-offline', pendingTxs.length + pendingJobs);
     } else if (pendingTxs.length > 0) {
       this.updateSyncBadgeStatus('warning', pendingTxs.length);
     } else if (this.isRecoveryIncomplete()) {
@@ -8078,6 +8596,11 @@ class PosApp {
       // เดิมเคสนี้ขึ้นว่า "ตรงกัน ✓" ทั้งที่แถวบิลที่สั่งลบยังค้างอยู่บนชีต
       // = ยอดบนชีตมากกว่าความจริงโดยไม่มีอะไรฟ้องเจ้าของเลย
       this.updateSyncBadgeStatus('stuck', stuckJobs);
+    } else if (offline) {
+      this.updateSyncBadgeStatus('net-offline', 0);
+    } else if (pendingJobs > 0) {
+      // ข้อ 19: งานในคิวที่ยังไม่ได้ส่ง (ลบแถวบิลที่ยกเลิก / สรุป / Telegram / สำรอง) — ยังไม่ "ตรงกัน"
+      this.updateSyncBadgeStatus('pending', pendingJobs);
     } else {
       this.updateSyncBadgeStatus('synced', 0);
     }
@@ -8253,6 +8776,13 @@ class PosApp {
       if (sentOn === (this._connectionGeneration || 0)) await this.notePrimaryStatus(false, d.primary, sentContext);
       throw Object.assign(new Error(msg || 'เครื่องนี้ไม่ใช่เครื่องหลัก'), { serverLevel: true, code });
     }
+    // ── ตรวจ 19 ต.ค. 2569 ข้อ 68: ทะเบียนยกเลิกบนชีตเสีย "เฉพาะบิลนี้" — ส่งซ้ำก็ได้คำตอบเดิม (ชีตบอกเองว่าส่งซ้ำไม่หาย)
+    // เดิมตกไปเป็น "ลองใหม่รอบหน้า" ตลอดไป (ป้ายค้างซิงก์ไม่มีวันหาย) → เป็นบิลรอตรวจ ให้เจ้าของแก้ในชีตแล้วกด "ส่งใหม่"
+    // (ทั้งทะเบียนเสีย = ระดับทั้งระบบ หยุดรอบเหมือนเดิม — cloudErrorLevel)
+    if (code === 'REGISTRY_CORRUPT' && d.scope === 'bill') {
+      return { status: 'conflict', issue: { kind: 'conflict', code,
+        message: (msg || 'ทะเบียนบิลที่ยกเลิกบนชีตของบิลนี้เสีย') + ' · แก้แถวของบิลนี้ในชีตแล้วกด "ส่งใหม่"' } };
+    }
     // ── error ระดับทั้งระบบ (รอบตรวจ 5 ข้อ 2) — ไม่ใช่ความผิดของบิลใบนี้ ส่งใบถัดไปก็ได้คำตอบเดิม ──
     // ตั้งค่าผิด (รหัสเชื่อมต่อไม่ตรง/ยังไม่ตั้ง) = หยุดทั้งรอบทันที · ชั่วคราว = นับเหมือนเน็ตสะดุด
     // ⚠️ เดิมทุกอย่างตกไปเป็น "บิลใบนั้นล้ม" → รอบส่งไล่ยิงครบทุกใบ แล้วตั้งปลุกซ้ำทุกนาที
@@ -8284,6 +8814,11 @@ class PosApp {
     this._cloudChain = Promise.resolve(this._cloudChain)
       .catch(() => {})                       // งานก่อนหน้าล้มต้องไม่ทำให้คิวตันถาวร
       .then(() => fn());
+    // ตรวจ 19 ต.ค. 2569 ข้อ 19: คิวว่างแล้ว → ป้ายสถานะคลาวด์ต้องตามผลจริง
+    // เดิมป้ายขยับเฉพาะตอนรอบส่งบิล — งานในคิว (ลบแถว/สรุป/Telegram/สำรอง) ส่งเสร็จหรือล้มแล้วป้ายไม่เปลี่ยน
+    const mine = this._cloudChain;
+    const refresh = () => { if (this._cloudChain === mine) { try { this.checkSyncStatus(); } catch (e) { /* หน้าจอไม่พร้อม */ } } };
+    mine.then(refresh, refresh);
     return this._cloudChain;
   }
 
@@ -8330,6 +8865,50 @@ class PosApp {
     return this.runCloudTask(() => this._doSyncPendingTransactions(isSilent));
   }
 
+  // ── ตรวจ 19 ต.ค. 2569 ข้อ 20: กดป้ายคลาวด์ตอน "ไม่มีบิลค้าง" ─────────────────────────────────────
+  // เดิมขึ้น "ข้อมูลธุรกรรมทั้งหมดตรงกันกับ Google Sheets แล้ว" เสมอ ทั้งที่ป้ายบอก "งานคลาวด์ค้าง"/"บิลรอตรวจ" และไม่ส่งงานในคิว
+  // ตอนนี้: ข้อความเลือกจากสถานะเดียวกับป้าย (cloudSyncSnapshot) · มีงานในคิวที่ส่งได้ → ส่งทันที (flushCloudOutbox)
+  // งานที่ล้มแล้วรอเว้นระยะ = ให้ลองตอนนี้เลย (คนกดเอง) · งานที่หยุดส่ง/หมดอายุ ห้ามแตะ — เจ้าของตัดสินในหน้าตั้งค่า
+  // เรียกจากในคิวงานคลาวด์ (runCloudTask) — การส่งงานในคิวจึงต่อคิวหลังงานนี้ ห้าม await (จะรอตัวเอง)
+  tapSyncBadgeNoBills() {
+    const snap = this.cloudSyncSnapshot();
+    const now = Date.now();
+    const FLAGS = { voidDelete: 'needVoidDelete', summary: 'needSummary', telegram: 'needTelegram', backup: 'needBackup' };
+    let nudged = 0;
+    if (!snap.offline) {
+      (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : []).forEach(it => {
+        if (!it || !it.retry || typeof it.retry !== 'object') return;
+        Object.keys(FLAGS).forEach(svc => {
+          const r = it.retry[svc];
+          if (!it[FLAGS[svc]] || !r || r.stopped || this.isCloudJobExpired(it, svc, now)) return;
+          if (r.tries > 0 && Number(r.nextAt) > now) { r.nextAt = now; nudged++; }
+        });
+      });
+    }
+    const retryable = snap.pendingJobs > 0 || nudged > 0;
+    if (retryable && !snap.offline) {
+      Promise.resolve(this.flushCloudOutbox()).catch(err => console.error('flushCloudOutbox failed', err));
+    }
+    const expired = this.expiredCloudJobs().length;
+    const je = this.latestCloudJobError();
+    const why = je ? ` · สาเหตุล่าสุด (${je.label}): ${je.message}` : '';
+    if (snap.offline) {
+      this.showToast(snap.pendingJobs > 0
+        ? `iPad ออฟไลน์อยู่ — มีงานรอส่งขึ้นคลาวด์ ${snap.pendingJobs} รายการ ระบบจะส่งเองเมื่อเน็ตกลับมา`
+        : 'iPad ออฟไลน์อยู่ — ไม่มีงานค้าง ขายต่อได้ตามปกติ', 'warning', 8000);
+    } else if (snap.conflicts > 0) {
+      this.showToast(`มีบิลรอตรวจ ${snap.conflicts} ใบ — ระบบไม่ส่งซ้ำเอง ให้เจ้าของไปที่ ตั้งค่า → บิลรอตรวจ แล้วเลือกทางแก้ทีละใบ`, 'warning', 10000);
+    } else if (snap.stuckJobs > 0 && retryable) {
+      this.showToast(`กำลังลองส่งงานคลาวด์ที่ค้างใหม่ (${snap.stuckJobs} รายการ)${why}`, 'warning', 10000);
+    } else if (expired > 0 || snap.stuckJobs > 0) {
+      this.showToast(`มีงานคลาวด์ที่หยุดส่งแล้ว ${Math.max(expired, snap.stuckJobs)} งาน — ให้เจ้าของไปที่ ตั้งค่า แล้วกด "ลองใหม่" หรือ "ทิ้งงานนี้"${why}`, 'warning', 10000);
+    } else if (retryable) {
+      this.showToast(`กำลังส่งงานที่รอขึ้นคลาวด์ (${snap.pendingJobs || nudged} รายการ)`, 'info', 5000);
+    } else {
+      this.showToast('ข้อมูลธุรกรรมทั้งหมดตรงกันกับ Google Sheets แล้ว (ไม่มีบิลค้างซิงก์)', 'info');
+    }
+  }
+
   async _doSyncPendingTransactions(isSilent = false) {
     if (!this.canWriteData()) return;   // ดูเหตุผลที่ canWriteData()
     if (this.isSyncing) return; // Prevent duplicate syncs
@@ -8352,7 +8931,7 @@ class PosApp {
           } else if (this.hasCloudSyncConfig() && this.isPrimaryBlocked()) {
             this.showToast('บิลขึ้นชีตครบแล้ว แต่' + this.primaryPausedMessage(), 'warning', 12000);
           } else {
-            this.showToast('ข้อมูลธุรกรรมทั้งหมดตรงกันกับ Google Sheets แล้ว (ไม่มีบิลค้างซิงก์)', 'info');
+            this.tapSyncBadgeNoBills();
           }
         }
         return;
@@ -8565,6 +9144,16 @@ class PosApp {
       textStr = `งานคลาวด์ค้าง ${count} รายการ ⚠️`;
       iconClass = 'fa-cloud-arrow-up';
       statusClass = 'sync-warning';
+    } else if (status === 'pending') {
+      // ข้อ 19: งานในคิวรอส่ง (ปกติหายเองในไม่กี่วินาทีเมื่อออนไลน์)
+      textStr = `รอส่งขึ้นคลาวด์ ${count} งาน`;
+      iconClass = 'fa-cloud-arrow-up';
+      statusClass = 'syncing';
+    } else if (status === 'net-offline') {
+      // ข้อ 19: iPad ออฟไลน์ (ตั้ง Google Sheets ไว้แล้ว) — คนละเรื่องกับ 'offline' (ยังไม่ได้ตั้ง URL)
+      textStr = count > 0 ? `ออฟไลน์ — รอส่ง ${count}` : 'ออฟไลน์ (ไม่มีงานค้าง)';
+      iconClass = 'fa-cloud';
+      statusClass = count > 0 ? 'sync-warning' : '';
     } else if (status === 'paused') {
       textStr = this.isRecoveryIncomplete() ? 'รับช่วงฉุกเฉิน: พักสำรอง ⚠️' : 'ไม่ได้สำรอง: ไม่ใช่เครื่องหลัก ⚠️';
       iconClass = 'fa-circle-pause';
@@ -8612,6 +9201,17 @@ class PosApp {
           `บิลในเครื่องขึ้นชีตครบแล้ว แต่ชีตอาจยังไม่ตรง ใช้ปุ่ม "ตรวจความตรงกันกับชีต" ดูได้` +
           (je ? `\nสาเหตุล่าสุด (${je.label}): ${je.message}` : '');
         settingsDetailsEl.style.color = 'var(--accent-premium)';
+      } else if (status === 'pending') {
+        const je = this.latestCloudJobError();
+        settingsDetailsEl.innerText =
+          `มีงานรอส่งขึ้นคลาวด์ ${count} งาน (ลบแถวบิลที่ยกเลิก / สรุปบนชีต / Telegram / ไฟล์สำรอง) — ระบบส่งเองเมื่อเน็ตพร้อม` +
+          (je ? `\nสาเหตุล่าสุด (${je.label}): ${je.message}` : '');
+        settingsDetailsEl.style.color = 'var(--accent-premium)';
+      } else if (status === 'net-offline') {
+        settingsDetailsEl.innerText = count > 0
+          ? `iPad ออฟไลน์อยู่ — มีบิล/งานรอส่งขึ้นคลาวด์ ${count} รายการ ระบบจะส่งเองเมื่อเน็ตกลับมา (ข้อมูลอยู่ในเครื่องครบ)`
+          : 'iPad ออฟไลน์อยู่ — ไม่มีงานค้าง ขายต่อได้ตามปกติ';
+        settingsDetailsEl.style.color = count > 0 ? 'var(--accent-premium)' : 'var(--text-secondary)';
       } else if (count > 0) {
         // รอบตรวจ 5 ข้อ 2: บอกสาเหตุที่ส่งไม่ผ่านล่าสุด — ไม่ต้องรอกดซิงก์เองถึงจะรู้
         const se = this._lastSyncError;
@@ -8644,6 +9244,10 @@ class PosApp {
     // รีเซ็ตค่าฟอร์มกลับเป็น 0
     const form = document.getElementById('form-cash-counter');
     if (form) form.reset();
+    // ข้อ 23: ล้างช่องแดงของรอบก่อน (reset คืนค่าในช่อง แต่ไม่ล้างคลาส)
+    this._cashQtyBadSig = '';
+    { const qs = (form && form.querySelectorAll) ? Array.from(form.querySelectorAll('.cash-qty-input') || []) : [];
+      qs.forEach(i => this.markCashQtyInput(i, false)); }
     // ผู้ตรวจอิสระ 13 ต.ค. 2569: เลื่อนรายการธนบัตรกลับไปบนสุด — กด Enter ไล่ช่องจนสุดแล้ว รอบถัดไปเปิดมาที่ "1 บาท" แถวแบงก์ใหญ่ถูกซ่อน
     { const grid = form && form.querySelector ? form.querySelector('.cash-denomination-grid') : null; if (grid) grid.scrollTop = 0; }
     
@@ -8757,16 +9361,42 @@ class PosApp {
   // ── อ่านจำนวนใบ/เหรียญจากช่องกรอกแบบปลอดภัย ────────────────────────────
   // `min="0"` ใน HTML กันแค่ปุ่มลูกศร — พิมพ์ "-5" เองได้ ยอดรวมจะติดลบ
   // แล้วเงินขาด/เกินตอนปิดกะเพี้ยนทั้งกะโดยไม่มีอะไรเตือน
-  // clamp ตรงนี้ที่เดียวไม่พอ ต้องเรียกจากทั้งตอนคำนวณโชว์และตอนกดยืนยัน (ใช้ตัวเดียวกัน)
-  // ถ้าค่าที่กรอกอยู่นอกช่วง จะเขียนค่าที่ clamp แล้วกลับลงช่องให้เห็นทันที ไม่แก้เงียบ ๆ
+  // ต้องเรียกจากทั้งตอนคำนวณโชว์และตอนกดยืนยัน (ใช้ตัวเดียวกัน)
+  // ⚠️ ตรวจ 19 ต.ค. 2569 ข้อ 23: เดิม "แก้ค่าที่พิมพ์ให้เอง" เงียบ ๆ ("1.5"→1 · "-3"→0 · "150000"→99,999 · "2e3"→2)
+  // ยอดที่นับได้จึงไม่ตรงกับเงินในลิ้นชักโดยไม่มีใครรู้ · ตอนนี้ต้องเป็นจำนวนเต็ม 0–99,999 (ว่าง = 0) เท่านั้น
+  // ค่าที่ไม่ผ่าน = ไม่นับ (คืน 0) + ช่องแดง · ห้ามเขียนทับสิ่งที่พิมพ์ · ตัวบันทึกจริง (confirmCashCount) ไม่ยอมยืนยัน
+  cashQtyValue(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    if (s === '') return 0;
+    if (!isWholeNumberText(s)) return null;
+    const n = Number(s);
+    return (Number.isSafeInteger(n) && n <= 99999) ? n : null;   // เพดานเดิมของช่อง (max="99999")
+  }
   readCashQty(input) {
-    const raw = parseInt(input.value, 10);
-    if (!Number.isFinite(raw)) return 0;                       // ช่องว่าง/พิมพ์ค้าง
-    const qty = Math.max(0, Math.min(99999, Math.floor(raw))); // ไม่ติดลบ ไม่เกินจริง ไม่มีเศษ
-    // เทียบเป็นข้อความ ไม่ใช่ตัวเลข — พิมพ์ "3.9" แล้ว parseInt ได้ 3 เท่ากับ qty พอดี
-    // เงื่อนไขแบบเทียบตัวเลขจึงไม่แก้ช่องให้ ผู้ใช้เห็น 3.9 ค้างอยู่ทั้งที่ระบบนับ 3
-    if (String(qty) !== String(input.value).trim()) input.value = String(qty);
-    return qty;
+    const qty = this.cashQtyValue(input ? input.value : '');
+    this.markCashQtyInput(input, qty === null);
+    return qty === null ? 0 : qty;
+  }
+  markCashQtyInput(input, bad) {
+    if (!input) return;
+    try {
+      if (input.classList) { if (bad) input.classList.add('input-invalid'); else input.classList.remove('input-invalid'); }
+      if (typeof input.setAttribute === 'function') {
+        if (bad) input.setAttribute('aria-invalid', 'true');
+        else if (typeof input.removeAttribute === 'function') input.removeAttribute('aria-invalid');
+      }
+    } catch (e) { /* หน้าจอไม่พร้อม — ไม่กระทบการนับ */ }
+  }
+  // ช่องนับธนบัตรที่ค่าใช้ไม่ได้ (ไม่ใช่จำนวนเต็ม 0–99,999) — มี = ห้ามยืนยันเปิด/ปิดกะ
+  invalidCashQtyInputs() {
+    const inputs = (typeof document !== 'undefined' && document.querySelectorAll)
+      ? Array.from(document.querySelectorAll('#form-cash-counter .cash-qty-input') || []) : [];
+    return inputs.filter(i => this.cashQtyValue(i && i.value) === null);
+  }
+  cashQtyInvalidMessage(bad) {
+    const denoms = (bad || []).map(i => (i && typeof i.getAttribute === 'function') ? i.getAttribute('data-denom') : null).filter(Boolean);
+    return 'จำนวนธนบัตร/เหรียญต้องเป็นจำนวนเต็ม 0–99,999' +
+      (denoms.length ? ` (ช่อง ${denoms.map(d => d + ' บาท').join(', ')})` : '') + ' — แก้ช่องสีแดงก่อน (ช่องนั้นยังไม่นับในยอด)';
   }
 
   // ── ตรวจ 13 ต.ค. 2569 ข้อ 1: กด return/Enter ในช่องนับธนบัตร = ไปช่องถัดไป ไม่ใช่ยืนยันยอด ──
@@ -8792,6 +9422,13 @@ class PosApp {
     // หาช่องนับไม่เจอ / ชนิดธนบัตรหาย = โยนออกไปพร้อมป้ายเตือน ไม่เดาว่านับได้ 0
     const drawer = this.readCashDrawer();
     const total = drawer.total;
+    // ข้อ 23 (ตรวจ 19 ต.ค. 2569): ช่องที่พิมพ์ผิด (ทศนิยม/ติดลบ/เกิน 99,999) เป็นสีแดงแล้ว — บอกครั้งเดียวต่อชุดช่องที่ผิด ไม่ท่วมจอทุกตัวอักษร
+    {
+      const bad = this.invalidCashQtyInputs();
+      const sig = bad.map(i => (i && typeof i.getAttribute === 'function' && i.getAttribute('data-denom')) || '?').join(',');
+      if (bad.length && sig !== this._cashQtyBadSig) this.showToast(this.cashQtyInvalidMessage(bad), 'warning', 6000);
+      this._cashQtyBadSig = sig;
+    }
 
     Object.keys(drawer.details).forEach(denom => {
       const label = document.getElementById(`denom-total-${denom}`);
@@ -8824,20 +9461,20 @@ class PosApp {
       if (diffAmountEl && diffBoxEl) {
         diffBoxEl.style.background = '';
         diffBoxEl.style.color = '';
+        // ตรวจ 19 ต.ค. 2569 ข้อ 43: สีของกล่องผลต่างมาจากคลาส (style_v2.css · แยกธีมมืด/สว่าง) — เดิมเขียนสีตายตัว
+        // ธีมสว่างอ่านแทบไม่ออก · ธีมมืดแดงบนพื้นแดง 4.16:1
+        const tone = diff > 0 ? 'diff-over' : diff < 0 ? 'diff-short' : 'diff-even';
+        if (diffBoxEl.classList) ['diff-over', 'diff-short', 'diff-even'].forEach(c => {
+          if (c === tone) diffBoxEl.classList.add(c); else diffBoxEl.classList.remove(c);
+        });
         
         let diffText = '';
         if (diff > 0) {
           diffText = `+฿${diff.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (เงินเกิน)`;
-          diffBoxEl.style.background = 'rgba(234, 179, 8, 0.2)'; // สีเหลืองส้ม
-          diffBoxEl.style.color = 'var(--accent-massage)';
         } else if (diff < 0) {
           diffText = `฿${diff.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (เงินขาด)`;
-          diffBoxEl.style.background = 'rgba(244, 63, 94, 0.2)'; // สีแดง
-          diffBoxEl.style.color = 'var(--accent-premium)';
         } else {
           diffText = '฿0.00 (ตรงพอดี)';
-          diffBoxEl.style.background = 'rgba(34, 197, 94, 0.2)'; // สีเขียว
-          diffBoxEl.style.color = 'var(--color-success)';
         }
         diffAmountEl.innerText = diffText;
       }
@@ -8925,6 +9562,28 @@ class PosApp {
     };
   }
 
+  // ── ตรวจ 19 ต.ค. 2569 ข้อ 60: บิลค้างบันทึกส่วนต่างที่ "ใหม่ตั้งแต่ปิดกะก่อน" (ใช้ตอนเขียนแถวประวัติกะ) ─────────────
+  // ใหม่ = ไม่เคยอยู่ในรายการของแถวประวัติกะไหนมาก่อน หรือบิลถูกแก้ (ประวัติการแก้) หลังปิดกะครั้งก่อน
+  // แถวประวัติรุ่นเก่า (ก่อนแก้ข้อนี้) มีรายการทั้งร้านอยู่แล้ว = นับเป็น "เคยรายงานแล้ว" ด้วย
+  unsettledNewSinceLastClose(list, history) {
+    const hist = Array.isArray(history) ? history : [];
+    const known = new Set();
+    let lastEnd = 0;
+    hist.forEach(h => {
+      if (!h || typeof h !== 'object') return;
+      const e = Number(h.endTime) || 0;
+      if (e > lastEnd) lastEnd = e;
+      (Array.isArray(h.unsettledAdjustments) ? h.unsettledAdjustments : []).forEach(u => { if (u && u.billId != null) known.add(String(u.billId)); });
+    });
+    const editedSince = new Set();
+    (Array.isArray(this.state.editLog) ? this.state.editLog : []).forEach(r => {
+      if (!r || r.billId == null) return;
+      const at = Number(r.at !== undefined ? r.at : r.date) || 0;
+      if (at > lastEnd) editedSince.add(String(r.billId));
+    });
+    return (Array.isArray(list) ? list : []).filter(u => u && (!known.has(String(u.billId)) || editedSince.has(String(u.billId))));
+  }
+
   // ผลต่างตอนปิดกะ = นับได้ − ควรมี − ส่วนที่ค่าใช้จ่ายเกินเงินในลิ้นชัก (ตัวเดียวใช้ทั้งหน้าจอและตอนบันทึก)
   drawerDifference(calc, counted) {
     const sat = v => Math.round((Number(v) || 0) * 100);
@@ -9002,6 +9661,15 @@ class PosApp {
       // clamp ชุดเดียวกับตอนแสดงผล — ยอดที่เห็นกับที่บันทึกตรงกันเสมอ
       // ⚠️ หาช่องนับไม่เจอ = โยนให้ catch ข้างล่างแจ้งเตือน ห้ามบันทึกกะด้วยยอด 0 เด็ดขาด
       const drawer = this.readCashDrawer();
+      // ข้อ 23 (ตรวจ 19 ต.ค. 2569): มีช่องนับที่ค่าใช้ไม่ได้ = ไม่เปิด/ปิดกะ (เดิมระบบแก้ค่าให้เองเงียบ ๆ แล้วบันทึก)
+      const badQty = this.invalidCashQtyInputs();
+      if (badQty.length) {
+        this.showToast(this.cashQtyInvalidMessage(badQty), 'warning', 8000);
+        const first = badQty[0];
+        if (first && typeof first.focus === 'function') { try { first.focus(); } catch (e) {} }
+        if (btnConfirm) btnConfirm.disabled = false;
+        return;
+      }
       const total = drawer.total;
       const details = drawer.details;
       const mode = this.cashCounterMode;
@@ -9136,6 +9804,9 @@ class PosApp {
             difference: diff,
             closedBy: this.currentUser ? this.currentUser.name : ''
           };
+          // ตรวจ 19 ต.ค. 2569 ข้อ 59: คนที่นับเงินตั้งต้นตอนเปิดกะ — เดิมลบทิ้งตอนปิดกะ ไม่เคยลงประวัติ
+          // (กะที่ขาดทั้งกะมักมาจากนับตั้งต้นผิด) · เก็บในประวัติกะในเครื่องเท่านั้น ไม่ส่งขึ้นชีต (buildShiftCashSummary เลือกช่องเอง)
+          if (typeof this.state.shift.openedBy === 'string' && this.state.shift.openedBy) shiftLog.openedBy = this.state.shift.openedBy;
           // หมายเหตุปิดกะ — ไม่มี = ไม่มีช่องนี้ (กะหน้าตาเหมือนรุ่นก่อน)
           if (closeNoteRead.value) shiftLog.closeNote = closeNoteRead.value;
           if (drawerCalc.otherExpensesTotal > 0) shiftLog.otherExpensesTotal = drawerCalc.otherExpensesTotal;
@@ -9148,7 +9819,10 @@ class PosApp {
           }
           if (drawerCalc.unsettledAdjustments.length) {
             shiftLog.unsettledCount = drawerCalc.unsettledAdjustments.length;
-            shiftLog.unsettledAdjustments = drawerCalc.unsettledAdjustments.slice(0, 50);
+            // ตรวจ 19 ต.ค. 2569 ข้อ 60: เก็บรายการเฉพาะบิลที่ "เพิ่งค้างตั้งแต่ปิดกะก่อน" — เดิมคัดลอกรายการค้างทั้งร้าน (≤50)
+            // ลงทุกแถวประวัติกะซ้ำทุกคืน (ไฟล์สำรองโตขึ้นเรื่อย ๆ) · จำนวนทั้งหมดยังอยู่ที่ unsettledCount
+            const fresh = this.unsettledNewSinceLastClose(drawerCalc.unsettledAdjustments, this.state.shift.history);
+            if (fresh.length) shiftLog.unsettledAdjustments = fresh.slice(0, 50);
           }
           if (drawerCalc.invalidBills.length) shiftLog.invalidBills = drawerCalc.invalidBills.slice(0, 50);
           if (drawerCalc.invalidAdjustments) shiftLog.invalidAdjustments = drawerCalc.invalidAdjustments;
@@ -9289,8 +9963,14 @@ class PosApp {
     
     // อ่านค่าจากหน้าจอ "ตอนกด" — งานบันทึกอาจต้องรอคิว ห้ามไปอ่านช่องกรอกทีหลัง
     // (ระหว่างรอ ผู้ใช้อาจพิมพ์รายการถัดไปแล้ว จะได้ยอดของอีกรายการมาบันทึกแทน)
-    const type = document.getElementById('expense-type').value;
-    const amountInput = document.getElementById('expense-amount');
+    // ตรวจ 19 ต.ค. 2569 ข้อ 61: ช่องที่กลายเป็นตัวเลขเงินอ่านผ่าน requireEl — หาไม่เจอ = ฟ้องดัง ๆ แล้วหยุด (ไม่ใช่พังเงียบ)
+    let type, amountInput;
+    try {
+      type = this.requireEl('expense-type', 'ช่องประเภทค่าใช้จ่าย').value;
+      amountInput = this.requireEl('expense-amount', 'ช่องจำนวนเงินค่าใช้จ่าย');
+    } catch (err) {
+      return;   // ฟ้องไปแล้ว (uiContractFail) — ไม่บันทึกค่าใช้จ่ายจากช่องที่หาไม่เจอ
+    }
     // ตรวจ 18 ต.ค. 2569 (F03): ค่าทุกช่องตอนกด (ประเภท/ยอด/จ่ายจาก/พนักงาน/รายละเอียด) — ใช้ตัดสินตอนล้างฟอร์มท้ายฟังก์ชัน
     const formAtClick = this.expenseFormSignature();
     // กติกาตัวเลข: ค่าใช้จ่ายเป็นจำนวนเต็มบาทเท่านั้น
@@ -9522,10 +10202,27 @@ class PosApp {
           const granted = await navigator.storage.persist();
           console.log('[Storage] persistent storage =', granted);
         }
+        // ตรวจ 19 ต.ค. 2569 ข้อ 65: ผลจริงหลังขอ (ถามซ้ำ — บางเบราว์เซอร์ตอบ persist() ไม่ตรงกับสถานะจริง)
+        this._storagePersisted = navigator.storage.persisted ? !!(await navigator.storage.persisted()) : null;
       }
     } catch (e) {
       console.warn('[Storage] persist check failed', e);
     }
+    try { this.renderStorageStatus(); } catch (e) { /* หน้าจอไม่พร้อม */ }
+  }
+
+  // ── ข้อ 65: สถานะ "ที่เก็บข้อมูลถาวร" ในหน้าตั้งค่า (หน้าของเจ้าของ) ─────────────────────────
+  // เดิมขอไม่สำเร็จก็บอกแค่ในคอนโซล — iPad ลบข้อมูลแอปได้เองตอนพื้นที่เต็ม เจ้าของต้องรู้ว่าต้องพึ่งไฟล์สำรองบน Drive
+  renderStorageStatus() {
+    const el = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('storage-persist-status') : null;
+    if (!el) return;
+    const v = this._storagePersisted;
+    // หน้าตั้งค่าเปิดได้เฉพาะเจ้าของอยู่แล้ว (switchTab) — ไม่รู้ผล (เบราว์เซอร์ไม่รองรับ) = ไม่แสดง
+    if (v !== true && v !== false) { el.style.display = 'none'; el.innerText = ''; return; }
+    el.style.display = '';
+    el.innerText = v ? 'ที่เก็บข้อมูลถาวร: เปิดแล้ว (iPad จะไม่ลบข้อมูลแอปเอง)'
+      : '⚠️ iPad อาจลบข้อมูลแอปเมื่อพื้นที่เต็ม — สำรองขึ้น Drive ให้สม่ำเสมอ';
+    el.style.color = v ? 'var(--text-secondary)' : 'var(--accent-premium)';
   }
 
   // แสดงเวอร์ชันแอปในหน้าตั้งค่า (ถ้ามี element รองรับ)
@@ -9597,9 +10294,14 @@ class PosApp {
     // ธีมเป็นค่าของเครื่อง ไม่ใช่ข้อมูลร้าน — เขียนเฉพาะคีย์นี้ ผ่านคิวงานบันทึก
     // (เดิมเรียก saveState() เปล่า ๆ แบบไม่รอ = เขียนข้อมูลทั้งร้านแทรกกลางงานอื่นที่กำลังบันทึกอยู่)
     const theme = this.theme;
-    this.withMutation('ธีม', () => this.saveKeys([{ key: 'theme', value: theme }]))
-      .catch(err => console.warn('save theme failed', err));
-    this.showToast(this.theme === 'light' ? 'เปลี่ยนเป็นโหมดสว่างแล้ว' : 'เปลี่ยนเป็นโหมดมืดแล้ว', 'info');
+    // ตรวจ 19 ต.ค. 2569 ข้อ 55: บอก "เปลี่ยนแล้ว" เฉพาะเมื่อบันทึกลงเครื่องสำเร็จ (เดิมขึ้นทุกครั้ง แม้บันทึกถูกปฏิเสธ
+    // เช่นหน้าต่างอ่านอย่างเดียว/กำลังสำรองข้อมูล — เปิดแอปใหม่ธีมกลับเป็นแบบเดิม)
+    return this.withMutation('ธีม', () => this.saveKeys([{ key: 'theme', value: theme }]))
+      .then(saved => {
+        if (saved === true) this.showToast(theme === 'light' ? 'เปลี่ยนเป็นโหมดสว่างแล้ว' : 'เปลี่ยนเป็นโหมดมืดแล้ว', 'info');
+        return saved === true;
+      })
+      .catch(err => { console.warn('save theme failed', err); return false; });
   }
   // นำธีมที่เลือกไปใช้กับทั้งหน้า + อัปเดตปุ่ม
   applyTheme() {
@@ -9609,11 +10311,9 @@ class PosApp {
     }
     const iconClass = (t === 'light') ? 'fa-sun' : 'fa-moon';
     const text = (t === 'light') ? 'โหมดสว่าง' : 'โหมดมืด';
-    // ปุ่มที่มีข้อความ (ใต้โลโก้ + ปุ่มอื่นถ้ามี)
-    ['btn-theme-toggle', 'btn-theme-toggle-side'].forEach(id => {
-      const b = document.getElementById(id);
-      if (b) b.innerHTML = `<i class="fa-solid ${iconClass}"></i> ${text}`;
-    });
+    // ปุ่มที่มีข้อความ (แถบข้าง) — ข้อ 67 (ตรวจ 19 ต.ค. 2569): ตัด #btn-theme-toggle ที่ไม่มีอยู่ในหน้าแล้วออก
+    { const b = document.getElementById('btn-theme-toggle-side');
+      if (b) b.innerHTML = `<i class="fa-solid ${iconClass}"></i> ${text}`; }
     // ปุ่มไอคอนอย่างเดียว (มือถือ/ไอแพด)
     const mb = document.getElementById('btn-theme-toggle-mobile');
     if (mb) mb.innerHTML = `<i class="fa-solid ${iconClass}"></i>`;
@@ -9626,6 +10326,13 @@ class PosApp {
     if (!file) return;
     if (!file.type || !file.type.startsWith('image/')) {
       this.showToast('กรุณาเลือกไฟล์รูปภาพ (PNG/JPG)', 'warning');
+      return;
+    }
+    // ตรวจ 19 ต.ค. 2569 ข้อ 64: ไฟล์ใหญ่เกิน = ไม่อ่านทั้งไฟล์เข้าหน่วยความจำ (iPad อาจค้าง/แอปเด้งออก)
+    // รูปจากกล้อง iPad ปกติไม่ถึง 15 MB — โลโก้ถูกย่อเหลือ 256px อยู่แล้ว
+    if (Number(file.size) > 15 * 1024 * 1024) {
+      this.showToast('ไฟล์รูปใหญ่เกิน 15 MB — เลือกรูปที่เล็กกว่านี้ (หรือถ่ายหน้าจอรูปโลโก้แล้วใช้รูปนั้น)', 'warning', 7000);
+      try { if (event.target) event.target.value = ''; } catch (e) {}
       return;
     }
     const reader = new FileReader();
@@ -9694,7 +10401,16 @@ class PosApp {
 
   canApplyAppUpdate() {
     return !this._mutationPending && !this._mutationActive && !this._checkoutBusy && !this._maintenance &&
-      !(this.state.cart && this.state.cart.length) && !(this.state.selectedQueueIds && this.state.selectedQueueIds.length);
+      !(this.state.cart && this.state.cart.length) && !(this.state.selectedQueueIds && this.state.selectedQueueIds.length) &&
+      !this.hasOpenWorkModal();
+  }
+  // ตรวจ 19 ต.ค. 2569 ข้อ 22: มีหน้าต่างงานเปิดอยู่ (นับเงินปิดกะ · แก้บิล · พิมพ์เหตุผลยกเลิก ฯลฯ) — รีโหลดตอนนี้ = ตัวเลขที่พิมพ์ไว้หาย
+  // แถบ "อัปเดตเลย" ลอยอยู่เหนือหน้าต่าง (z-index 10000) จึงกดโดนได้ · หน้าต่างล็อกอินไม่นับ (ยังไม่ได้พิมพ์งานอะไร อัปเดตตอนนี้ปลอดภัยที่สุด)
+  hasOpenWorkModal() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return false;
+    try {
+      return Array.from(document.querySelectorAll('.modal-overlay.active') || []).some(m => m && m.id !== 'modal-login');
+    } catch (e) { return false; }
   }
 
   registerServiceWorker() {
@@ -9705,11 +10421,12 @@ class PosApp {
       let refreshing = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (refreshing) return;
+        // ตรวจ 19 ต.ค. 2569 ข้อ 63: ครั้งแรกหลังติดตั้ง (ยังไม่มีตัวเดิม) SW ตัวแรกเข้าควบคุมเอง = ไม่ต้องรีโหลด
+        // แต่ถ้าผู้ใช้กด "อัปเดตเลย" เองในรอบนั้น ต้องรีโหลด — เดิมกิ่งนี้กิน controllerchange ครั้งแรกไป ปุ่มอัปเดตเหมือนเสีย
+        if (!hadController && !this._userRequestedUpdate) return;
         refreshing = true;
-        if (hadController) {
-          if (this.canApplyAppUpdate()) window.location.reload();
-          else { this._reloadAfterUpdate = true; this.promptAppUpdate(null); }
-        }
+        if (this.canApplyAppUpdate()) window.location.reload();
+        else { this._reloadAfterUpdate = true; this.promptAppUpdate(null); }
       });
 
       const register = () => {
@@ -9773,9 +10490,13 @@ class PosApp {
     const target = () => (this._swReg && this._swReg.waiting) || this._pendingWorker;
     btn.onclick = () => {
       if (!this.canApplyAppUpdate()) {
-        this.showToast('ชำระเงินหรือเคลียร์ตะกร้า และรอการบันทึกให้เสร็จก่อนอัปเดตแอป', 'warning', 7000); return;
+        // ข้อ 22: หน้าต่างงานเปิดอยู่ = บอกตรง ๆ ว่าต้องปิดก่อน (ตัวเลขที่พิมพ์ในหน้าต่างจะหายถ้ารีโหลด)
+        if (this.hasOpenWorkModal()) this.showToast('ปิดหน้าต่างที่เปิดอยู่ก่อน แล้วค่อยกดอัปเดต', 'warning', 7000);
+        else this.showToast('ชำระเงินหรือเคลียร์ตะกร้า และรอการบันทึกให้เสร็จก่อนอัปเดตแอป', 'warning', 7000);
+        return;
       }
       if (this._reloadAfterUpdate) { window.location.reload(); return; }
+      this._userRequestedUpdate = true;   // ข้อ 63: ผู้ใช้สั่งเอง — controllerchange ต้องรีโหลดแม้เป็นรอบแรกหลังติดตั้ง
       btn.disabled = true; btn.textContent = 'กำลังอัปเดต...';
       const w = target();
       if (w) w.postMessage({ type: 'SKIP_WAITING' }); // → SW activate → controllerchange → reload เอง
@@ -9838,6 +10559,12 @@ class PosApp {
       parts.push(`ช่วงนี้มีบิลจากชีต ${sheetOnly} ใบ (เครื่องเดิมเสียถาวร รายการบริการหาย) — นับในยอดขายแล้ว แต่ค่าคอมของบิลเหล่านี้ไม่ทราบ ไม่ได้รวมในตารางค่าคอม`);
     }
     return parts.join(' · ');
+  }
+
+  // ตรวจ 19 ต.ค. 2569 ข้อ 37: ตัวเลขเงินในหน้ารายงานใช้รูปแบบเดียว ทศนิยม 2 ตำแหน่งเสมอ
+  // (เดิมบางช่อง toLocaleString เปล่า ๆ → "฿1,146.3" "฿287.5" ปนกับ "฿1,146.30")
+  reportMoney(v) {
+    return '฿' + (Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   renderReportDataNotice(text) {
@@ -10069,9 +10796,14 @@ class PosApp {
       };
     });
 
+    // ตรวจ 19 ต.ค. 2569 ข้อ 32: บิลรุ่นเก่า/บิลจากชีตที่ไม่มีรายการรายคน — ไม่รู้ว่าใครทำอะไร ค่าคอมเท่าไร
+    // เดิมยกงานและยอดทั้งบิลให้ชื่อแรกบนบิล (ขัดกับป้ายเตือนที่บอกว่าไม่นับ และขัดกับตารางค่าคอมบนชีตที่ไม่นับ)
+    // ตอนนี้ไม่นับในตารางนี้ (ฐานเดียวกับ buildSummaryPayload().staffCommissions) แล้วบอกจำนวนบิลไว้ · ตัวเลขสรุปด้านบนไม่เปลี่ยน
+    const noDetailBills = new Set(allServiceItems.filter(it => it.commissionUnknown).map(it => it.txId)).size;
     allServiceItems.forEach(item => {
       // สินค้าขายหน้าร้านไม่มีเจ้าของงาน (ค่าคอม 0) — ไม่เข้าตารางพนักงาน (ฐานเดียวกับตารางค่าคอมบนชีต)
       if (item.frontCounter) return;
+      if (item.commissionUnknown) return;   // ข้อ 32
       let sId = item.staffId;
       if (!staffCommissions[sId]) {
         staffCommissions[sId] = {
@@ -10110,13 +10842,15 @@ class PosApp {
         // D9: ช่วงที่ข้อมูลอาจไม่ครบ (ระหว่างรับช่วงฉุกเฉิน / มีบิลจากชีต) — ค่าคอมในตารางนี้ไม่ใช่ยอดที่ควรจ่าย
         commissionTableBody.innerHTML = (dataNotice ? `
           <tr><td colspan="5" style="color: var(--accent-premium); font-weight: 700; font-size: 0.82rem;">⚠️ ${escapeHtml(dataNotice)}</td></tr>` : '') +
+          (noDetailBills > 0 ? `
+          <tr><td colspan="5" style="color: var(--text-secondary); font-size: 0.8rem;">บิลรุ่นเก่า/บิลจากชีต ${noDetailBills} ใบไม่มีรายการรายคน — ไม่นับในตารางนี้</td></tr>` : '') +
           displayedCommissions.map(sc => `
           <tr>
             <td><strong>${escapeHtml(sc.name)}</strong></td>
             <td>${escapeHtml(sc.role)}</td>
             <td>${Number(sc.count) || 0} งาน${Number(sc.productCount) > 0 ? ` · ${Number(sc.productCount)} สินค้า` : ''}</td>
-            <td>฿${sc.salesSum.toLocaleString('th-TH')}</td>
-            <td style="font-weight:700; color: var(--color-success);">฿${sc.commissionSum.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td>${this.reportMoney(sc.salesSum)}</td>
+            <td style="font-weight:700; color: var(--color-success);">${this.reportMoney(sc.commissionSum)}</td>
           </tr>
         `).join('');
       }
@@ -10178,7 +10912,7 @@ class PosApp {
               <td><strong>${escapeHtml(item.name)}</strong></td>
               <td><span class="service-category-badge badge-${escapeHtml(item.category || 'general')}">${escapeHtml(categoryText)}</span></td>
               <td>${Number(item.count) || 0} ครั้ง</td>
-              <td>${item.price == null ? '—' : '฿' + (Number(item.price) || 0).toLocaleString('th-TH')}</td>
+              <td>${item.price == null ? '—' : this.reportMoney(item.price)}</td>
               <td style="font-weight:700; color: var(--accent-massage);">฿${money2(item.totalRevenue)}</td>
             </tr>
           `;
@@ -10231,12 +10965,12 @@ class PosApp {
             const staffDetails = tx.details.filter(d => d.staffId === selectedStaffId);
             displayedServices = staffDetails.map(d => d.name);
             const staffTotal = staffDetails.reduce((sum, d) => sum + (d.netPrice != null ? d.netPrice : d.price), 0);
-            displayTotalHTML = `฿${staffTotal.toLocaleString('th-TH')}<br><span style="font-size:0.7rem; color:var(--text-muted); font-weight:normal;">เต็มบิล: ฿${tx.total.toLocaleString('th-TH')}</span>`;
+            displayTotalHTML = `${this.reportMoney(staffTotal)}<br><span style="font-size:0.7rem; color:var(--text-muted); font-weight:normal;">เต็มบิล: ${this.reportMoney(tx.total)}</span>`;
           } else {
-            displayTotalHTML = `฿${tx.total.toLocaleString('th-TH')}`;
+            displayTotalHTML = this.reportMoney(tx.total);
           }
         } else {
-          displayTotalHTML = `฿${tx.total.toLocaleString('th-TH')}`;
+          displayTotalHTML = this.reportMoney(tx.total);
         }
         // ข้อ 16: บิลที่ถูกแก้ยอด/ช่องทางหลังรับเงิน และยังไม่มีใครบันทึกว่าคืน/เก็บเงินจริงหรือไม่
         if ((tx.tender !== undefined && tx.tender !== null) || (tx.settlements !== undefined && tx.settlements !== null)) {
@@ -10300,7 +11034,8 @@ class PosApp {
       } else {
         shiftTableBody.innerHTML = filteredShifts.map(sh => {
           const openTimeStr = fmtBkk(sh.startTime);
-          const closeTimeStr = sh.endTime ? fmtBkk(sh.endTime) : 'กำลังทำงาน';
+          // ข้อ 67 (ตรวจ 19 ต.ค. 2569): แถวประวัติกะปิดแล้วเสมอ — กิ่ง "กำลังทำงาน" เดิมไม่มีวันเกิด (กะที่เปิดอยู่ไม่อยู่ในประวัติ)
+          const closeTimeStr = sh.endTime ? fmtBkk(sh.endTime) : '-';
           const diff = sh.difference || 0;
           let diffText = `฿${diff.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           let diffColor = 'var(--text-primary)';
@@ -10319,18 +11054,18 @@ class PosApp {
 
           return `
             <tr>
-              <td>${openTimeStr}</td>
+              <td>${openTimeStr}${typeof sh.openedBy === 'string' && sh.openedBy ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">นับเงินตั้งต้นโดย ${escapeHtml(sh.openedBy)}</span>` : ''}</td>
               <td>${closeTimeStr}${sh.closedBy ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">โดย ${escapeHtml(sh.closedBy)}</span>` : ''}${sh.emergencyRecovery
                 ? '<br><span style="font-size:0.7rem;color:var(--accent-premium);">⚠️ ปิดระหว่างรับช่วงฉุกเฉิน — ข้อมูลย้อนหลังตอนนั้นยังไม่ครบ</span>' : ''}</td>
-              <td>฿${(Number(sh.startCash) || 0).toLocaleString('th-TH')}</td>
-              <td>฿${(sh.cashSales || 0).toLocaleString('th-TH')}${(Number(sh.cashAdjustTotal) || 0) !== 0
-                ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">คืน/เก็บส่วนต่าง ${Number(sh.cashAdjustTotal) > 0 ? '+' : '-'}฿${Math.abs(Number(sh.cashAdjustTotal)).toLocaleString('th-TH')}</span>` : ''}${(Number(sh.unsettledCount) || 0) > 0
+              <td>${this.reportMoney(sh.startCash)}</td>
+              <td>${this.reportMoney(sh.cashSales)}${(Number(sh.cashAdjustTotal) || 0) !== 0
+                ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">คืน/เก็บส่วนต่าง ${Number(sh.cashAdjustTotal) > 0 ? '+' : '-'}${this.reportMoney(Math.abs(Number(sh.cashAdjustTotal)))}</span>` : ''}${(Number(sh.unsettledCount) || 0) > 0
                 ? `<br><span style="font-size:0.7rem;color:var(--accent-premium);">ค้างบันทึกส่วนต่าง ${Number(sh.unsettledCount)} ใบ</span>` : ''}</td>
-              <td style="color: var(--accent-premium);">฿${(expensesTotal || 0).toLocaleString('th-TH')}${(Number(sh.otherExpensesTotal) || 0) > 0
-                ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">จ่ายทางอื่น ฿${Number(sh.otherExpensesTotal).toLocaleString('th-TH')} (ไม่หักจากลิ้นชัก)</span>` : ''}</td>
-              <td>฿${(sh.expectedCash || 0).toLocaleString('th-TH')}${(Number(sh.overspend) || 0) > 0
-                ? `<br><span style="font-size:0.7rem;color:var(--accent-premium);">${sh.overspendCause ? escapeHtml(this.overspendLabel(sh.overspendCause)) : 'ค่าใช้จ่ายเกินลิ้นชัก'} ฿${Number(sh.overspend).toLocaleString('th-TH')} (นับเป็นเงินขาด)</span>` : ''}</td>
-              <td>฿${(sh.countedCash || 0).toLocaleString('th-TH')}</td>
+              <td style="color: var(--accent-premium);">${this.reportMoney(expensesTotal)}${(Number(sh.otherExpensesTotal) || 0) > 0
+                ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">จ่ายทางอื่น ${this.reportMoney(sh.otherExpensesTotal)} (ไม่หักจากลิ้นชัก)</span>` : ''}</td>
+              <td>${this.reportMoney(sh.expectedCash)}${(Number(sh.overspend) || 0) > 0
+                ? `<br><span style="font-size:0.7rem;color:var(--accent-premium);">${sh.overspendCause ? escapeHtml(this.overspendLabel(sh.overspendCause)) : 'ค่าใช้จ่ายเกินลิ้นชัก'} ${this.reportMoney(sh.overspend)} (นับเป็นเงินขาด)</span>` : ''}</td>
+              <td>${this.reportMoney(sh.countedCash)}</td>
               <td style="font-weight: 700; color: ${diffColor};">${diffText}${this.noteHtml(sh.closeNote)}</td>
             </tr>
           `;
@@ -10391,7 +11126,7 @@ class PosApp {
               <td>${escapeHtml(v.customer || '-')}${this.noteHtml(this.voidReasonText(v))}</td>
               <td style="font-weight:700;color:var(--color-danger);">${v.supersededBy
                 ? `<s style="color:var(--text-muted);">${baht(v.amount)}</s><br><span style="font-size:0.7rem;font-weight:400;color:var(--text-muted);">${String(v.supersededBy).startsWith('restore-cloud') ? 'คืนบิลขึ้นชีตแล้ว' : 'บันทึกยกเลิกซ้ำหลังกู้ไฟล์'} — ไม่นับ</span>`
-                : baht(v.amount)}</td>
+                : baht(v.amount)}${this.voidMoneyLines(v).map(l => `<br><span style="font-size:0.7rem;font-weight:400;color:var(--text-secondary);">${escapeHtml(l)}</span>`).join('')}</td>
               <td>${v.by ? escapeHtml(v.by) : '<span style="color:var(--text-muted);">ไม่ระบุ</span>'}</td>
             </tr>`).join('');
     }
@@ -10472,6 +11207,28 @@ class PosApp {
     }
   }
 
+  // ── ตรวจ 19 ต.ค. 2569 ข้อ 28: ผลทางเงินของบิลที่ยกเลิก (ตารางบิลที่ถูกยกเลิกในหน้ารายงาน) ─────────────────
+  // เดิมตารางบอกแค่ยอดบิล — ไม่รู้ว่าเลือก "เอาออกจากยอดที่ควรมี" หรือ "ยังอยู่ที่ร้าน" กระทบลิ้นชักเท่าไร
+  // และเงินคืนตอนไม่มีกะเปิด (cashRefundUnattributed) ไม่ปรากฏที่ไหนเลย · ประวัติรุ่นเก่าที่ไม่มีช่องเหล่านี้ = ไม่แสดงอะไรเพิ่ม
+  voidMoneyLines(v) {
+    if (!v || typeof v !== 'object') return [];
+    const out = [];
+    const num = (x) => { const n = this.toFiniteNumber(x); return n === null ? 0 : n; };
+    if (v.moneyOutcome === 'refunded') out.push('เงิน: เอาออกจากยอดที่ควรมี (คืนเงินสด/บิลซ้ำ/ออกบิลใหม่แทน)');
+    else if (v.moneyOutcome === 'none') out.push('เงิน: ยังอยู่ที่ร้าน (ไม่ได้คืนเงินสด/คืนทางโอน)');
+    else if (v.moneyOutcome === 'unknown') out.push('เงิน: ยกเลิกตามสถานะบนชีต — ยังไม่ระบุว่าคืนเงินหรือไม่');
+    if (Object.prototype.hasOwnProperty.call(v, 'cashEffect')) {
+      const ce = num(v.cashEffect);
+      out.push(Math.round(ce * 100) === 0 ? 'ลิ้นชักกะนั้น: ไม่เปลี่ยน'
+        : `ลิ้นชักกะนั้น: ${ce < 0 ? '−' : '+'}${this.reportMoney(Math.abs(ce))}`);
+    }
+    const un = num(v.cashRefundUnattributed);
+    if (un > 0) out.push(`คืนเงินสด ${this.reportMoney(un)} ตอนไม่มีกะเปิด — ไม่อยู่ในลิ้นชักกะไหน (ตรวจกับเงินจริงเอง)`);
+    const card = num(v.cardRefund);
+    if (card > 0) out.push(`ส่วนบัตร ${this.reportMoney(card)} — ต้องยกเลิกที่เครื่องรูดบัตร`);
+    return out;
+  }
+
   // เรนเดอร์แผนภูมิแบบ CSS แท้ ๆ
   renderReportsChart(transactions, type, dateVal, monthVal) {
     const chartContainer = document.getElementById('css-bar-chart');
@@ -10522,7 +11279,7 @@ class PosApp {
       return `
         <div class="chart-bar-wrapper">
           <div class="chart-bar-fill" style="height: ${heightPercent}%;">
-            <div class="chart-bar-tooltip">฿${p.sum.toLocaleString()}</div>
+            <div class="chart-bar-tooltip">${this.reportMoney(p.sum)}</div>
           </div>
         </div>
       `;
@@ -10552,23 +11309,6 @@ class PosApp {
   isLegacyBill(tx) {
     return tx.vatRate == null && tx.vatAmount == null &&
            tx.rounding == null && tx.nonVatBase == null && tx.vatableBase == null;
-  }
-
-  // ปัดชุดตัวเลขเป็นทศนิยม 2 ตำแหน่ง แล้วเกลี่ยเศษให้ผลรวมเท่ากับ target เป๊ะ
-  // (หลักการเดียวกับ distributeDiscount — ยัดเศษที่เหลือลงรายการที่ใหญ่ที่สุด)
-  roundToTotal(values, target) {
-    const r2 = v => Math.round((Number(v) || 0) * 100) / 100;
-    const out = (values || []).map(r2);
-    if (out.length === 0) return out;
-    const goal = r2(target);
-    const sum = r2(out.reduce((s, n) => s + n, 0));
-    const diff = r2(goal - sum);
-    if (diff !== 0) {
-      let idx = 0;
-      for (let i = 1; i < out.length; i++) if (out[i] > out[idx]) idx = i;
-      out[idx] = r2(Math.max(0, out[idx] + diff));
-    }
-    return out;
   }
 
   // ── สร้าง "ร่าง" รายการในบิล สำหรับหน้าต่างแก้ไขเท่านั้น ────────────────────
@@ -10741,10 +11481,14 @@ class PosApp {
         const vp0 = tv0.valid ? this.planVoidCash(tx, 'refunded') : null;
         const outSat0 = vp0 ? Math.round((vp0.inShift ? -vp0.cashEffect : vp0.paid) * 100) : 0;
         const nonCash0 = (this.paymentPartsOf(tx) || []).some(x => x.method !== 'cash');
-        opt.textContent = (!tv0.valid || outSat0 < 0) ? 'คืนเงินให้ลูกค้าแล้ว'
-          : (outSat0 > 0 && !nonCash0) ? 'คืนเงินให้ลูกค้าแล้ว (เงินออกจากลิ้นชัก)'
-          : outSat0 > 0 ? 'คืนเงินให้ลูกค้าแล้ว (ส่วนเงินสดออกจากลิ้นชัก · ส่วนบัตร/โอนคืนทางเดิม)'
-          : 'คืนเงินให้ลูกค้าแล้ว (คืนทางบัตร/โอน — ไม่กระทบลิ้นชัก)';
+        // ตรวจ 19 ต.ค. 2569 ข้อ 1: ป้ายถามว่า "เอาเงินของบิลนี้ออกจากยอดที่ควรมีไหม" (บิลซ้ำ/ออกบิลใหม่แทน = เอาออก)
+        // เดิมป้ายถามว่า "คืนเงินแล้วไหม" — บิลซ้ำไม่ได้คืนเงิน พนักงานจึงเลือกอีกข้อ แล้วปิดกะขาดเท่าเงินสดของบิล
+        opt.textContent = (outSat0 > 0 && nonCash0)
+          ? 'เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน) · ส่วนบัตร/โอนคืนทางเดิม'
+          : (tv0.valid && outSat0 === 0)
+            ? (nonCash0 ? 'เอาบิลนี้ออก (คืนทางบัตร/โอนแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน) — ไม่กระทบลิ้นชัก'
+              : 'เอาบิลนี้ออก (บิลซ้ำ · จะออกบิลใหม่แทน) — ไม่กระทบลิ้นชัก')
+            : 'เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน)';
       }
     }
     const voidHint = document.getElementById('void-money-hint');
@@ -10755,9 +11499,14 @@ class PosApp {
       // ส่วนที่รูดบัตร (บิลบัตร/แบ่งจ่าย) — คืนเงินต้องยกเลิกที่เครื่องรูดบัตร (ดู planVoidCash)
       const tv = this.tenderOf(tx);
       const cardSat = tv.valid ? tv.parts.reduce((s, x) => s + (x.method === 'credit' ? Math.round(x.amount * 100) : 0), 0) : 0;
+      // ตรวจ 19 ต.ค. 2569 ข้อ 1: บอกตรง ๆ ว่าบิลซ้ำ/ออกบิลใหม่แทนต้องเลือกข้อไหน (บิลกะนี้ vs บิลกะก่อน คนละข้อ)
       voidHint.innerText = (p.inShift
-        ? (Math.round(p.held * 100) !== 0 ? `บิลนี้มีเงินสด ${baht(p.held)} นับอยู่ในลิ้นชักของกะที่เปิดอยู่` : 'บิลนี้ไม่ได้รับเป็นเงินสด')
-        : (Math.round(p.paid * 100) > 0 ? `บิลนี้ขายในกะก่อน · รับเงินสดสุทธิ ${baht(p.paid)}` : 'บิลนี้ขายในกะก่อน · ไม่ได้รับเงินสดสุทธิ')) +
+        ? (Math.round(p.held * 100) > 0
+          ? `บิลนี้มีเงินสด ${baht(p.held)} นับอยู่ในลิ้นชักของกะที่เปิดอยู่ · บิลซ้ำ/ออกบิลใหม่แทน → เลือกข้อแรก ไม่งั้นปิดกะขาด ${baht(p.held)}`
+          : Math.round(p.held * 100) !== 0 ? `บิลนี้มีเงินสด ${baht(p.held)} นับอยู่ในลิ้นชักของกะที่เปิดอยู่` : 'บิลนี้ไม่ได้รับเป็นเงินสด')
+        : (Math.round(p.paid * 100) > 0
+          ? `บิลนี้ขายในกะก่อน · รับเงินสดสุทธิ ${baht(p.paid)} · บิลซ้ำของกะก่อน → เลือกข้อสอง (ไม่กระทบลิ้นชักกะนี้)`
+          : 'บิลนี้ขายในกะก่อน · ไม่ได้รับเงินสดสุทธิ')) +
         (cardSat > 0 ? ` · ส่วนที่รูดบัตร ${baht(cardSat / 100)} ต้องยกเลิกที่เครื่องรูดบัตรเอง` : '') +
         (this.isPendingSettlementBill(tx) ? ' · ⚠️ ต้องบันทึกส่วนต่างเงินในกล่อง "เงินที่รับจริงของบิลนี้" ก่อน จึงจะยกเลิกบิลได้' : '');   // ตรวจ 14 ต.ค. ข้อ 2
     }
@@ -10955,8 +11704,14 @@ class PosApp {
       return; // ฟ้องไปแล้ว — ห้ามเขียนทับบิลที่ออกไปแล้วด้วยส่วนลดที่เดาเอง
     }
     const sat = v => Math.round(v * 100);
-    const newCustomer = String(document.getElementById('edit-tx-customer').value || '').trim() || 'ลูกค้าทั่วไป';
-    const newPayment = document.getElementById('edit-tx-payment').value;
+    // ข้อ 61 (ตรวจ 19 ต.ค. 2569): ช่องทางชำระ = เรื่องเงิน → requireEl (หาไม่เจอ = ฟ้องแล้วหยุด ไม่เดาช่องทาง)
+    let newCustomer, newPayment;
+    try {
+      newCustomer = String(this.requireEl('edit-tx-customer', 'ช่องชื่อลูกค้าในหน้าต่างแก้บิล').value || '').trim() || 'ลูกค้าทั่วไป';
+      newPayment = this.requireEl('edit-tx-payment', 'ช่องช่องทางชำระในหน้าต่างแก้บิล').value;
+    } catch (err) {
+      return;
+    }
     const cardLocked = this.isCardLockedBill(tx);   // ตรวจจากบิลจริง ณ จุดบันทึก ไม่ใช่จากสถานะหน้าจอ
     // บิลแบ่งจ่ายมีช่องทาง 'split' ได้ (แสดงบิลเดิม) — แต่เปลี่ยนเป็น/จาก 'split' ไม่ได้ (ดูด่านข้างล่าง)
     if (!PAYMENT_METHODS.includes(newPayment) && !(newPayment === SPLIT_PAYMENT && tx.paymentMethod === SPLIT_PAYMENT)) {
@@ -11667,7 +12422,7 @@ class PosApp {
       } else {
         if (heldSat !== 0) {
           plan.push = { amount: held, kind: outcome === 'none' ? 'void-keep' : 'void-unknown',
-            note: outcome === 'none' ? 'ยกเลิกบิลโดยไม่มีเงินเคลื่อนไหว' : 'ยกเลิกตามสถานะบนชีต — ยังไม่ระบุว่าคืนเงินหรือไม่' };
+            note: outcome === 'none' ? 'ยกเลิกบิล — เงินของบิลนี้ยังอยู่ที่ร้าน' : 'ยกเลิกตามสถานะบนชีต — ยังไม่ระบุว่าคืนเงินหรือไม่' };
         }
         plan.text = heldSat !== 0 ? `เงินสด ${baht(held)} ของบิลนี้ยังนับอยู่ในลิ้นชักของกะที่เปิดอยู่ตามเดิม` : 'ไม่กระทบลิ้นชัก';
       }
@@ -11693,8 +12448,9 @@ class PosApp {
   }
 
   // ยกเลิกบิล: ต้องบอกก่อนว่า "เงินเคลื่อนไหวจริงหรือเปล่า" (ข้อ 16 — เจ้าของสั่งไว้ 23 ก.ย. 2569)
-  //   refunded = คืนเงินให้ลูกค้าแล้ว → เงินสดออกจากลิ้นชักของกะที่เปิดอยู่
-  //   none     = ไม่มีเงินเคลื่อนไหว (บิลออกผิด/ซ้ำ หรือไม่ได้คืนเงิน) → เงินยังอยู่ในลิ้นชักตามเดิม
+  //   refunded = เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน)
+  //   none     = เงินของบิลนี้ยังอยู่ที่ร้าน (ไม่ได้คืนเงินสด / คืนทางโอน) → เงินยังนับในลิ้นชักตามเดิม
+  // ⚠️ ตรวจ 19 ต.ค. 2569 ข้อ 1: ป้ายเดิมบอกให้บิล "ออกผิด/ซ้ำ" เลือก none → บิลซ้ำ/ออกใหม่ในกะเดียวกันปิดกะขาด (สูตรถูก ป้ายผิด)
   // เดิมยกเลิกแล้วหักลิ้นชักให้ทันทีเสมอ = ถือเองว่าคืนเงินเต็มจำนวนทุกครั้ง
   async voidTransaction() {
     const txId = document.getElementById('edit-tx-id').value;
@@ -11718,7 +12474,7 @@ class PosApp {
     const sel = document.getElementById('void-money-outcome');
     const outcome = sel ? String(sel.value || '') : 'refunded';   // ไม่มีช่องเลือก (หน้าเก่า) = กติกาเดิม
     if (!['refunded', 'none'].includes(outcome)) {
-      this.showToast('เลือกก่อนว่าเงินของบิลนี้เคลื่อนไหวจริงหรือไม่ (คืนเงินแล้ว / ไม่มีเงินเคลื่อนไหว)', 'warning', 7000);
+      this.showToast('เลือกก่อนว่าเงินของบิลนี้ต้องเอาออกจากยอดที่ควรมี หรือยังอยู่ที่ร้าน', 'warning', 7000);
       return;
     }
     // เหตุผลที่ยกเลิก (เจ้าของสั่ง 14 ต.ค. 2569) — บังคับทุกครั้ง ทุกบทบาท · ตรวจก่อนถาม PIN (ไม่ให้ใส่ PIN แล้วค่อยโดนปฏิเสธ)
@@ -11737,9 +12493,22 @@ class PosApp {
     if (voidPlan.blocked) { this.showToast(voidPlan.text, 'error', 10000); return false; }
     const effect = voidPlan.text;
     const msg = `ยกเลิกบิล ${tx.id} ยอด ${baht(tx.total)}\n` +
-      (outcome === 'refunded' ? 'เงิน: คืนให้ลูกค้าแล้ว\n' : 'เงิน: ไม่มีเงินเคลื่อนไหว\n') +
+      (outcome === 'refunded' ? 'เงิน: เอาออกจากยอดที่ควรมี (คืนเงินสดแล้ว / บิลซ้ำ / ออกบิลใหม่แทน)\n'
+        : 'เงิน: ยังอยู่ที่ร้าน (ไม่ได้คืนเงินสด / คืนทางโอน)\n') +
       (voidNote ? `เหตุผล: ${voidNote}\n` : '') +
       `${effect}\n\nยกเลิกแล้วกู้กลับไม่ได้ ยืนยันไหม?`;
+
+    // ตรวจ 19 ต.ค. 2569 ข้อ 1: เหตุผลบอกว่า "บิลซ้ำ/ออกบิลใหม่แทน" แต่เลือก "เงินยังอยู่ที่ร้าน" กับบิลของกะนี้ที่มีเงินสด
+    // = เงินสดของบิลนี้ยังนับในยอดที่ควรมี แล้วบิลใหม่นับซ้ำอีกรอบ → ปิดกะขาด · ถามย้ำพร้อมยอดที่จะขาด (ยังเลือกต่อได้)
+    if (outcome === 'none' && voidPlan.inShift && Math.round((Number(voidPlan.held) || 0) * 100) > 0 &&
+        /ซ้ำ|ออกใหม่|ออกบิลใหม่|ใบใหม่/.test(voidNote || '')) {
+      const sure = await this.askConfirm(
+        `เหตุผลบอกว่าเป็นบิลซ้ำ/ออกบิลใหม่แทน แต่เลือก "เงินของบิลนี้ยังอยู่ที่ร้าน"\n` +
+        `ถ้าเลือกแบบนี้ เงินสด ${baht(voidPlan.held)} ของบิลนี้ยังนับในยอดที่ควรมี → ปิดกะจะขาด ${baht(voidPlan.held)}\n\n` +
+        `บิลซ้ำ/ออกบิลใหม่แทน ควรเลือก "เอาเงินของบิลนี้ออกจากยอดที่ควรมี"\n` +
+        `ยังยืนยันเลือก "เงินยังอยู่ที่ร้าน" ไหม?`);
+      if (!sure) return;
+    }
 
     if (!await this.confirmPinStepUp('การยกเลิกบิล')) return;   // ข้อ 8: ผู้จัดการใส่ PIN ซ้ำ
 
@@ -11970,14 +12739,10 @@ class PosApp {
     return this.runCloudTask(async () => {
     if (type === 'daily') {
       if (!dateVal) { this.showToast('กรุณาเลือกวันที่ก่อน', 'info'); return; }
-      const txs = this.state.transactions.filter(tx =>
-        this.getBusinessISODate(tx.date) === dateVal
-      );
-      // หา expenses ของวันนั้น — รวมทั้งกะที่ปิดแล้วและกะที่ยังเปิดอยู่ (เดิมนับเฉพาะกะปิดแล้ว → ส่งกลางกะกำไรโชว์เกินจริง)
-      const exp = this.getExpensesForDate(dateVal);
-
+      // ข้อ 67 (ตรวจ 19 ต.ค. 2569): ไม่ต้องกรองบิล/ค่าใช้จ่ายของวันเองแล้ว — syncDailySummary ประกอบสรุปจากข้อมูลที่บันทึกแล้วเอง
+      // (syncCommittedSummary · รวมค่าใช้จ่ายทั้งกะที่ปิดแล้วและกะที่ยังเปิดอยู่) · สองช่องกลางคงไว้ให้ลายเซ็นเดิม
       this.updateSyncBadgeStatus('syncing', 1);
-      await this.syncDailySummary(dateVal, txs, exp, false);
+      await this.syncDailySummary(dateVal, null, null, false);
       this.checkSyncStatus();
     } else {
       if (!monVal) { this.showToast('กรุณาเลือกเดือนก่อน', 'info'); return; }
@@ -11995,10 +12760,61 @@ class PosApp {
   async saveShopSettings() {
     // ⚠️ เดิมไม่มีด่านสิทธิ์ในตัว — พนักงานเรียกฟังก์ชันนี้ตรง ๆ แล้วเปลี่ยนเลขพร้อมเพย์/PIN เจ้าของได้
     if (!this.authorize('settings.write', 'แก้การตั้งค่าร้าน')) return false;
-    return this.withMutation('การตั้งค่า', () => this._saveShopSettingsLocked());
+    // ตรวจ 19 ต.ค. 2569 ข้อ 46: ถามตัวตนชีตปลายทาง (รอเน็ตได้ถึง 15 วิ) และกล่องยืนยันย้ายปลายทาง ทำ "ก่อน" เข้าคิวงานบันทึก
+    // เดิมทำในคิว → ระหว่างรอเน็ต/รอคนกดยืนยัน งานขาย/ยกเลิก/ปิดกะ และงานคลาวด์ต้องรอทั้งหมด
+    // ในคิวตรวจซ้ำว่า URL/รหัสยังเป็นชุดเดียวกับที่ถามไว้ (ดู _saveShopSettingsLocked)
+    const pre = await this.prepareShopSettingsConnection();
+    return this.withMutation('การตั้งค่า', () => this._saveShopSettingsLocked(pre));
   }
 
-  async _saveShopSettingsLocked() {
+  // ค่า URL/รหัสเชื่อมต่อที่ "จะถูกบันทึก" จากช่องบนจอ — กติกาเดียวกับ _saveShopSettingsLocked (ผิดรูปแบบ = คงค่าเดิม)
+  shopSettingsConnectionCandidate() {
+    const urlEl = document.getElementById('shop-sheets-sync-url');
+    const tokenEl = document.getElementById('shop-sheets-api-token');
+    let url = this.googleSheetsUrl, token = this.googleSheetsApiToken;
+    if (urlEl) {
+      const v = String(urlEl.value == null ? '' : urlEl.value).trim();
+      if (v === '' || v === this.googleSheetsUrl || isAppsScriptExecUrl(v)) url = v;
+    }
+    if (tokenEl) {
+      const v = String(tokenEl.value == null ? '' : tokenEl.value).trim();
+      if (v === '' || this.isValidCloudApiToken(v)) token = v;
+    }
+    return { url: url || '', token: token || '' };
+  }
+
+  // ถามชีตปลายทางว่าเป็นชีตไหน (backendId) ด้วย URL/รหัสที่ยังไม่ได้บันทึก — ไม่แตะค่าในเครื่อง · ล้ม/ออฟไลน์ = ''
+  async probeCloudBackendId(url, token) {
+    if (!url || !this.isValidCloudApiToken(token || '')) return '';
+    try {
+      const body = Object.assign(this.buildCloudRequest('primary_status', {}), { secret: token });
+      const res = await this.fetchWithTimeout(url, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body)
+      }, 15000);
+      if (!res || !res.ok) { if (res && typeof res.release === 'function') res.release(); return ''; }
+      const d = await res.json();
+      return (d && d.status === 'success' && d.details) ? String(d.details.backendId || '') : '';
+    } catch (e) { return ''; }
+  }
+
+  // ขั้นก่อนเข้าคิว (ข้อ 46): ถามตัวตนชีต + ถามยืนยันเมื่อย้ายไป URL ที่ระบุตัวตนไม่ได้
+  async prepareShopSettingsConnection() {
+    const prevUrl = this.googleSheetsUrl || '', prevToken = this.googleSheetsApiToken || '';
+    const cand = this.shopSettingsConnectionCandidate();
+    const pre = { prevUrl, prevToken, url: cand.url, token: cand.token, identified: '', useNewUrl: null };
+    if (cand.url === prevUrl && cand.token === prevToken) return pre;
+    pre.identified = await this.probeCloudBackendId(cand.url, cand.token);
+    if (cand.url !== prevUrl && !pre.identified && cand.url && prevUrl) {
+      const billCount = (this.state.transactions || []).filter(tx => tx && !tx.sheetOnly).length;
+      pre.useNewUrl = !!(await this.askConfirm(
+        'ตรวจชีตปลายทางของ URL ใหม่ไม่ได้ (ออฟไลน์ · URL ผิด · ยังไม่ได้ Deploy · รหัสเชื่อมต่อไม่ตรง)\n\n' +
+        `ถ้ายืนยันใช้ URL นี้ ระบบจะถือว่าเป็นชีตใหม่: บิล ${billCount} ใบจะถูกส่งขึ้นชีตใหม่ทั้งหมด สรุปทุกงวดส่งใหม่ ` +
+        'และต้องยืนยันเครื่องหลักกับชีตใหม่ก่อนขายต่อ\n\nถ้าไม่แน่ใจ กดยกเลิก — ระบบคง URL เดิมไว้'));
+    }
+    return pre;
+  }
+
+  async _saveShopSettingsLocked(pre) {
     if (!this.authorize('settings.write', 'แก้การตั้งค่าร้าน')) return false;
     // การตั้งค่าบางส่วน (โดยเฉพาะ URL/token) เป็นเส้นทางกู้ข้อมูลและซิงก์ยอดขาย
     // ถ้า IndexedDB เขียนไม่สำเร็จ ต้องคืนค่าเดิมในหน่วยความจำด้วย ไม่อย่างนั้นผู้ใช้จะเข้าใจว่าบันทึกแล้ว
@@ -12021,7 +12837,6 @@ class PosApp {
       ? { ref: tx, keys: ['syncStatus', 'syncIssue', 'syncedBackendId'].map(k => [k, Object.prototype.hasOwnProperty.call(tx, k), this.cloneForRollback(tx[k])]) } : null);
     const restoreOutbox = this.snapshotOutboxForRollback();
     const promptPayInput = document.getElementById('shop-promptpay-id');
-    const pinInput = document.getElementById('shop-owner-pin');
     const sheetsUrlInput = document.getElementById('shop-sheets-sync-url');
     const sheetsApiTokenInput = document.getElementById('shop-sheets-api-token');
     const telegramTokenInput = document.getElementById('shop-telegram-token');
@@ -12059,9 +12874,7 @@ class PosApp {
         promptPayInput.value = this.shopPromptPayId || '';
       }
     }
-    // ข้อ 10: PIN เจ้าของไม่ได้เปลี่ยนจากหน้านี้แล้ว (เดิมพิมพ์ครั้งเดียว ออกจากช่องแล้วบันทึกทันที
-    // พิมพ์ผิดหลักเดียว = เข้าสิทธิ์เจ้าของไม่ได้อีกเลย) — ใช้ปุ่ม "เปลี่ยน PIN เจ้าของ" (changeOwnerPin)
-    if (pinInput) pinInput.value = '';
+    // ข้อ 10: PIN เจ้าของไม่ได้เปลี่ยนจากหน้านี้แล้ว — ใช้ปุ่ม "เปลี่ยน PIN เจ้าของ" (changeOwnerPin)
     if (sheetsUrlInput) {
       // ตรวจ 8 ต.ค. 2569 ข้อ 5: ช่องนี้บันทึกเองทันทีที่ออกจากช่อง — เดิมรับทุกข้อความเป็น URL
       // พิมพ์เกินตัวเดียว/วางลิงก์ของชีตแทน /exec = ถือเป็นปลายทางใหม่ → บิลทั้งร้านกลับเป็นรอส่ง + ล้างสถานะเครื่องหลัก เงียบ ๆ
@@ -12085,11 +12898,28 @@ class PosApp {
         sheetsApiTokenInput.value = this.googleSheetsApiToken || '';
       }
     }
+    // ตรวจ 19 ต.ค. 2569 ข้อ 25: Telegram Token / Chat ID — เดิมรับทุกค่า พิมพ์ผิดตัวเดียวแจ้งเตือนเงียบหายทั้งหมด
+    // (ปิดกะ · ยกเลิกบิล · ลดค่าธรรมเนียมบัตร) · ผิดรูปแบบ = เตือน + คงค่าเดิม (แบบช่อง URL) · ว่าง = ปิดการแจ้งเตือน (ได้ตามเดิม)
+    // ตรวจเฉพาะค่าที่เปลี่ยน — ค่าที่ใช้งานอยู่แล้วไม่ถูกปฏิเสธย้อนหลัง
     if (telegramTokenInput) {
-      this.telegramToken = telegramTokenInput.value.trim();
+      const tok = String(telegramTokenInput.value == null ? '' : telegramTokenInput.value).trim();
+      if (tok === '' || tok === previous.telegramToken || /^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(tok)) {
+        this.telegramToken = tok;
+      } else {
+        this.showToast('Telegram Token ไม่ถูกต้อง — ต้องเป็นตัวเลข ตามด้วย : และรหัสยาว (คัดลอกจาก BotFather ทั้งบรรทัด) ' +
+          'ยังไม่บันทึก Token ใหม่ คงค่าเดิมไว้', 'warning', 8000);
+        telegramTokenInput.value = previous.telegramToken || '';
+      }
     }
     if (telegramChatIdInput) {
-      this.telegramChatId = telegramChatIdInput.value.trim();
+      const cid = String(telegramChatIdInput.value == null ? '' : telegramChatIdInput.value).trim();
+      if (cid === '' || cid === previous.telegramChatId || /^-?\d{3,20}$/.test(cid) || /^@[A-Za-z0-9_]{5,}$/.test(cid)) {
+        this.telegramChatId = cid;
+      } else {
+        this.showToast('Telegram Chat ID ไม่ถูกต้อง — ต้องเป็นตัวเลข (กลุ่มขึ้นต้นด้วย -) หรือชื่อช่องที่ขึ้นต้นด้วย @ ' +
+          'ยังไม่บันทึก Chat ID ใหม่ คงค่าเดิมไว้', 'warning', 8000);
+        telegramChatIdInput.value = previous.telegramChatId || '';
+      }
     }
 
     const urlChanged = this.googleSheetsUrl !== previous.googleSheetsUrl;
@@ -12097,13 +12927,11 @@ class PosApp {
     let rebound = false;   // bindCloudBackend ย้ายปลายทางจริง (บิลทั้งร้านกลับเป็นรอส่ง) — บอกหลังบันทึกสำเร็จ
     if (connectionChanged) {
       this._connectionGeneration = (this._connectionGeneration || 0) + 1;
-      let identified = '';
-      if (this.hasCloudSyncConfig()) {
-        try {
-          const response = await this.cloudPost('primary_status', {}, 15000);
-          if (response.status === 'success' && response.details) identified = String(response.details.backendId || '');
-        } catch (e) { /* Save offline; unknown changed destinations must be re-synced conservatively. */ }
-      }
+      // ข้อ 46: ผลถามตัวตน/คำตอบกล่องยืนยันมาจากขั้นก่อนเข้าคิว — ใช้ได้เฉพาะเมื่อค่าเดิมและค่าใหม่ยังเป็นชุดเดียวกับตอนถาม
+      // ไม่ตรง (ค่าเปลี่ยนระหว่างรอ / ถูกเรียกตรงโดยไม่ผ่านขั้นนั้น) = ไม่ยิงเน็ตในคิว ถือว่าระบุตัวตนไม่ได้ และไม่ย้าย URL เอง
+      const preOk = !!(pre && pre.prevUrl === (previous.googleSheetsUrl || '') && pre.prevToken === (previous.googleSheetsApiToken || '') &&
+        pre.url === (this.googleSheetsUrl || '') && pre.token === (this.googleSheetsApiToken || ''));
+      const identified = preOk ? String(pre.identified || '') : '';
       // เปลี่ยนแค่รหัสเชื่อมต่อ (URL เดิม = ปลายทางเดิม) แต่ถามตัวตนไม่สำเร็จ (ออฟไลน์/รหัสพิมพ์ผิด/ชีตล่ม)
       // → คงการผูกเดิมไว้ (ตรวจรอบ Claude 7 ต.ค. 2569) · เดิมผูกเป็น "url:…" ซึ่งถูกนับเป็นปลายทางใหม่
       //   ผลคือบิลทุกใบกลับเป็นรอส่ง + ลบสถานะเครื่องหลัก → ขายต่อไม่ได้จนกว่าจะต่อเน็ต/แก้รหัสให้ถูก
@@ -12111,16 +12939,13 @@ class PosApp {
       //   → ถามก่อนตีบิลทั้งร้านกลับเป็นรอส่ง · ไม่ยืนยัน = คง URL/การผูก/สถานะเครื่องหลักเดิม (บันทึกช่องอื่นต่อ)
       let keepUrl = false;
       if (urlChanged && !identified && this.googleSheetsUrl && previous.googleSheetsUrl) {
-        const billCount = (this.state.transactions || []).filter(tx => tx && !tx.sheetOnly).length;
-        const go = await this.askConfirm(
-          'ตรวจชีตปลายทางของ URL ใหม่ไม่ได้ (ออฟไลน์ · URL ผิด · ยังไม่ได้ Deploy · รหัสเชื่อมต่อไม่ตรง)\n\n' +
-          `ถ้ายืนยันใช้ URL นี้ ระบบจะถือว่าเป็นชีตใหม่: บิล ${billCount} ใบจะถูกส่งขึ้นชีตใหม่ทั้งหมด สรุปทุกงวดส่งใหม่ ` +
-          'และต้องยืนยันเครื่องหลักกับชีตใหม่ก่อนขายต่อ\n\nถ้าไม่แน่ใจ กดยกเลิก — ระบบคง URL เดิมไว้');
+        const go = preOk && pre.useNewUrl === true;
         if (!go) {
           keepUrl = true;
           this.googleSheetsUrl = previous.googleSheetsUrl;
           if (sheetsUrlInput) sheetsUrlInput.value = previous.googleSheetsUrl || '';
-          this.showToast('คง URL เดิมไว้ — ยังไม่ย้ายปลายทาง', 'info', 5000);
+          this.showToast(preOk ? 'คง URL เดิมไว้ — ยังไม่ย้ายปลายทาง'
+            : 'ค่าในช่องเปลี่ยนระหว่างตรวจชีตปลายทาง — คง URL เดิมไว้ กดบันทึกอีกครั้ง', 'info', 6000);
         }
       }
       const stillUrlChanged = urlChanged && !keepUrl;
@@ -12229,7 +13054,7 @@ class PosApp {
         const who = this.currentUser ? this.currentUser.id : null;
         this.holdCartForReturn(who);
         this.cancelPendingDialogs();
-        this.logout('ออกจากแอปไปนาน — ออกจากระบบเจ้าของร้านอัตโนมัติ กรุณาใส่ PIN ใหม่ (ตะกร้าที่ค้างจะกลับมาเมื่อเข้าระบบคนเดิม)', who);
+        this.logout('ออกจากแอปไปนาน — ออกจากระบบเจ้าของร้านอัตโนมัติ กรุณาใส่ PIN ใหม่ (ตะกร้าที่ค้างจะกลับมาเมื่อเข้าระบบคนเดิม ถ้าแอปไม่ได้ถูกปิด)', who);
         return;
       }
     }
@@ -12463,8 +13288,14 @@ class PosApp {
   // ผู้จัดการไม่ถูกตัดตอนไม่แตะจอ (อยู่ได้ทั้งกะ) — ใครหยิบเครื่องที่ค้างล็อกอินผู้จัดการไว้
   // จะยกเลิกบิลแบบ "คืนเงินแล้ว" แล้วเอาเงินสดออกได้ ต้องใส่ PIN ของคนที่ล็อกอินอยู่ทุกครั้ง
   // เจ้าของ (รวมบัญชีสิทธิ์เจ้าของ) ถูกตัดเมื่อไม่แตะจอ 5 นาทีอยู่แล้ว จึงไม่ถามซ้ำ
+  // ตรวจ 19 ต.ค. 2569 ข้อ 62: รายการที่อนุญาต (allowlist) — ข้ามเฉพาะเจ้าของ · ถามผู้จัดการ · บทบาทอื่น/ไม่ได้ล็อกอิน = ไม่อนุญาต
+  // (เดิม "ไม่ใช่ผู้จัดการ = ผ่าน" — วันหนึ่งที่ authorize() ถูกแก้ให้พนักงานทำรายการเสี่ยงได้ ด่านนี้จะเปิดเองโดยไม่มีใครรู้)
   async confirmPinStepUp(actionLabel) {
-    if (this.currentRole !== 'manager') return true;
+    if (this.currentRole === 'owner') return true;
+    if (this.currentRole !== 'manager') {
+      this.showToast(`${actionLabel || 'รายการนี้'} ทำได้เฉพาะผู้จัดการขึ้นไป`, 'warning');
+      return false;
+    }
     const st = (this.state.staff || []).find(s => this.currentUser && s.id === this.currentUser.id);
     if (!st || !st.pin) { this.showToast('ไม่พบ PIN ของบัญชีที่ล็อกอินอยู่ — ออกจากระบบแล้วเข้าใหม่', 'error'); return false; }
     // นับในบัญชีของผู้จัดการคนนี้ — PIN ที่พนักงานคนอื่นกดผิดไม่ทำให้ผู้จัดการยกเลิกบิล/ปิดกะไม่ได้
@@ -12618,9 +13449,14 @@ class PosApp {
   holdCartForReturn(uid) {
     const cart = this.state && Array.isArray(this.state.cart) ? this.state.cart : [];
     // ตรวจ 14 ต.ค. ข้อ 3: เก็บส่วนลดไปกับตะกร้า (ออกจากระบบล้างช่องส่วนลดแล้ว) — คืนเฉพาะคนเดิม
-    const discEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('cart-discount') : null;
+    const doc = (typeof document !== 'undefined' && document.getElementById) ? document : null;
+    const discEl = doc ? doc.getElementById('cart-discount') : null;
     const discount = discEl ? String(discEl.value == null ? '' : discEl.value) : '';
-    this._heldCart = (uid && cart.length) ? { uid, cart: this.cloneForRollback(cart), discount, at: Date.now() } : null;
+    // ตรวจ 19 ต.ค. 2569 ข้อ 34: หมายเหตุบิลที่พิมพ์ค้างไว้ + ลูกค้าที่เลือก ไปกับตะกร้าด้วย (เดิมหาย ต้องพิมพ์ใหม่) — คืนเฉพาะคนเดิม
+    const billNote = this.readNoteInput('checkout-bill-note').value;
+    const custEl = doc ? doc.getElementById('cart-customer-select') : null;
+    const customerId = custEl ? String(custEl.value == null ? '' : custEl.value) : '';
+    this._heldCart = (uid && cart.length) ? { uid, cart: this.cloneForRollback(cart), discount, billNote, customerId, at: Date.now() } : null;
   }
   restoreHeldCart() {
     const h = this._heldCart;
@@ -12628,8 +13464,15 @@ class PosApp {
     if (!h || !this.currentUser || h.uid !== this.currentUser.id) return false;
     if (Date.now() - h.at > 30 * 60 * 1000 || (Array.isArray(this.state.cart) && this.state.cart.length)) return false;
     this.state.cart = h.cart;
-    const discEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('cart-discount') : null;
+    const doc = (typeof document !== 'undefined' && document.getElementById) ? document : null;
+    const discEl = doc ? doc.getElementById('cart-discount') : null;
     if (discEl && h.discount !== undefined) discEl.value = h.discount;
+    const noteEl = doc ? doc.getElementById('checkout-bill-note') : null;
+    if (noteEl && h.billNote) noteEl.value = h.billNote;
+    // ลูกค้า: คืนเฉพาะตัวเลือกที่ยังมีอยู่ (ลูกค้าถูกลบระหว่างนั้น = ไม่เลือก)
+    const custEl = doc ? doc.getElementById('cart-customer-select') : null;
+    if (custEl && h.customerId && (h.customerId === 'google' || h.customerId === 'returning' ||
+        (this.state.customers || []).some(c => c && String(c.id) === h.customerId))) custEl.value = h.customerId;
     this.safeRender('ตะกร้า', () => this.renderCart());
     this.showToast(`คืนตะกร้าที่ค้างไว้ก่อนออกจากระบบ (${h.cart.length} รายการ) — ตรวจแล้วกดชำระเงินต่อได้`, 'info', 8000);
     return true;
@@ -12680,17 +13523,11 @@ class PosApp {
       if (sess.role === 'owner' || sess.uid === '__owner__') { await this.clearSavedSession(); return false; }
       // ผู้จัดการ/พนักงาน: นาฬิกาเครื่องย้อนไปก่อนเวลาที่บันทึกเซสชัน/รายการล่าสุด = ไม่เชื่อเซสชันนี้
       if (Date.now() < Math.max(Number(sess.ts) || 0, this.clockFloorTs()) - 2 * 60 * 1000) { await this.clearSavedSession(); return false; }
-      if (sess.uid === '__owner__') {
-        // เซสชันเจ้าของที่ค้างจากก่อนมีกติกาบังคับเปลี่ยน PIN — ต้องผ่านหน้าล็อกอิน (ซึ่งจะบังคับตั้ง PIN ใหม่)
-        if (await this.isDefaultOwnerPin()) { await this.clearSavedSession(); return false; }
-        this.currentUser = { id: '__owner__', name: 'เจ้าของร้าน' };
-        this.currentRole = 'owner';
-      } else {
-        const st = (this.state.staff || []).find(s => s.id === sess.uid);
-        if (!st || !st.pin) { await this.clearSavedSession(); return false; }
-        this.currentUser = { id: st.id, name: st.name };
-        this.currentRole = st.accessLevel || 'staff';
-      }
+      // (ตรวจ 19 ต.ค. 2569 ข้อ 67: ลบกิ่งคืนเซสชันเจ้าของหลัก '__owner__' ที่ไม่มีทางถึงแล้ว — ถูกปฏิเสธไปตั้งแต่บรรทัดก่อนหน้า)
+      const st = (this.state.staff || []).find(s => s.id === sess.uid);
+      if (!st || !st.pin) { await this.clearSavedSession(); return false; }
+      this.currentUser = { id: st.id, name: st.name };
+      this.currentRole = st.accessLevel || 'staff';
       if (sess.credential === undefined || sess.credential !== this.actorCredential()) {
         this.currentUser = null; this.currentRole = null; await this.clearSavedSession(); return false;
       }
@@ -12757,13 +13594,6 @@ class PosApp {
       const el = document.getElementById(id);
       if (el) el.style.display = role ? 'inline-flex' : 'none';
     });
-
-    // 3. ล้างช่อง PIN ในหน้าตั้งค่าเสมอ
-    const shopPinInput = document.getElementById('shop-owner-pin');
-    if (shopPinInput) {
-      shopPinInput.value = '';
-      shopPinInput.placeholder = 'กรอก PIN ใหม่ 6 หลักเพื่อเปลี่ยน';
-    }
 
     // 4. การ์ดส่งออก/นำเข้าข้อมูล — เฉพาะ owner
     const dataOptionsCard = document.querySelector('button[onclick="app.exportData()"]')?.closest('.glass-card');
@@ -12974,6 +13804,8 @@ class PosApp {
       if (n('expense'))     bits.push(`ค่าใช้จ่าย ${n('expense')} รายการ`);
       if (n('service'))     bits.push(`ราคา/ค่าคอมบริการ ${n('service')} รายการ`);
       if (n('shift'))       bits.push(`ตัวเลขกะ ${n('shift')} จุด`);
+      if (n('setting'))     bits.push(`ค่าตั้งค่า ${n('setting')} รายการ`);
+      if (n('load-list'))   bits.push(`ข้อมูลในเครื่องที่อ่านไม่ได้ ${n('load-list')} ชุด`);
       label.innerText = `มีรายการที่แยกไว้ตรวจสอบ: ${bits.join(' · ') || (list.length + ' รายการ')}`;
     }
   }
@@ -13069,6 +13901,95 @@ class PosApp {
       }
     );
   }
+  // ── ตรวจ 19 ต.ค. 2569 ข้อ 3: ตั้งค่าเงินตอนกู้/นำเข้าไฟล์ (VAT · อัตรา VAT · ค่าธรรมเนียมบัตร · พร้อมเพย์ · VAT ของหมวด) ──────
+  // เดิม "ของในไฟล์ชนะ" เงียบ ๆ — กู้ไฟล์ก่อนเปิด VAT แล้ว VAT ปิดเอง (เก็บ 1,000 แทน 1,070) · QR ชี้บัญชีพร้อมเพย์เก่า
+  // ตอนนี้: เครื่องที่ใช้งานอยู่แล้ว = คงค่าของเครื่องเป็นค่าเริ่มต้น (บอกรายการที่ต่าง · เลือกใช้ค่าในไฟล์ได้ชัด ๆ)
+  //        เครื่องใหม่ (ยังไม่มีอะไร) = ใช้ค่าในไฟล์ แล้วบอกค่าที่ได้ · ย้อนการกู้ (exactSettings) = ตรงทุกค่าเหมือนเดิม
+  // "เครื่องใหม่" = ไม่มีบิล ไม่มีกะ ไม่ได้ตั้งพร้อมเพย์ และตั้งค่าเงินยังเป็นค่าตั้งต้น
+  // (ไม่นับการตั้ง URL ชีต — กู้จาก Drive ต้องตั้ง URL ก่อนเสมอ ถ้านับ เครื่องใหม่ทุกเครื่องจะกลายเป็น "มีข้อมูล" แล้ว VAT ปิดค้าง)
+  restoreDeviceHasShopData() {
+    const st = this.state || {};
+    if (Array.isArray(st.transactions) && st.transactions.length) return true;
+    const sh = st.shift;
+    if (sh && typeof sh === 'object' && (sh.active === true || (Array.isArray(sh.history) && sh.history.length))) return true;
+    if (this.shopPromptPayId) return true;
+    if (this.vatEnabled || Number(this.vatRate) !== 7 || this.cardFeeRate !== CARD_FEE_DEFAULT_RATE) return true;
+    return false;
+  }
+
+  // รายการตั้งค่าเงินที่ไฟล์ต่างจากเครื่อง — ใช้ค่า "ที่จะถูกใช้จริง" ของไฟล์ (ค่าที่ใช้ไม่ได้ถูกแยกไปตรวจ ไม่นับเป็นความต่าง)
+  // เรียกได้ทั้งก่อนและหลัง sanitizeBackupData (ไม่แก้ไฟล์)
+  restoreMoneySettingsDiff(parsed) {
+    const p = (parsed && typeof parsed === 'object') ? parsed : {};
+    const short = (t, n) => { const x = Array.from(String(t == null ? '' : t)); return x.length > n ? x.slice(0, n - 1).join('') + '…' : x.join(''); };
+    const diffs = [];
+    if (typeof p.vatEnabled === 'boolean' && p.vatEnabled !== !!this.vatEnabled) {
+      diffs.push({ key: 'vatEnabled', label: 'VAT', device: this.vatEnabled ? 'เปิด' : 'ปิด', file: p.vatEnabled ? 'เปิด' : 'ปิด' });
+    }
+    const vr = (p.vatRate === undefined || p.vatRate === null) ? null : this.toFiniteNumber(p.vatRate);
+    if (vr !== null && Number.isInteger(vr) && vr >= 0 && vr <= 30 && vr !== Number(this.vatRate)) {
+      diffs.push({ key: 'vatRate', label: 'อัตรา VAT', device: `${this.vatRate}%`, file: `${vr}%` });
+    }
+    const cr = this.normalizeCardFeeRate(p.cardFeeRate, null);
+    if (cr !== null && cr !== this.cardFeeRate) {
+      diffs.push({ key: 'cardFeeRate', label: 'ค่าธรรมเนียมบัตร', device: `${this.cardFeeRate}%`, file: `${cr}%` });
+    }
+    if (typeof p.shopPromptPayId === 'string' && p.shopPromptPayId && p.shopPromptPayId !== (this.shopPromptPayId || '')) {
+      diffs.push({ key: 'shopPromptPayId', label: 'เลขพร้อมเพย์', device: this.shopPromptPayId || 'ยังไม่ได้ตั้ง', file: short(p.shopPromptPayId, 20) });
+    }
+    const devCats = new Map((Array.isArray(this.state && this.state.categories) ? this.state.categories : [])
+      .filter(c => c && typeof c === 'object' && c.id !== undefined && c.id !== null).map(c => [String(c.id), c]));
+    (Array.isArray(p.categories) ? p.categories : []).forEach(c => {
+      if (!c || typeof c !== 'object' || c.id === undefined || c.id === null) return;
+      const d = devCats.get(String(c.id));
+      if (!d || (c.vat === true) === (d.vat === true)) return;
+      diffs.push({ key: 'category:' + String(c.id), label: `VAT ของหมวด "${short(d.name || c.name || c.id, 30)}"`,
+        device: d.vat === true ? 'คิด VAT' : 'ไม่คิด VAT', file: c.vat === true ? 'คิด VAT' : 'ไม่คิด VAT' });
+    });
+    return diffs;
+  }
+
+  restoreMoneyDiffLines(diffs) {
+    return diffs.map(d => `· ${d.label}: เครื่องนี้ ${d.device} → ในไฟล์ ${d.file}`).join('\n');
+  }
+
+  // ถามเจ้าของว่าจะใช้ตั้งค่าเงินชุดไหน — คืน 'device' | 'file' | null (null = ยกเลิกการกู้ทั้งหมด)
+  // ไม่มีความต่าง/เครื่องใหม่ = ไม่ถาม (คืน undefined → ตัวกู้ตัดสินเองตามกติกาข้างบน)
+  // ขั้นแรก "ยืนยัน" = คงค่าของเครื่องนี้ (ทางที่แนะนำ) · จะใช้ค่าในไฟล์ต้องพิมพ์ยืนยันอีกขั้น — กดผ่าน ๆ จะไม่เปลี่ยนตั้งค่าเงิน
+  async askRestoreMoneySettings(parsed, actionLabel) {
+    if (!this.restoreDeviceHasShopData()) return undefined;
+    const diffs = this.restoreMoneySettingsDiff(parsed);
+    if (!diffs.length) return undefined;
+    const lines = this.restoreMoneyDiffLines(diffs);
+    const keep = await this.askConfirm(
+      `ตั้งค่าเงินในไฟล์ต่างจากเครื่องนี้ ${diffs.length} รายการ:\n${lines}\n\n` +
+      `กด "ยืนยัน" = ${actionLabel}ต่อ โดยคงตั้งค่าเงินของเครื่องนี้ไว้ (แนะนำ)\n` +
+      'กด "ยกเลิก" = ไม่คงค่าของเครื่องนี้ (ระบบจะถามต่อว่าจะใช้ค่าในไฟล์ไหม)');
+    if (keep) return 'device';
+    if (this.currentRole !== 'owner') return null;   // ระหว่างถามถูกออกจากระบบ = ไม่ทำต่อ
+    const useFile = await this.askTypedConfirm(
+      `ใช้ตั้งค่าเงินจากไฟล์แทนค่าของเครื่องนี้?\n${lines}\n\n` +
+      'บิลใบถัดไปจะคิดเงินตามค่าในไฟล์ (VAT/ค่าธรรมเนียมบัตร) และ QR จะโอนเข้าเลขพร้อมเพย์ในไฟล์\n' +
+      `กดยกเลิก = ยกเลิกการ${actionLabel}ทั้งหมด (ข้อมูลในเครื่องยังอยู่ครบ)`, 'ใช้ค่าในไฟล์');
+    return useFile ? 'file' : null;
+  }
+
+  // ── ตรวจ 19 ต.ค. 2569 ข้อ 39: ไฟล์จากเครื่องที่ "รับช่วงฉุกเฉินยังไม่ครบ" (ธงที่ buildBackupPayload เขียน) ──────
+  // เดิมไม่มีใครอ่านธงนี้ — นำเข้าทับ iPad ที่ข้อมูลครบได้ด้วยกล่องยืนยันธรรมดา (เหลือแต่บิลช่วงฉุกเฉิน)
+  backupIsRecoveryIncomplete(parsed) {
+    const r = parsed && parsed.recoveryStatus;
+    return !!(r && typeof r === 'object' && r.incomplete === true);
+  }
+  recoveryIncompleteFileWarning() {
+    return '⛔ ไฟล์นี้ทำจากเครื่องที่กำลัง "รับช่วงฉุกเฉิน" และข้อมูลยังไม่ครบ — ' +
+      'อาจมีเฉพาะบิล/กะที่เกิดระหว่างฉุกเฉิน ไม่มีประวัติร้านเดิมทั้งหมด · ' +
+      'ถ้ากู้ทับ ข้อมูลในเครื่องนี้จะถูกแทนด้วยไฟล์ที่ไม่ครบ ใช้เฉพาะเมื่อแน่ใจว่าไม่มีไฟล์ที่ครบกว่าแล้ว';
+  }
+  async confirmRecoveryIncompleteFile(parsed, actionLabel) {
+    if (!this.backupIsRecoveryIncomplete(parsed)) return true;
+    return this.askTypedConfirm(`${this.recoveryIncompleteFileWarning()}\n\nยืนยันจะ${actionLabel}จากไฟล์ที่ข้อมูลไม่ครบนี้?`, 'ไฟล์ไม่ครบ');
+  }
+
   // นำเข้าข้อมูลจากไฟล์ JSON
   importData(event) {
     const input = event.target;
@@ -13093,9 +14014,16 @@ class PosApp {
         const warn = this.describeBackupAudit(audit);
         if (!audit.clean) console.warn('[Import] ผลตรวจไฟล์:', audit, audit.damagedIds);
         const unsyncedWarn = this.unsyncedReplaceWarning(this.unsyncedBillCount());
+        // ตรวจ 19 ต.ค. 2569 ข้อ 39 / ข้อ 3: ไฟล์จากเครื่องฉุกเฉินที่ข้อมูลไม่ครบ · ตั้งค่าเงินที่ต่างจากเครื่องนี้ — บอกตั้งแต่กล่องแรก
+        const recoveryWarn = this.backupIsRecoveryIncomplete(parsed) ? this.recoveryIncompleteFileWarning() : '';
+        const moneyDiffs = this.restoreDeviceHasShopData() ? this.restoreMoneySettingsDiff(parsed) : [];
+        const moneyWarn = moneyDiffs.length
+          ? `ตั้งค่าเงินในไฟล์ต่างจากเครื่องนี้ (ระบบจะคงค่าของเครื่องนี้ไว้ — ถามอีกครั้งในขั้นถัดไป):\n${this.restoreMoneyDiffLines(moneyDiffs)}` : '';
         this.showConfirm(
+          (recoveryWarn ? recoveryWarn + '\n\n──────────\n\n' : '') +
           (unsyncedWarn ? unsyncedWarn + '\n\n──────────\n\n' : '') +
           (warn ? warn + '\n\n──────────\n\n' : '') +
+          (moneyWarn ? moneyWarn + '\n\n──────────\n\n' : '') +
           `นำเข้าข้อมูลจากไฟล์นี้และเขียนทับข้อมูลในเครื่องทั้งหมดใช่ไหม? (ไฟล์มีบิล ${audit.txTotal} ใบ)\n\n` +
           `ตอนนี้ในเครื่องมีบิล ${this.state.transactions.length} รายการ\n` +
           'ระบบจะเก็บสำเนาของ "ตอนนี้" ไว้ในเครื่องให้ก่อน (ย้อนกลับได้ที่ปุ่มในหน้าตั้งค่า)',
@@ -13103,9 +14031,16 @@ class PosApp {
             if (this.restoreBusy) return;
             this.restoreBusy = true;
             try {
+              const cancelled = () => this.showToast('ยกเลิกการนำเข้าข้อมูลแล้ว — ข้อมูลในเครื่องยังอยู่ครบ', 'info', 5000);
+              // ข้อ 39: ไฟล์ไม่ครบ → พิมพ์ยืนยัน (ยกเลิก = ไม่แตะข้อมูล)
+              if (!await this.confirmRecoveryIncompleteFile(parsed, 'นำเข้าข้อมูล')) { cancelled(); return; }
+              // ข้อ 3: ตั้งค่าเงินที่ต่าง — คงของเครื่อง (แนะนำ) หรือพิมพ์ยืนยันใช้ค่าในไฟล์
+              const money = await this.askRestoreMoneySettings(parsed, 'นำเข้าข้อมูล');
+              if (money === null) { cancelled(); return; }
               // ตรวจ 8 ต.ค. 2569 ข้อ 3: บิลที่ยังไม่ขึ้นชีต → พิมพ์ "ยอมรับ" ก่อน (ยกเลิก = ไม่แตะข้อมูล)
-              const acceptOpts = await this.confirmUnsyncedReplace('นำเข้าข้อมูล');
-              if (!acceptOpts) { this.showToast('ยกเลิกการนำเข้าข้อมูลแล้ว — ข้อมูลในเครื่องยังอยู่ครบ', 'info', 5000); return; }
+              const acceptOpts0 = await this.confirmUnsyncedReplace('นำเข้าข้อมูล');
+              if (!acceptOpts0) { cancelled(); return; }
+              const acceptOpts = money ? Object.assign({}, acceptOpts0, { moneySettings: money }) : acceptOpts0;
               // สำเนาของ "ตอนนี้" ถูกถ่าย ณ วินาทีที่แทนข้อมูลจริง (ในคิวงานบันทึก) — ไม่ใช่ตอนเปิดไฟล์
               // และลงเครื่องพร้อมข้อมูลใหม่ใน transaction เดียว (สำเร็จทั้งคู่หรือไม่เปลี่ยนอะไรเลย)
               const imported = await this.withMutation('นำเข้าข้อมูล', async () => {
@@ -13905,15 +14840,25 @@ class PosApp {
       }
     }
 
-    // อัตรา VAT จากไฟล์ — ช่วงเดียวกับหน้าตั้งค่า (0–30%) · เดิมรับทุกค่า ไฟล์ที่เขียนว่า 700 ทำให้คิด VAT 7 เท่า
+    // อัตรา VAT จากไฟล์ — กติกาเดียวกับหน้าตั้งค่า (จำนวนเต็ม 0–30%) · เดิมรับทุกค่า ไฟล์ที่เขียนว่า 700 ทำให้คิด VAT 7 เท่า
+    // ตรวจ 19 ต.ค. 2569 ข้อ 56: ทศนิยม (เช่น 7.5) เดิมผ่าน — ขัดกติกาเลขจำนวนเต็มของเจ้าของ → แยกไปตรวจเหมือนค่าเกินช่วง
     if (parsed.vatRate !== undefined && parsed.vatRate !== null) {
       const vr = this.toFiniteNumber(parsed.vatRate);
-      if (vr === null || vr < 0 || vr > 30) {
+      if (vr === null || vr < 0 || vr > 30 || !Number.isInteger(vr)) {
         quarantined.push({ kind: 'setting', id: 'vatRate', reasons: ['bad-vatRate'],
-          message: 'อัตรา VAT ในไฟล์ใช้ไม่ได้ (ต้องอยู่ระหว่าง 0–30%) — คงอัตราเดิมของเครื่องไว้',
+          message: 'อัตรา VAT ในไฟล์ใช้ไม่ได้ (ต้องเป็นจำนวนเต็ม 0–30%) — คงอัตราเดิมของเครื่องไว้',
           original: copy({ vatRate: parsed.vatRate }), quarantinedAt: stamp });
         delete parsed.vatRate; fixed++;
-      } else if (Math.round(vr * 100) / 100 !== parsed.vatRate) { parsed.vatRate = Math.round(vr * 100) / 100; fixed++; }
+      } else if (vr !== parsed.vatRate) { parsed.vatRate = vr; fixed++; }
+    }
+    // ตรวจ 19 ต.ค. 2569 ข้อ 64: โลโก้จากไฟล์ไม่มีเพดาน — ไฟล์ปลอมฝังรูป 20 MB ผ่านแล้วบวมทุกการบันทึก/สำรอง
+    // เกินเพดาน = ไม่รับ คงโลโก้เดิมของเครื่อง · เก็บแค่ขนาดไว้ในรายการตรวจ (ไม่เก็บตัวรูป — ไม่งั้นบวมเหมือนเดิม)
+    const LOGO_MAX_CHARS = 1.5 * 1048576;   // ~1.5 MB ของข้อความ data URL (โลโก้จริงหลังย่อในหน้าตั้งค่าเล็กกว่านี้มาก)
+    if (typeof parsed.shopLogo === 'string' && parsed.shopLogo.startsWith('data:image/') && parsed.shopLogo.length > LOGO_MAX_CHARS) {
+      quarantined.push({ kind: 'setting', id: 'shopLogo', reasons: ['logo-too-large'],
+        message: `โลโก้ในไฟล์ใหญ่เกิน ${(LOGO_MAX_CHARS / 1048576).toFixed(1)} MB — ไม่ได้นำเข้า คงโลโก้เดิมของเครื่องไว้ (ตั้งโลโก้ใหม่ที่หน้าตั้งค่าได้)`,
+        original: { length: parsed.shopLogo.length, head: parsed.shopLogo.slice(0, 40) }, quarantinedAt: stamp });
+      delete parsed.shopLogo; fixed++;
     }
     // อัตราค่าธรรมเนียมบัตรจากไฟล์ — กติกาเดียวกับหน้าตั้งค่า (จำนวนเต็ม 0–30%) · ใช้ไม่ได้ = คงอัตราเดิมของเครื่อง
     if (parsed.cardFeeRate !== undefined && parsed.cardFeeRate !== null) {
@@ -14018,10 +14963,25 @@ class PosApp {
     }
     this.sanitizeBackupData(parsed);
 
+    // ตรวจ 19 ต.ค. 2569 ข้อ 3: ตั้งค่าเงินชุดไหนจะถูกใช้ — ตัดสินจากสภาพเครื่อง "ก่อน" แทนข้อมูล
+    //   exact  = ย้อนการกู้ (exactSettings) ตรงทุกค่าตามสำเนา · file = ใช้ค่าในไฟล์ (เจ้าของพิมพ์ยืนยัน หรือเครื่องใหม่)
+    //   device = คงค่าของเครื่องนี้ (เจ้าของเลือก หรือค่าเริ่มต้นของเครื่องที่ใช้งานอยู่แล้ว)
+    const exactSettings = !!(opts && opts.exactSettings);
+    const moneyDiffs = exactSettings ? [] : this.restoreMoneySettingsDiff(parsed);
+    const moneyMode = exactSettings ? 'exact'
+      : (opts && (opts.moneySettings === 'file' || opts.moneySettings === 'device')) ? opts.moneySettings
+      : (this.restoreDeviceHasShopData() ? 'device' : 'file');
+
     // เปลี่ยนข้อมูลทั้งก้อน: หากเขียน IndexedDB ไม่สำเร็จ ต้องกลับสู่ข้อมูลเดิมในหน่วยความจำด้วย
     const restoreCartDiscount = this.snapshotCartDiscountForRollback();
+    // ตรวจ 19 ต.ค. 2569 ข้อ 26: คิวงานคลาวด์ "ไม่" คืนด้วยสำเนาลึก — คืนอาเรย์ตัวเดิม (งานตัวเดิม)
+    // รอบส่งที่กำลังวิ่งเขียน needTelegram=false ลงงานตัวเดิม · คืนสำเนาลึก = Telegram ปิดกะ/ยกเลิกบิลส่งซ้ำ
+    // (ตัวกู้ไม่แก้งานในคิวเดิม — อ่านอย่างเดียว แล้วสร้างคิวใหม่)
+    const outboxRef = this.state.cloudOutbox;
+    const stateCopy = this.cloneForRollback(Object.assign({}, this.state, { cloudOutbox: [] }));
+    stateCopy.cloudOutbox = outboxRef;
     const rollback = {
-      state: this.cloneForRollback(this.state),
+      state: stateCopy,
       shopPromptPayId: this.shopPromptPayId,
       shopName: this.shopName,
       shopTagline: this.shopTagline,
@@ -14064,6 +15024,16 @@ class PosApp {
       return out;
     });
     if (Array.isArray(parsed.categories)) this.state.categories = parsed.categories;   // ตรวจ 14 ต.ค. ข้อ 17: [] ในไฟล์ = ไม่มีหมวดจริง
+    // ข้อ 3: คงค่าของเครื่อง = ธง VAT ของหมวดที่มีทั้งในเครื่องและในไฟล์ (รหัสเดียวกัน) ใช้ของเครื่อง · หมวดใหม่จากไฟล์ใช้ธงในไฟล์
+    if (moneyMode === 'device' && Array.isArray(this.state.categories)) {
+      const devCats = new Map((Array.isArray(rollback.state && rollback.state.categories) ? rollback.state.categories : [])
+        .filter(c => c && typeof c === 'object' && c.id !== undefined && c.id !== null).map(c => [String(c.id), c]));
+      this.state.categories.forEach(c => {
+        if (!c || typeof c !== 'object' || c.id === undefined || c.id === null) return;
+        const d = devCats.get(String(c.id));
+        if (d && (c.vat === true) !== (d.vat === true)) c.vat = d.vat === true;
+      });
+    }
     this.state.customers = Array.isArray(parsed.customers) ? parsed.customers : [];
     this.state.queue = Array.isArray(parsed.queue) ? parsed.queue : [];
     // ── syncStatus จากไฟล์ใช้เป็นหลักฐานไม่ได้ ────────────────────────────
@@ -14180,7 +15150,7 @@ class PosApp {
         const lv = lateVoids.get(String(tx.id));
         if (lv) {
           const who = lv.by ? ` โดย ${lv.by}` : '';
-          const money = lv.moneyOutcome === 'refunded' ? ' (บันทึกว่าคืนเงินแล้ว)' : lv.moneyOutcome === 'none' ? ' (บันทึกว่าไม่มีเงินเคลื่อนไหว)' : '';
+          const money = lv.moneyOutcome === 'refunded' ? ' (บันทึกว่าเอาเงินของบิลออกจากยอดที่ควรมี)' : lv.moneyOutcome === 'none' ? ' (บันทึกว่าเงินของบิลยังอยู่ที่ร้าน)' : '';
           this.markBillSyncIssue(tx, { kind: 'conflict', code: 'ALREADY_VOIDED', voidedAt: lv.voidedAt, fromRestore: true,
             localVoidPending: true, voidedBy: lv.by, moneyOutcome: lv.moneyOutcome,
             ...(lv.synced ? { localVoidSynced: true } : {}),   // ตรวจ 14 ต.ค. ข้อ 1: คำสั่งลบถึงชีตแล้ว (ข้อความต้องไม่บอกว่ายังไม่ถึง)
@@ -14309,12 +15279,14 @@ class PosApp {
       localJobs.forEach(j => this.state.cloudOutbox.push(j));
       // ตรวจ 13 ต.ค. 2569 ข้อ 16: ข้อความ Telegram ที่เครื่องนี้ยังส่งไม่ออก (รายงานปิดกะ/แจ้งยกเลิกบิล) = เหตุการณ์ที่เกิดขึ้นจริง
       // ไม่ใช่ข้อมูลของชุดเก่า — เดิมถูกทิ้งไปกับคิวเดิมเงียบ ๆ · ตอนนี้พกไปส่งต่อ (เฉพาะข้อความ ไม่พกงานส่วนอื่นของงานนั้น)
+      // ตรวจ 19 ต.ค. 2569 ข้อ 26: จำว่าพกมาจากงานไหน (carriedFrom) — ถ้างานเดิมส่งถึงอยู่แล้วระหว่างกู้ (รอบส่งที่ค้างอยู่ได้คำตอบทีหลัง)
+      // รอบส่งนั้นทิ้งสำเนานี้เอง ไม่ส่งซ้ำ (ดู _doFlushCloudOutbox)
       const tgCarry = oldOutbox.filter(j => j && j.needTelegram && typeof j.telegramMessage === 'string' && j.telegramMessage);
-      tgCarry.forEach(j => this.state.cloudOutbox.push({
+      tgCarry.forEach(j => this.state.cloudOutbox.push(Object.assign({
         id: `cob-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, createdAt: Number(j.createdAt) || Date.now(),
         dateKeys: [], monthKeys: [], needSummary: false, needVoidDelete: false, needBackup: false,
         needTelegram: true, telegramMessage: j.telegramMessage, tries: 0, carriedFromBeforeRestore: true
-      }));
+      }, (j.carriedFrom || j.id) ? { carriedFrom: String(j.carriedFrom || j.id) } : {})));
       this._restoreTelegramKept = tgCarry.length;
     }
 
@@ -14348,6 +15320,13 @@ class PosApp {
     if (carried.length) this.state.cloudOutbox = this.state.cloudOutbox.filter(j => !carried.includes(j));
     this.buildRestoreSummaryJobs([...allDates], [...allMonths], Date.now())
       .forEach(job => this.state.cloudOutbox.push(job));
+    // ตรวจ 19 ต.ค. 2569 ข้อ 30: สำรองข้อมูลชุดที่เพิ่งกู้ขึ้น Drive ทันที — เดิมไม่สั่ง ไฟล์ล่าสุดบน Drive ยังเป็นข้อมูลก่อนกู้
+    // (เครื่องอื่น/เครื่องใหม่ที่กด "กู้ไฟล์ล่าสุด" จะได้ข้อมูลชุดที่เพิ่งถูกแทนกลับมา) · ส่งรอบถัดไปเลย ไม่รอรวมรอบ
+    // ยกเว้นระหว่างรับช่วงฉุกเฉินที่ยังไม่ครบ — สำรองถูกพักไว้จนปลดพักอยู่แล้ว
+    if (!this.isRecoveryIncomplete()) {
+      const bj = this.planChangeBackup('restore');
+      if (bj && bj.retry && bj.retry.backup && !(bj.retry.backup.tries > 0)) bj.retry.backup.nextAt = 0;
+    }
     this.resetCartState();   // ตรวจ 14 ต.ค. ข้อ 3
 
     this.state.shift = (parsed.shift && typeof parsed.shift === 'object' && !Array.isArray(parsed.shift))
@@ -14360,8 +15339,9 @@ class PosApp {
 
     // exactSettings (ใช้ตอน "ย้อนกลับไปก่อนกู้ข้อมูล"): ค่าว่างในสำเนาคือค่าจริงของเครื่องตอนนั้น ต้องคืนเป็นค่าว่างด้วย
     // เดิมข้ามค่าว่าง → พร้อมเพย์/แชท Telegram ของไฟล์ที่กู้ผิดค้างอยู่หลังย้อน (QR ชี้ไปบัญชีคนอื่น)
-    const exactSettings = !!(opts && opts.exactSettings);
-    if (exactSettings ? typeof parsed.shopPromptPayId === 'string' : parsed.shopPromptPayId) this.shopPromptPayId = parsed.shopPromptPayId;
+    // ข้อ 3: ตั้งค่าเงิน (พร้อมเพย์ · VAT · อัตรา VAT · ค่าธรรมเนียมบัตร) ใช้ค่าในไฟล์เฉพาะ moneyMode 'exact'/'file'
+    const takeMoney = moneyMode !== 'device';
+    if (takeMoney && (exactSettings ? typeof parsed.shopPromptPayId === 'string' : parsed.shopPromptPayId)) this.shopPromptPayId = parsed.shopPromptPayId;
     if (parsed.shopName) this.shopName = parsed.shopName;
     if (parsed.shopTagline) this.shopTagline = parsed.shopTagline;
     if (typeof parsed.shopAddress === 'string') this.shopAddress = parsed.shopAddress;
@@ -14371,10 +15351,12 @@ class PosApp {
       this.shopLogo = parsed.shopLogo;
     }
     if (parsed.theme) this.theme = parsed.theme;
-    if (typeof parsed.vatEnabled === 'boolean') this.vatEnabled = parsed.vatEnabled;
-    if (parsed.vatRate !== undefined && parsed.vatRate !== null && Number.isFinite(Number(parsed.vatRate))) this.vatRate = Number(parsed.vatRate);
-    // ค่าธรรมเนียมบัตร: ไฟล์รุ่นก่อน 6 ต.ค. 2569 ไม่มีค่านี้ = คงอัตราของเครื่องไว้ (ไม่เดาเป็น 0) · ค่าเสียถูกแยกไว้แล้วใน sanitizeBackupData
-    { const cr = this.normalizeCardFeeRate(parsed.cardFeeRate, null); if (cr !== null) this.cardFeeRate = cr; }
+    if (takeMoney) {
+      if (typeof parsed.vatEnabled === 'boolean') this.vatEnabled = parsed.vatEnabled;
+      if (parsed.vatRate !== undefined && parsed.vatRate !== null && Number.isFinite(Number(parsed.vatRate))) this.vatRate = Number(parsed.vatRate);
+      // ค่าธรรมเนียมบัตร: ไฟล์รุ่นก่อน 6 ต.ค. 2569 ไม่มีค่านี้ = คงอัตราของเครื่องไว้ (ไม่เดาเป็น 0) · ค่าเสียถูกแยกไว้แล้วใน sanitizeBackupData
+      { const cr = this.normalizeCardFeeRate(parsed.cardFeeRate, null); if (cr !== null) this.cardFeeRate = cr; }
+    }
     // ไม่รับ ownerPin / telegramToken / googleSheetsApiToken จากไฟล์สำรอง
     // เพราะไฟล์ที่ถูกแก้หรือหลุดออกไปต้องไม่มีสิทธิ์เปลี่ยนบัญชีหรือเข้าถึงคลาวด์ของเครื่องนี้
 
@@ -14414,6 +15396,19 @@ class PosApp {
     this.safeRender('ธีม', () => this.applyTheme());
     this.safeRender('โลโก้', () => this.updateLogoPreview());
     this.vibrateDevice(100);
+
+    // ข้อ 3: บอกเสมอว่าตั้งค่าเงินชุดไหนถูกใช้ (เฉพาะเมื่อไฟล์กับเครื่องต่างกัน) — เดิมเงียบ
+    if (moneyDiffs.length && moneyMode === 'device') {
+      this.showToast('คงตั้งค่าเงินของเครื่องนี้ไว้ (ไม่ใช้ค่าในไฟล์): ' +
+        moneyDiffs.map(d => `${d.label} ${d.device}`).join(' · ') + ' — ดู/แก้ได้ที่หน้าตั้งค่า', 'info', 12000);
+    } else if (moneyDiffs.length && moneyMode === 'file') {
+      this.showToast('ใช้ตั้งค่าเงินจากไฟล์: ' + moneyDiffs.map(d => `${d.label} ${d.file}`).join(' · ') +
+        ' — ตรวจที่หน้าตั้งค่าก่อนขายบิลถัดไป', 'warning', 15000);
+    }
+    // ข้อ 64: โลโก้ในไฟล์ใหญ่เกินเพดาน — ไม่ได้นำเข้า
+    if ((this._lastSanitizeQuarantine || []).some(r => r && r.kind === 'setting' && r.id === 'shopLogo')) {
+      this.showToast('โลโก้ในไฟล์ใหญ่เกินไป — ไม่ได้นำเข้า (คงโลโก้เดิม) ตั้งโลโก้ใหม่ที่หน้าตั้งค่าได้', 'warning', 9000);
+    }
 
     // บัญชีเจ้าของสำรอง/ผู้จัดการที่ยังไม่มี PIN ในเครื่องนี้ (ไฟล์สำรองตัด PIN ของบัญชีเหล่านี้ออกโดยตั้งใจ)
     // เดิมไม่บอก — ชื่อหายจากหน้าล็อกอินเงียบ ๆ ผู้จัดการที่ต้องปิดกะคืนนั้นเข้าระบบไม่ได้ (รอบตรวจ 5 ข้อ 5)
@@ -14650,9 +15645,16 @@ class PosApp {
             if (!goOn) { this.showToast('ยกเลิกการกู้ข้อมูลแล้ว — ข้อมูลในเครื่องยังอยู่ครบ', 'info', 5000); return; }
           }
 
+          const cancelled = () => this.showToast('ยกเลิกการกู้ข้อมูลแล้ว — ข้อมูลในเครื่องยังอยู่ครบ', 'info', 5000);
+          // 2.2) ตรวจ 19 ต.ค. 2569 ข้อ 39: ไฟล์จากเครื่องฉุกเฉินที่ข้อมูลไม่ครบ → คำเตือนแดง + พิมพ์ยืนยัน
+          if (!await this.confirmRecoveryIncompleteFile(parsed, 'กู้ข้อมูล')) { cancelled(); return; }
+          // 2.3) ข้อ 3: ตั้งค่าเงินในไฟล์ต่างจากเครื่องนี้ — บอกรายการที่ต่าง · คงค่าของเครื่องเป็นค่าเริ่มต้น
+          const money = await this.askRestoreMoneySettings(parsed, 'กู้ข้อมูล');
+          if (money === null) { cancelled(); return; }
           // 2.5) บิลที่ยังไม่ขึ้นชีต (ตรวจ 8 ต.ค. 2569 ข้อ 3) — นับใหม่ ณ ตอนนี้ (ระหว่างดาวน์โหลดร้านยังขายได้) แล้วให้พิมพ์ยอมรับ
-          const acceptOpts = await this.confirmUnsyncedReplace('กู้ข้อมูล');
-          if (!acceptOpts) { this.showToast('ยกเลิกการกู้ข้อมูลแล้ว — ข้อมูลในเครื่องยังอยู่ครบ', 'info', 5000); return; }
+          const acceptOpts0 = await this.confirmUnsyncedReplace('กู้ข้อมูล');
+          if (!acceptOpts0) { cancelled(); return; }
+          const acceptOpts = money ? Object.assign({}, acceptOpts0, { moneySettings: money }) : acceptOpts0;
 
           // 3) แทนข้อมูล — ในคิวงานบันทึก: รอการขาย/ยกเลิก/ปิดกะที่ค้างอยู่ให้จบก่อน
           //    แล้วถ่ายสำเนา "ตอนนี้" + เขียนข้อมูลใหม่ ลงเครื่องใน transaction เดียว
@@ -14734,6 +15736,20 @@ class PosApp {
       .some(tx => tx && String(tx.id) === key);
   }
 
+  // ตรวจ 19 ต.ค. 2569 ข้อ 7: แถวในแท็บ monthKey เป็น "แถวรุ่นแรกตามเดือนปฏิทิน" ของบิลนี้ไหม
+  // กติกาเดียวกับ legacyBillMonthMatches_ (Apps Script): บิลขายวันที่ 1 เวลาไทย 00:00–05:59 (วันทำการยังเป็นเดือนก่อน)
+  // และแท็บที่พบคือเดือนปฏิทินของบิล = เดือนถัดจากเดือนทำการ — กรณีอื่นที่อยู่คนละแท็บยังเป็น "ผิดแท็บ" ตามเดิม
+  isLegacyCalendarTabRow(monthKey, tx) {
+    if (!tx || !this.isValidMonthKey(monthKey)) return false;
+    const ts = new Date(tx.date).getTime();
+    if (!Number.isFinite(ts)) return false;
+    const local = new Date(ts + 7 * 3600000);   // เวลาไทย (ไม่มีเวลาออมแสง)
+    if (local.getUTCDate() !== 1 || local.getUTCHours() >= 6) return false;
+    const calKey = String(local.getUTCMonth() + 1).padStart(2, '0') + '-' + local.getUTCFullYear();
+    const bizKey = this.getBusinessMonthKey(ts);
+    return calKey === monthKey && bizKey !== monthKey && this.isValidMonthKey(bizKey);
+  }
+
   // ผลตรวจใช้ไม่ได้แล้ว — ต้องล้างหน้าจอด้วย ไม่ใช่ปล่อยปุ่มเดิมค้างให้กดได้
   renderReconcileStale() {
     const body = document.getElementById('reconcile-body');
@@ -14788,9 +15804,14 @@ class PosApp {
       // ⚠️ ชุด ID ของบิลในเครื่อง "ทุกเดือน" — กันเคสที่อันตรายที่สุดของเครื่องมือนี้:
       // บิลที่ยังมีชีวิตอยู่ในเครื่อง แต่แถวของมันไปอยู่ผิดแท็บเดือนบนชีต (ห้ามเสนอให้ลบ)
       const localMonthOf = new Map();
+      const localTxOf = new Map();
       (Array.isArray(this.state.transactions) ? this.state.transactions : []).forEach(tx => {
-        if (tx && tx.id != null) localMonthOf.set(String(tx.id), tx.date ? this.getBusinessMonthKey(tx.date) : '');
+        if (tx && tx.id != null) { localMonthOf.set(String(tx.id), tx.date ? this.getBusinessMonthKey(tx.date) : ''); localTxOf.set(String(tx.id), tx); }
       });
+      // ตรวจ 19 ต.ค. 2569 ข้อ 7: แถวรุ่นแรกที่ Apps Script เขียนตามเดือนปฏิทิน (บิลขาย 00:00–05:59 ของวันที่ 1 อยู่แท็บเดือนถัดไป)
+      // = แถวของบิลนั้นเอง (กติกาเดียวกับ legacyBillMonthMatches_ ฝั่ง Apps Script ซึ่งแก้แถวนั้นในที่เดิมเมื่อส่งซ้ำ)
+      // เดิมขึ้นเป็น "อยู่ผิดแท็บ" + "หายจากเดือนของมัน" แล้วแนะนำให้ลบแถวเองด้วยมือ = ลบแถวเดียวของบิล ส่งซ้ำได้ CROSS_MONTH ตลอดไป
+      const legacyRowIds = new Set(), legacyRowInfo = new Map(), ownRowSeen = new Set();
       // บิลที่ถูก "แยกไว้ตรวจสอบ" ตอนกู้ข้อมูล (ตัวเลขเงินเชื่อไม่ได้) ไม่อยู่ในรายการบิล แต่ยังเป็นยอดขายจริงที่รอคนตรวจ
       // แถวของมันบนชีตห้ามถูกเสนอปุ่มลบ (เดิมไปโผล่ในกลุ่ม "มีบนชีตแต่ไม่มีในเครื่อง" พร้อมปุ่มลบ)
       const quarantinedIds = this.quarantinedBillIds();
@@ -14860,15 +15881,24 @@ class PosApp {
               return;
             }
             const b = list[0];
-            const tx = localMap.get(id);
+            const rowInfo = { monthKey: mk, id, when: b.when || '', customer: b.customer || '',
+                              total: Number(b.total) || 0, idOk: b.idOk !== false, row: b.row,
+                              localMonthKey: localMonthOf.get(id) || '',
+                              // เจ้าของเคยยอมรับว่ารายละเอียดหาย (ทะเบียนบนชีต) — แถวนี้คือหลักฐานเดียวของยอด: นำเข้า ไม่ใช่ลบ
+                              acceptedLoss: b.acceptedLoss === true, sheetRow: b.acceptedLoss === true ? Object.assign({ month: mk }, b) : undefined,
+                              acceptedUnknown: acceptedUnknown && b.acceptedLoss !== true };
+            let tx = localMap.get(id);
+            let legacy = false;
+            if (tx) ownRowSeen.add(id);
+            else if (localTxOf.has(id) && this.isLegacyCalendarTabRow(mk, localTxOf.get(id))) {
+              tx = localTxOf.get(id);   // ข้อ 7: แถวของบิลนี้เอง (แท็บเดือนปฏิทิน) — เทียบข้อมูลตามปกติ ไม่ใช่ "ผิดแท็บ"
+              legacy = true;
+              legacyRowIds.add(id);
+              legacyRowInfo.set(id, rowInfo);
+            }
             if (!tx) {
               const bucket = localMonthOf.has(id) ? result.wrongTab : (quarantinedIds.has(id) ? result.quarantined : result.extra);
-              bucket.push({ monthKey: mk, id, when: b.when || '', customer: b.customer || '',
-                            total: Number(b.total) || 0, idOk: b.idOk !== false, row: b.row,
-                            localMonthKey: localMonthOf.get(id) || '',
-                            // เจ้าของเคยยอมรับว่ารายละเอียดหาย (ทะเบียนบนชีต) — แถวนี้คือหลักฐานเดียวของยอด: นำเข้า ไม่ใช่ลบ
-                            acceptedLoss: b.acceptedLoss === true, sheetRow: b.acceptedLoss === true ? Object.assign({ month: mk }, b) : undefined,
-                            acceptedUnknown: acceptedUnknown && b.acceptedLoss !== true });
+              bucket.push(rowInfo);
               return;
             }
             // บิลจากชีต: เทียบได้แค่ยอด/รุ่นกับแถวตอนยอมรับ (ไม่มีรายละเอียดให้เทียบทีละช่อง และส่งทับไม่ได้)
@@ -14876,7 +15906,7 @@ class PosApp {
               const sameTotal = Math.round((Number(tx.total) || 0) * 100) === Math.round((Number(b.total) || 0) * 100);
               const sameVersion = String(tx.sheetOnly.version || '') === String(b.version || '').trim();
               if (!sameTotal || !sameVersion) {
-                result.mismatch.push({ monthKey: mk, id, when: b.when || '', sheetOnly: true,
+                result.mismatch.push({ monthKey: mk, id, when: b.when || '', sheetOnly: true, ...(legacy ? { legacyRow: true } : {}),
                   fields: [{ label: 'บิลจากชีต: แถวบนชีตเปลี่ยนหลังยอมรับ', local: `${tx.total} (${tx.sheetOnly.version || '-'})`, cloud: `${b.total} (${b.version || '-'})` }],
                   localTotal: Math.round((Number(tx.total) || 0) * 100) / 100, cloudTotal: Math.round((Number(b.total) || 0) * 100) / 100 });
               }
@@ -14884,13 +15914,15 @@ class PosApp {
             }
             const diffs = this.reconcileFieldDiffs(tx, b);
             if (diffs.length) {
-              result.mismatch.push({ monthKey: mk, id, when: b.when || '', fields: diffs,
+              result.mismatch.push({ monthKey: mk, id, when: b.when || '', fields: diffs, ...(legacy ? { legacyRow: true } : {}),
                 localTotal: Math.round((Number(tx.total) || 0) * 100) / 100, cloudTotal: Math.round((Number(b.total) || 0) * 100) / 100 });
             }
           });
           localMap.forEach((tx, id) => {
             if (byId.has(id)) return;
             if (tx.syncStatus === 'conflict') { result.conflicts.push({ monthKey: mk, id }); return; }
+            // ข้อ 7: แถวรุ่นแรกอยู่แท็บเดือนถัดไป (ยังไม่ได้อ่านแท็บนั้นในรอบนี้) — ตัดออกหลังอ่านครบทุกเดือน (ดูท้ายลูป)
+            if (legacyRowIds.has(id)) return;
             result.missing.push({
               monthKey: mk, id, total: Number(tx.total) || 0,
               customer: tx.customerName || '',
@@ -14899,6 +15931,21 @@ class PosApp {
             });
           });
         }
+        // ข้อ 7: เดือนถูกอ่านใหม่ → เก่า แท็บเดือนถัดไป (ที่มีแถวรุ่นแรก) จึงมักถูกอ่านก่อน — แต่กันลำดับอื่นไว้ด้วย:
+        // บิลที่พบแถวรุ่นแรกแล้วไม่ใช่ "มีในเครื่องแต่ไม่มีบนชีต"/"บิลรอตรวจที่ไม่มีแถว"
+        // บิลที่มีแถวในแท็บเดือนของมันเองด้วย = แถวในแท็บเดือนถัดไปเป็นแถวเกินจริง (ไม่ใช่แถวเดียวของบิล) → กลับไปเป็น "ผิดแท็บ"
+        legacyRowInfo.forEach((info, id) => {
+          if (!ownRowSeen.has(id)) return;
+          legacyRowIds.delete(id);
+          result.mismatch = result.mismatch.filter(x => !(x.legacyRow && x.id === id && x.monthKey === info.monthKey));
+          result.wrongTab.push(info);
+        });
+        result.wrongTab.forEach(w => { if (w && ownRowSeen.has(String(w.id))) w.ownRowToo = true; });
+        if (legacyRowIds.size) {
+          result.missing = result.missing.filter(m => !legacyRowIds.has(String(m.id)));
+          result.conflicts = result.conflicts.filter(m => !legacyRowIds.has(String(m.id)));
+        }
+        result.legacyRows = legacyRowIds.size;
       });
       this._reconcile = result;
       this.renderReconcileResult();
@@ -14999,7 +16046,9 @@ class PosApp {
     // ถ้าอ่านชีตไม่ได้บางเดือน (หรือทุกเดือน) แล้วยังขึ้นเครื่องหมายถูกสีเขียว
     // เจ้าของจะเข้าใจว่ายอดตรงกันแล้วทั้งที่ระบบไม่เคยเห็นข้อมูลเดือนนั้นเลย
     // — เป็นความผิดพลาดชนิดเดียวกับ "บันทึกไม่สำเร็จแต่แจ้งว่าสำเร็จ" ที่ไล่แก้มาทั้งโปรเจกต์
-    const scanComplete = r.errors.length === 0 && r.months.length > 0 && !r.truncated && !(r.skippedMonths && r.skippedMonths.length);
+    // ตรวจ 19 ต.ค. 2569 ข้อ 29: อ่านรายชื่อเดือนบนชีตไม่ได้ = เดือนที่มีเฉพาะบนชีตไม่ถูกตรวจ → ห้ามขึ้นเขียว "ตรงกัน"
+    const scanComplete = r.errors.length === 0 && r.months.length > 0 && !r.truncated && !(r.skippedMonths && r.skippedMonths.length) &&
+      !r.cloudMonthsError;
     const quarantinedRows = Array.isArray(r.quarantined) ? r.quarantined : [];
     if (!r.extra.length && !quarantinedRows.length && !trulyMissing.length && !r.mismatch.length && !r.wrongTab.length && !dups.length && !scanComplete) {
       parts.push(`<div style="border:1px solid var(--accent-premium);border-radius:8px;padding:12px;">
@@ -15007,11 +16056,28 @@ class PosApp {
         <p style="font-size:0.8rem;margin:6px 0 0;color:var(--text-secondary);">
           ${r.months.length === 0 ? 'อ่านรายการบิลจากชีตไม่สำเร็จเลยสักเดือน' :
             (r.errors.length ? `อ่านไม่สำเร็จ ${r.errors.length} เดือน` :
-              (r.truncated ? 'บางเดือนมีบิลมากเกินกว่าจะอ่านครบในรอบเดียว' : 'ยังมีเดือนเก่าที่ไม่ได้ตรวจ'))}
+              (r.truncated ? 'บางเดือนมีบิลมากเกินกว่าจะอ่านครบในรอบเดียว' :
+                ((r.skippedMonths && r.skippedMonths.length) ? 'ยังมีเดือนเก่าที่ไม่ได้ตรวจ' :
+                  'อ่านรายชื่อเดือนบนชีตไม่ได้ จึงตรวจได้เฉพาะเดือนที่มีในเครื่อง (เดือนที่มีเฉพาะบนชีตยังไม่ถูกตรวจ)')))}
           — ในส่วนที่อ่านได้ยังไม่พบความต่าง แต่ยังไม่ครบทุกเดือน แก้ปัญหาด้านบนแล้วกดตรวจใหม่</p>
       </div>`);
       body.innerHTML = parts.join('');
       this.setReconcileStatus(`ตรวจไม่ครบ เมื่อ ${fmtBkkTime(r.at)}`, 'error');
+      return;
+    }
+
+    // Apps Script รุ่นเก่า (ไม่รู้จักคำสั่งรายชื่อเดือน) — ตรวจครบเฉพาะเดือนที่มีในเครื่อง: สีเหลือง ไม่ใช่เขียว
+    if (!r.extra.length && !quarantinedRows.length && !trulyMissing.length && !r.mismatch.length && !r.wrongTab.length && !dups.length &&
+        r.cloudMonthsSupported === false) {
+      parts.push(`<div style="border:1px solid var(--accent-premium);border-radius:8px;padding:12px;">
+        <b style="color:var(--accent-premium);"><i class="fa-solid fa-triangle-exclamation"></i> ตรวจได้เฉพาะเดือนที่มีในเครื่อง — ในเดือนเหล่านั้นตรงกัน</b>
+        <p style="font-size:0.8rem;margin:6px 0 0;color:var(--text-secondary);">
+          Apps Script ที่ใช้อยู่เป็นรุ่นเก่า บอกรายชื่อเดือนบนชีตไม่ได้ — เดือนที่มีเฉพาะบนชีตยังไม่ถูกตรวจ
+          (วาง Apps Script รุ่นล่าสุดแล้วกดตรวจใหม่เพื่อตรวจครบ)
+          ${notSynced.length ? `<br>มีบิล ${notSynced.length} ใบที่ยังรอส่งขึ้นชีตตามปกติ` : ''}</p>
+      </div>`);
+      body.innerHTML = parts.join('');
+      this.setReconcileStatus(`ตรวจเฉพาะเดือนที่มีในเครื่อง เมื่อ ${fmtBkkTime(r.at)}`);
       return;
     }
 
@@ -15100,15 +16166,18 @@ class PosApp {
       parts.push(`<div style="margin-bottom:14px;">
         <b style="color:var(--accent-premium);">อยู่คนละแท็บเดือนกับในเครื่อง — ${r.wrongTab.length} ใบ</b>
         <p style="font-size:0.78rem;color:var(--text-muted);margin:4px 0 6px;">
-          บิลเหล่านี้ <b>ยังมีอยู่ในเครื่อง</b> แต่แถวบนชีตไปอยู่ผิดแท็บเดือน ระบบจึงไม่เสนอปุ่มลบให้
+          บิลเหล่านี้ <b>ยังมีอยู่ในเครื่อง</b> แต่แถวบนชีตไปอยู่คนละแท็บเดือน ระบบจึงไม่เสนอปุ่มลบให้
           เพราะการลบอาจทำให้บิลที่ยังใช้งานอยู่หายจากชีต<br>
-          วิธีจัดการ: กด "ส่งขึ้นชีตใหม่" ในกลุ่มด้านล่างให้แถวไปลงแท็บที่ถูกต้องก่อน แล้วค่อยลบแถวนี้ในชีตด้วยมือ</p>
+          <b>อย่าลบแถวเองถ้ายังไม่แน่ใจ</b> — ถ้าบิลนั้นไม่มีแถวในแท็บเดือนจริงของมัน แถวนี้คือแถวเดียวของบิล (ลบแล้วบิลหายจากชีตและส่งซ้ำไม่ได้)
+          ช่องขวาสุดบอกว่าพบแถวของบิลในแท็บเดือนจริงด้วยหรือไม่</p>
         <div style="overflow-x:auto;"><table class="customer-table" style="font-size:0.8rem;">
           <thead><tr><th>เลขที่บิล</th><th>แท็บที่พบ</th><th>เดือนจริงของบิล</th><th>ยอดบนชีต</th><th></th></tr></thead>
           <tbody>${r.wrongTab.slice(0, CAP).map(x => row(
             `<td><strong>${escapeHtml(x.id)}</strong></td><td>${escapeHtml(x.monthKey)}</td>` +
             `<td>${escapeHtml(x.localMonthKey || 'ไม่ทราบ')}</td><td>${baht(x.total)}</td>`,
-            '<span style="font-size:0.75rem;color:var(--text-muted);">ลบในชีตเอง</span>'
+            x.ownRowToo
+              ? '<span style="font-size:0.75rem;color:var(--text-muted);">มีแถวในแท็บเดือนจริงแล้ว — แถวนี้เป็นแถวเกิน ตรวจแล้วลบในชีตได้</span>'
+              : '<span style="font-size:0.75rem;color:var(--text-muted);">ไม่พบแถวในแท็บเดือนจริง — ห้ามลบ (อาจเป็นแถวเดียวของบิล)</span>'
           )).join('')}</tbody></table></div>${more(r.wrongTab)}</div>`);
     }
 
@@ -15224,7 +16293,8 @@ class PosApp {
         this.state.voidLog.push({
           billId: id, date: Date.now(), billDate: billTs, billMonthKey: item.monthKey,
           by: (this.currentUser ? this.currentUser.name : '') + ' (ตรวจความตรงกันกับชีต)',
-          amount: Number(item.total) || 0, customer: item.customer || '', services: []
+          amount: Number(item.total) || 0, customer: item.customer || '', services: [],
+          reason: 'ลบแถวจากหน้าตรวจความตรงกัน'   // ตรวจ 19 ต.ค. 2569 (H-10): เดิมไม่มีเหตุผล — รายงาน/Telegram ปิดกะเห็นว่างเปล่า
         });
         if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
         this.state.cloudOutbox.push({
@@ -15279,6 +16349,22 @@ class PosApp {
     if (this.refuseSheetOnly(tx, 'ส่งขึ้นชีต')) return;   // บิลจากชีตไม่มีรายละเอียดให้ส่ง — เดิมค้าง "รอส่ง" ตลอดไป (ผู้ตรวจแยก #8)
     if (!this.requireOwnerForDataAction('ส่งบิลขึ้นชีตจากหน้าตรวจความตรงกัน')) return;
     if (!this.canWriteData('ส่งบิลขึ้นชีต')) return;
+    // ตรวจ 19 ต.ค. 2569 ข้อ 31: "ส่งยอดในเครื่องทับ" เขียนทับแถวบนชีตทันทีโดยไม่ถาม (ปุ่มลบยังถาม)
+    // แถวบนชีตอาจถูกแก้ด้วยมือมาแล้ว (ชื่อลูกค้า/ยอดที่ถูกกว่า) — บอกทีละช่อง "บนชีต → ในเครื่อง" ก่อนเขียนทับ
+    // (บิลที่ไม่มีแถวบนชีตเลย ส่งได้เลยเหมือนเดิม — ไม่มีอะไรถูกทับ)
+    const mm = this._reconcile && Array.isArray(this._reconcile.mismatch)
+      ? this._reconcile.mismatch.find(x => x && String(x.id) === id && !x.sheetOnly) : null;
+    if (mm) {
+      const fields = Array.isArray(mm.fields) && mm.fields.length ? mm.fields
+        : [{ label: 'ยอดสุทธิ', cloud: mm.cloudTotal, local: mm.localTotal }];
+      const short = (t) => { const x = Array.from(String(t == null ? '' : t)); return x.length > 60 ? x.slice(0, 59).join('') + '…' : x.join(''); };
+      const ok = await this.askConfirm(
+        `ส่งข้อมูลในเครื่องทับแถวบิล ${id.slice(0, 40)} บนชีต (แท็บ ${mm.monthKey})?\n\n` +
+        fields.slice(0, 12).map(f => `· ${f.label}: บนชีต ${short(f.cloud)} → ในเครื่อง ${short(f.local)}`).join('\n') +
+        (fields.length > 12 ? `\n· …และอีก ${fields.length - 12} ช่อง` : '') +
+        '\n\nค่าบนชีตของช่องเหล่านี้จะถูกแทนด้วยค่าในเครื่อง — ถ้าค่าบนชีตถูกกว่า กดยกเลิกแล้วแก้บิลในเครื่องก่อน');
+      if (!ok) return;
+    }
     const marked = await this.withMutation('การสั่งส่งบิลขึ้นชีตใหม่', async () => {
       if (!this.state.transactions.includes(tx)) return false;   // ข้อมูลถูกแทนทั้งชุดระหว่างรอ
       const prev = tx.syncStatus;
@@ -15335,6 +16421,9 @@ class PosApp {
     const shiftSplit = this.summaryBillsOf(shiftAll);
     const shiftTxs  = shiftSplit.bills;
     const totalSales    = shiftTxs.reduce((sum, tx) => sum + (Number(tx.total) || 0), 0);
+    // ตรวจ 19 ต.ค. 2569 ข้อ 27: "บิลรอตรวจ" (ขัดแย้งกับชีต) นับอยู่ในยอดขายข้างบนแล้ว — บอกแยกให้เจ้าของเห็น (ยอดรวมไม่เปลี่ยน)
+    const conflictTxs   = shiftTxs.filter(tx => tx && tx.syncStatus === 'conflict');
+    const conflictSum   = Math.round(conflictTxs.reduce((s, tx) => s + Math.round((Number(tx.total) || 0) * 100), 0)) / 100;
     // บริการกับสินค้านับแยกกัน — น้ำ 20 ขวดไม่ใช่ "บริการ 20 รายการ" (ตรวจก่อนขึ้นจริง 9 ต.ค. 2569) · ยอดเงินไม่เกี่ยว
     const _unitIdx = this.productServiceIndex();
     const shiftSplits = shiftTxs.map(tx => this.billUnitSplit(tx, _unitIdx));
@@ -15436,7 +16525,8 @@ class PosApp {
       (delExp.length ? `🗑 ค่าใช้จ่ายที่ถูกลบในกะ: ${delExp.length} รายการ (${baht0(delExpSum)})\n` : '') +
       (voids.length ? `🧾 บิลที่ถูกยกเลิกในกะ: ${voids.length} ใบ (${baht0(voidSum)}) — โดย ${escapeTelegram(short([...new Set(voids.map(v => v.by || '-'))].join(', '), 300))}\n` : '') +
       voidLines +
-      (shiftSplit.excluded ? `⚠️ บิลรอตรวจ (ไม่นับในยอดขายด้านบน): ${shiftSplit.excluded} ใบ\n` : '') +
+      (conflictTxs.length ? `⚠️ บิลรอตรวจ (ขัดแย้งกับชีต · นับในยอดแล้ว): ${conflictTxs.length} ใบ ${baht0(conflictSum)}\n` : '') +
+      (shiftSplit.excluded ? `⚠️ บิลข้อมูลเงินเสีย (ไม่นับในยอด): ${shiftSplit.excluded} ใบ\n` : '') +
       noteLines +
       `\n` +
       `📊 <b>สรุปกระแสเงินสดและลิ้นชัก:</b>\n` +
@@ -15571,11 +16661,27 @@ class PosApp {
   // นับบิลที่ขาย "หลังสำรองสำเร็จครั้งล่าสุด" ครบ MIDSHIFT_BACKUP_EVERY_BILLS ใบ → คิวงานสำรอง 1 งาน
   // มีงานสำรองค้างอยู่แล้ว = ไม่คิวเพิ่ม (งานสำรองใช้ข้อมูลล่าสุดตอนส่งอยู่แล้ว)
   // ต้องเรียกในคิวงานบันทึก (ก่อน saveState ของบิล) — คืนงานที่เพิ่มไว้ให้ผู้เรียกถอนออกได้ถ้าบันทึกล้ม
+  // ── ตรวจ 19 ต.ค. 2569 ข้อ 2: งานสำรองที่ "หยุดส่งแล้ว" (ล้มเกิน 7 วัน/ชีตปฏิเสธถาวร) ห้ามกลืนคำขอสำรองใหม่ ──────
+  // เดิมคำขอใหม่ทุกครั้ง (ทุก 5 บิล · หลังแก้/ยกเลิกบิล · ตอนปิดกะ) ถูกรวมเข้างานที่หยุดอยู่ → แก้ต้นเหตุ (เช่นล้าง Drive) แล้ว
+  // ก็ไม่สำรองอีกเลยจนกว่าเจ้าของจะไปกด "ลองใหม่" · ตอนนี้: คำขอสำรองใหม่ = เริ่มนับการลองส่งไฟล์สำรองของงานนั้นใหม่
+  // (เหมือนเจ้าของกด "ลองใหม่" เฉพาะส่วนไฟล์สำรอง — บริการอื่นในงานเดียวกันไม่ถูกแตะ · งานหายจากรายการ "หยุดส่งแล้ว" เอง)
+  // ต้องเรียกในคิวงานบันทึก — ผู้เรียกคืนค่า retry.backup เดิมได้ด้วย snapshotOutboxForRollback ถ้าบันทึกล้ม
+  reviveExpiredBackupJob(job, now) {
+    if (!job || !job.needBackup || !this.isCloudJobExpired(job, 'backup', now)) return false;
+    if (!job.retry || typeof job.retry !== 'object') job.retry = {};
+    const old = job.retry.backup || {};
+    job.retry.backup = Object.assign({ tries: 0, nextAt: now || Date.now() }, old.lastError ? { lastError: old.lastError } : {});
+    console.warn('[Outbox] มีคำขอสำรองใหม่ — เริ่มลองส่งไฟล์สำรองของงานที่หยุดไว้ใหม่', job.id);
+    // กล่อง "งานคลาวด์ที่หยุดส่งแล้ว" ในหน้าตั้งค่าต้องตรงกับคิว (วาดหลังงานบันทึกนี้จบ — ถ้าบันทึกล้มแล้วคืนค่า กล่องจะถูกวาดใหม่ตอนส่งรอบถัดไป)
+    setTimeout(() => { try { this.renderExpiredCloudJobs(); } catch (e) { /* หน้าจอไม่พร้อม */ } }, 0);
+    return true;
+  }
+
   planMidShiftBackup() {
     if (!this.hasCloudSetupStarted()) return null;
     if (!Array.isArray(this.state.cloudOutbox)) this.state.cloudOutbox = [];
     const pending = this.state.cloudOutbox.find(it => it && it.needBackup);
-    if (pending) { pending.backupRev = (Number(pending.backupRev) || 0) + 1; return null; }
+    if (pending) { this.reviveExpiredBackupJob(pending, Date.now()); pending.backupRev = (Number(pending.backupRev) || 0) + 1; return null; }
     const since = Number(this.backupStatus && this.backupStatus.lastSuccessAt) || 0;
     // บิลที่วันที่เลยเวลาปัจจุบัน (ข้อมูลเพี้ยน/นาฬิกาเคยเดินเร็ว) ไม่ใช่ "บิลใหม่หลังสำรอง" — เดิมนับตลอดไป เกณฑ์ 5 บิลเหลือ 4 (ข้อ 11)
     const nowMs = Date.now();
@@ -15606,6 +16712,7 @@ class PosApp {
     const now = Date.now();
     const pending = this.state.cloudOutbox.find(it => it && it.needBackup);
     if (pending) {
+      this.reviveExpiredBackupJob(pending, now);   // ข้อ 2: งานที่หยุดส่งแล้วต้องไม่กลืนคำขอนี้
       // งานที่กำลังอัปโหลดอยู่จะไม่ถูกนับว่าเสร็จ ถ้ารุ่นเปลี่ยนระหว่างนั้น (ดู _doFlushCloudOutbox)
       pending.backupRev = (Number(pending.backupRev) || 0) + 1;
       // งานสำรองของการเปลี่ยนแปลงที่ยังไม่ถึงเวลาส่ง → เลื่อนออกไปรวมรอบ (ยังไม่เคยล้ม = ไม่ใช่ backoff)
@@ -15657,6 +16764,7 @@ class PosApp {
     // สำรองข้อมูลหลังปิดกะเป็น "งานในคิว" ที่ลองใหม่ได้ (ข้อ 14) — ใช้ข้อมูลล่าสุดตอนส่ง จึงมีค้างได้งานเดียวพอ
     const pendingBackup = this.state.cloudOutbox.find(it => it && it.needBackup);
     if (pendingBackup) {
+      this.reviveExpiredBackupJob(pendingBackup, Date.now());   // ข้อ 2: งานที่หยุดส่งแล้วต้องไม่กลืนการสำรองของคืนนี้
       // มีงานสำรองค้างอยู่ (เช่นของการยกเลิกบิลที่รอรวมรอบ) — ปิดกะแล้วต้องส่งทันที ไม่รอรวมรอบ
       // (ปิดกะตีสามแล้วปิดแอป งานที่ตั้งเวลาไว้จะไม่ได้ส่งจนเปิดร้านพรุ่งนี้) · บวกรุ่นให้รวมการปิดกะนี้ด้วย
       pendingBackup.backupRev = (Number(pendingBackup.backupRev) || 0) + 1;
@@ -15728,11 +16836,10 @@ class PosApp {
     let delivered = 0;
     let attempted = false; // มีการลองยิงจริงไหม — ใช้ตัดสินว่าต้องเซฟตัวนับ backoff ลงเครื่องหรือเปล่า
     let anyOk = false;     // รวมงานเงียบ (สำรองระหว่างกะ) — ใช้ตัดสินการเซฟ ไม่ใช่การขึ้นข้อความ
-    const connection = this._connectionGeneration || 0;
-    const gen = this._dataGeneration;   // ดูเหตุผลที่ _doSyncPendingTransactions
-    const context = this.cloudContext();
+    // context/รายการงาน อ่าน "ในคิวงานบันทึก" (ดูข้อ 6 ด้านล่าง) — ค่าตั้งต้นนี้ใช้เฉพาะถ้าอ่านไม่สำเร็จ
+    let context = this.cloudContext();
     const current = () => this.isCloudContextCurrent(context);
-    const now = Date.now();
+    let now = Date.now();
     // ⚠️ ข้อ 14: ตัวนับลองใหม่แยก "ต่อบริการ" — เดิมใช้ตัวนับเดียวทั้งงาน Telegram ที่ token ผิด
     // จึงหน่วงงานสรุป/ลบแถว/สำรองข้อมูลที่อยู่ในงานเดียวกันไปด้วย (และกลับกัน)
     const run = async (item, svc, fn) => {
@@ -15747,7 +16854,13 @@ class PosApp {
       try { ok = await fn(); } catch (e) { ok = false; errMsg = (e && e.message) || String(e); }
       const terminal = this._cloudTerminalCode;
       this._cloudTerminalCode = '';
-      if (!current()) return false;
+      if (!current()) {
+        // ตรวจ 19 ต.ค. 2569 ข้อ 26: Telegram ที่ส่งถึงแล้ว = ข้อความออกไปถึงคนอ่านแล้วจริง — ปลายทาง/ข้อมูลเปลี่ยนระหว่างรอคำตอบ
+        // (บันทึกตั้งค่า · ผูกชีตใหม่ · กู้ไฟล์) ต้องไม่ทำให้ส่งซ้ำ: นับว่าส่งแล้ว (ผู้เรียกบันทึกเฉพาะเมื่องานยังอยู่ในคิว
+        // หรือทิ้งสำเนาที่การกู้พกไปแทน) · บริการอื่น (ชีต/Drive) ผลของรอบเก่ายังห้ามนับตามเดิม
+        if (ok && svc === 'telegram') { this._cloudFailReason = ''; this.noteCloudServiceResult(item, svc, true, ''); return true; }
+        return false;
+      }
       if (!ok && !errMsg) errMsg = this._cloudFailReason || '';
       this._cloudFailReason = '';
       this.noteCloudServiceResult(item, svc, ok, errMsg);
@@ -15759,7 +16872,18 @@ class PosApp {
     };
     let restoreJobSent = false;   // รอบตรวจ 6 ข้อ 2 — ส่งงานสรุปหลังกู้ได้รอบละ 1 เดือน
     try {
-      for (const item of this.state.cloudOutbox.slice()) {
+      // ตรวจ 19 ต.ค. 2569 ข้อ 6: อ่านรายการงาน "ผ่านคิวงานบันทึก" — งานยกเลิกบิล/ปิดกะ/ลบแถวจากหน้าตรวจ ถูกเพิ่มลงคิว "ก่อน" บันทึก
+      // ถ้าอ่านตรง ๆ ระหว่างงานนั้นกำลังบันทึก แล้วบันทึกล้ม (ถอนงานออก) แถวบนชีตถูกลบ/Telegram แจ้งไปแล้วทั้งที่ในเครื่องไม่เกิด
+      // รอให้งานบันทึกที่อยู่ก่อนหน้าจบก่อน (สำเร็จ = งานอยู่ในคิวจริง · ล้ม = ถูกถอนแล้ว) · คืนอ็อบเจกต์งานตัวเดิม (ไม่ใช่สำเนา)
+      // เพราะผลการส่งต้องเขียนลงงานตัวจริงในคิว · ไม่มีงานบันทึกใดรอคลาวด์/กล่องถาม จึงไม่ติดตาย (ตั้งค่าร้านถามก่อนเข้าคิวแล้ว · ข้อ 46)
+      const snap = await this.withMutation('อ่านงานคลาวด์ที่ค้าง', () => ({
+        items: Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox.slice() : [],
+        context: this.cloudContext()
+      }), { background: true });
+      if (!snap || !Array.isArray(snap.items)) return;
+      context = snap.context;
+      now = Date.now();
+      for (const item of snap.items) {
         // ข้อมูลถูกแทนทั้งชุดระหว่างรอบนี้ — งานของชุดเก่าห้ามยิงต่อ (เช่นคำสั่งลบแถวบิลที่ชุดใหม่ยังใช้อยู่)
         if ((!current())) break;
 
@@ -15807,8 +16931,21 @@ class PosApp {
             item.needTelegram = false;
             // ตรวจ 13 ต.ค. 2569 ข้อ 7: Telegram ส่งซ้ำไม่ได้ (คนอ่านเห็นปิดกะสองรอบ) — บันทึก "ส่งแล้ว" ลงเครื่องทันที
             // เดิมบันทึกตอนจบทั้งรอบ ซึ่งต้องรอไฟล์สำรองอัปโหลด (ถึง 2 นาที) — ปิดแอปช่วงนั้น = เปิดใหม่ส่งรายงานซ้ำ
+            // ข้อ 26: ปลายทาง/ข้อมูลเปลี่ยนระหว่างส่ง — งานตัวเดิมยังอยู่ในคิว = บันทึกว่าส่งแล้ว (เดิมไม่บันทึก → ส่งซ้ำรอบหน้า)
+            // งานถูกแทนด้วยสำเนาที่การกู้พกไป (carriedFrom) = ทิ้งสำเนานั้น ไม่ส่งซ้ำ
             try {
-              await this.withMutation('บันทึกว่า Telegram ส่งแล้ว', () => (current() ? this.saveState() : false), { background: true });
+              await this.withMutation('บันทึกว่า Telegram ส่งแล้ว', () => {
+                const list = Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [];
+                const keys = new Set([String(item.id || '')].concat(item.carriedFrom ? [String(item.carriedFrom)] : []).filter(Boolean));
+                const copies = list.filter(j => j && j !== item && j.needTelegram && j.carriedFrom && keys.has(String(j.carriedFrom)) &&
+                  j.telegramMessage === item.telegramMessage);
+                if (copies.length) {
+                  copies.forEach(j => { j.needTelegram = false; });
+                  this.state.cloudOutbox = list.filter(j => !copies.includes(j) || j.needVoidDelete || j.needSummary || j.needBackup);
+                  console.warn('[Outbox] Telegram ส่งถึงแล้วก่อนการกู้ — ทิ้งสำเนาที่การกู้พกไป', copies.map(j => j.id));
+                }
+                return (current() || list.includes(item) || copies.length) ? this.saveState() : false;
+              }, { background: true });
             } catch (e) { console.warn('[Outbox] บันทึกสถานะ Telegram ไม่สำเร็จ — จะบันทึกอีกครั้งตอนจบรอบ', e); }
           }
         }
@@ -15943,11 +17080,14 @@ class PosApp {
     await this.withMutation('ทิ้งงานคลาวด์ที่ค้าง', async () => {
       const it = (this.state.cloudOutbox || []).find(x => x && x.id === jobId);
       if (!it) return;
-      const prevOutbox = this.cloneForRollback(this.state.cloudOutbox);
+      // ตรวจ 19 ต.ค. 2569 ข้อ 26: คืนคิวด้วยอาเรย์/งานตัวเดิม ไม่ใช่สำเนาลึก — รอบส่งที่กำลังวิ่งเขียน needTelegram=false
+      // ลงงานตัวเดิม (งานอื่นที่ส่งถึงแล้ว) · คืนสำเนาลึก = ข้อความนั้นส่งซ้ำ · จำเฉพาะธงที่งานนี้ปิด แล้วคืนลงตัวเดิม
+      const restoreOutbox = this.snapshotOutboxForRollback();
+      const prevFlags = found.svcs.map(svc => [FLAGS[svc], it[FLAGS[svc]]]);
       // ทิ้งเฉพาะบริการที่หมดอายุ — บริการอื่นในงานเดียวกันที่ยังส่งได้ ปล่อยไว้ตามเดิม
       found.svcs.forEach(svc => { it[FLAGS[svc]] = false; });
       this.state.cloudOutbox = this.state.cloudOutbox.filter(x => x.needVoidDelete || x.needSummary || x.needTelegram || x.needBackup);
-      if (await this.persistOrRollback('ทิ้งงานคลาวด์ที่ค้าง', () => { this.state.cloudOutbox = prevOutbox; })) {
+      if (await this.persistOrRollback('ทิ้งงานคลาวด์ที่ค้าง', () => { restoreOutbox(); prevFlags.forEach(([k, v]) => { it[k] = v; }); })) {
         console.warn('[Outbox] เจ้าของทิ้งงานคลาวด์ที่หมดอายุ', jobId, found.svcs);
         this.showToast('ทิ้งงานนี้แล้ว', 'info');
       }
@@ -16029,15 +17169,8 @@ class PosApp {
     const delay = Math.min(Math.max(next - now, 1000), 30 * 60 * 1000);
     this._cloudRetryTimer = setTimeout(() => { this._cloudRetryTimer = null; this.resumePendingCloudWork(); }, delay);
   }
-  // ส่งข้อความ Telegram ทั่วไป (ใช้ซ้ำได้)
-  sendTelegramText(message) {
-    if (!this.telegramToken || !this.telegramChatId) return;
-    const url = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
-    this.fetchWithTimeout(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: this.telegramChatId, text: message, parse_mode: 'HTML' }) }, 15000)
-      .then(r => r.json())
-      .then(d => { if (!d.ok) console.error('Telegram error:', d.description); })
-      .catch(err => console.error('Telegram failed:', err));
-  }
+  // (ตรวจ 19 ต.ค. 2569 ข้อ 67: ลบ sendTelegramText ที่ไม่มีใครเรียกแล้ว — ถ้ามีคนเรียกจะข้ามคิวงานคลาวด์และไม่ตัดความยาว
+  //  ข้อความ Telegram ทุกชนิดต้องเดินผ่าน cloudOutbox → postTelegram)
 
   // สร้างข้อความแจ้งเตือนการยกเลิกบิล (แยกเพื่อ snapshot เก็บลง outbox)
   // เหตุผลของการยกเลิกที่จะแสดง: ที่คนพิมพ์ (note) ก่อน · ไม่มีใช้ที่ระบบเขียน (reason) · ผ่าน normalizeNote เสมอ
@@ -16045,22 +17178,35 @@ class PosApp {
     if (!v || typeof v !== 'object') return '';
     return this.normalizeNote(v.note) || this.normalizeNote(v.reason);
   }
+  // ตรวจ 19 ต.ค. 2569 ข้อ 28 + H-10: บอกเงินคืนนอกกะ (ไม่มีกะเปิด — ไม่ได้หักจากลิ้นชักไหน) · ป้ายผลทางเงินตรงกับตัวเลือกในหน้ายกเลิก
+  // ชื่อลูกค้า/คนยกเลิกตัดสั้น · ข้อความทั้งหมดไม่เกิน TELEGRAM_SAFE_LEN (เดิมไม่มีเพดาน — ยาวเกิน Telegram ปฏิเสธ งานค้าง 7 วัน)
   buildVoidAlertMessage(v) {
+    const short = (t, n) => { const x = Array.from(String(t == null ? '' : t)); return x.length > n ? x.slice(0, n - 1).join('') + '…' : x.join(''); };
     const when = fmtBkk(v.date);
-    return `⚠️ <b>มีการยกเลิกบิล (Void)</b>\n` +
-      `━━━━━━━━━━━━━━━━\n` +
-      `🧾 เลขที่บิล: ${escapeTelegram(v.billId)}\n` +
-      `💰 ยอด: ฿${(v.amount || 0).toLocaleString('th-TH')}\n` +
-      `👤 ลูกค้า: ${escapeTelegram(v.customer || '-')}\n` +
-      `🛠️ ยกเลิกโดย: ${escapeTelegram(v.by || '-')}\n` +
-      `💵 เงิน: ${v.moneyOutcome === 'refunded' ? 'คืนให้ลูกค้าแล้ว'
-        : v.moneyOutcome === 'none' ? 'ไม่มีเงินเคลื่อนไหว'
-        : 'ยังไม่ระบุ (ยกเลิกตามสถานะบนชีต)'}` +
-      `${Number(v.cashEffect) ? ` · ลิ้นชักกะนี้ ${Number(v.cashEffect) < 0 ? '-' : '+'}฿${Math.abs(Number(v.cashEffect)).toLocaleString('th-TH')}` : ''}\n` +
-      (Number(v.cardRefund) > 0 ? `💳 ส่วนที่รูดบัตร: ฿${Number(v.cardRefund).toLocaleString('th-TH')} — ต้องยกเลิกรายการที่เครื่องรูดบัตร\n` : '') +
-      (this.voidReasonText(v) ? `📝 เหตุผล: ${escapeTelegram(this.voidReasonText(v))}\n` : '') +
-      `🕒 เวลา: ${when}\n` +
-      `━━━━━━━━━━━━━━━━`;
+    const baht = n => '฿' + (Number(n) || 0).toLocaleString('th-TH');
+    const unattributed = Number(v.cashRefundUnattributed) || 0;
+    const compose = (reasonChars) => {
+      const reason = this.voidReasonText(v);
+      return `⚠️ <b>มีการยกเลิกบิล (Void)</b>\n` +
+        `━━━━━━━━━━━━━━━━\n` +
+        `🧾 เลขที่บิล: ${escapeTelegram(short(v.billId, 60))}\n` +
+        `💰 ยอด: ${baht(v.amount)}\n` +
+        `👤 ลูกค้า: ${escapeTelegram(short(v.customer || '-', 60))}\n` +
+        `🛠️ ยกเลิกโดย: ${escapeTelegram(short(v.by || '-', 60))}\n` +
+        `💵 เงิน: ${v.moneyOutcome === 'refunded' ? 'เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · ออกใบใหม่แทน)'
+          : v.moneyOutcome === 'none' ? 'เงินของบิลนี้ยังอยู่ที่ร้าน'
+          : 'ยังไม่ระบุ (ยกเลิกตามสถานะบนชีต)'}` +
+        `${Number(v.cashEffect) ? ` · ลิ้นชักกะนี้ ${Number(v.cashEffect) < 0 ? '-' : '+'}฿${Math.abs(Number(v.cashEffect)).toLocaleString('th-TH')}` : ''}\n` +
+        (unattributed > 0 ? `💸 คืนเงินสดนอกกะ (ไม่มีกะเปิด — ไม่ได้หักจากลิ้นชักกะไหน): ${baht(unattributed)}\n` : '') +
+        (Number(v.cardRefund) > 0 ? `💳 ส่วนที่รูดบัตร: ${baht(v.cardRefund)} — ต้องยกเลิกรายการที่เครื่องรูดบัตร\n` : '') +
+        (reason ? `📝 เหตุผล: ${escapeTelegram(short(reason, reasonChars))}\n` : '') +
+        `🕒 เวลา: ${when}\n` +
+        `━━━━━━━━━━━━━━━━`;
+    };
+    let chars = 600;
+    let msg = compose(chars);
+    while (msg.length > TELEGRAM_SAFE_LEN && chars > 40) { chars = Math.floor(chars / 2); msg = compose(chars); }
+    return msg;
   }
 
   // หมายเหตุ: sendVoidAlert() ถูกลบออกในเวอร์ชัน 1.5.2 — ไม่มีที่ไหนเรียกแล้ว
@@ -16198,6 +17344,27 @@ class PosApp {
       .then(d => { if (d.ok) this.showToast('ส่งข้อความทดสอบสำเร็จ!','success'); else this.showToast('Telegram API error: ' + d.description,'error'); })
       .catch(err => this.showToast('ไม่สามารถเชื่อมต่อ Telegram: ' + err.message,'error'));
   }
+}
+
+// ── ตรวจ 19 ต.ค. 2569 ข้อ 61: งาน async ที่ล้มโดยไม่มีใครดัก (ปุ่ม async ไม่มี catch ชั้นนอก) ────────────────
+// เดิมเห็นแค่ในคอนโซล — บน iPad ไม่มีใครเห็น ปุ่มกดแล้วเงียบ · ตอนนี้ขึ้นข้อความภาษาไทยให้รู้ว่าต้องทำอะไร
+// งานที่ฟ้องเองไปแล้ว (ด่านสัญญาหน้าจอ uiContract) ไม่ฟ้องซ้ำ · เว้นระยะ 5 วิ กันข้อความท่วมจอ · ไม่กลืน error (คอนโซลยังเห็น)
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  let lastUnhandledToastAt = 0;
+  window.addEventListener('unhandledrejection', (ev) => {
+    try {
+      const reason = ev && ev.reason;
+      console.error('[unhandledrejection]', reason);
+      if (reason && (reason.uiContract || reason.name === 'AbortError')) return;
+      const now = Date.now();
+      if (now - lastUnhandledToastAt < 5000) return;
+      lastUnhandledToastAt = now;
+      const a = window.app;
+      if (a && typeof a.showToast === 'function') {
+        a.showToast('มีงานบางอย่างทำไม่สำเร็จ — ลองกดใหม่อีกครั้ง ถ้ายังไม่ได้ให้ปิดแล้วเปิดแอปใหม่ (ข้อมูลที่บันทึกแล้วไม่หาย)', 'error', 8000);
+      }
+    } catch (e) { /* ตัวดักห้ามโยน error เอง */ }
+  });
 }
 
 // ── ตรวจ 18 ต.ค. 2569 (F08): คีย์บอร์ดต้องไม่หลุดออกจากหน้าต่างที่เปิดอยู่ ─────────────────

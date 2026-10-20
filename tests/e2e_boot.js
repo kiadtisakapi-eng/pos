@@ -144,18 +144,21 @@ const t=(n,c,extra)=>{ if(c){pass++;console.log('  ✅ '+n);} else {fail++;conso
       return document.querySelectorAll('#app-update-bar').length<=1; }));
   await p.evaluate(()=>{ const e=document.getElementById('app-update-bar'); if(e) e.remove(); });
 
-  // แจ้งเตือนอัตโนมัติ (ใช้ค่าที่บันทึกไว้ ไม่ใช่ค่าในช่องกรอก)
+  // แจ้งเตือนอัตโนมัติ (ใช้ค่าที่บันทึกไว้ ไม่ใช่ค่าในช่องกรอก) — ทางเดียวที่ส่งจริงคือ postTelegram (ผ่านคิวงานคลาวด์)
+  // (ตรวจ 19 ต.ค. 2569 ข้อ 67: sendTelegramText ที่ข้ามคิวถูกลบแล้ว)
   const auto = await p.evaluate(async ()=>{
     window.__tg = [];
     app.telegramToken=''; app.telegramChatId='';
-    app.sendTelegramText('ไม่ควรส่ง');
+    await app.postTelegram('ไม่ควรส่ง');
     await new Promise(r=>setTimeout(r,120));
     const silent = window.__tg.length;
     app.telegramToken='222:BBB'; app.telegramChatId='-100999';
-    app.sendTelegramText('ทดสอบส่งอัตโนมัติ');
+    await app.postTelegram('ทดสอบส่งอัตโนมัติ');
     await new Promise(r=>setTimeout(r,200));
-    return { silent, sent: window.__tg.length, body: window.__tg[0] && window.__tg[0].opt && window.__tg[0].opt.body };
+    return { silent, sent: window.__tg.length, body: window.__tg[0] && window.__tg[0].opt && window.__tg[0].opt.body,
+      gone: typeof app.sendTelegramText === 'undefined' };
   });
+  t('ไม่มีทางส่ง Telegram ที่ข้ามคิว (sendTelegramText ถูกลบแล้ว)', auto.gone === true);
   t('ยังไม่ตั้ง Telegram → แจ้งเตือนอัตโนมัติเงียบ ไม่ยิงมั่ว', auto.silent===0, auto.silent);
   t('ตั้งแล้ว → ส่งข้อความออกไปพร้อม chat id ที่บันทึกไว้',
     auto.sent===1 && String(auto.body).includes('-100999'), JSON.stringify(auto).slice(0,160));

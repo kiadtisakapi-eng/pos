@@ -22,6 +22,33 @@ const ROOT = path.join(__dirname, '..');
 const APP_SRC = fs.readFileSync(process.env.POS_APP_SRC || path.join(ROOT, 'app.js'), 'utf8');
 const DEXIE_SRC = fs.readFileSync(path.join(ROOT, 'dexie.min.js'), 'utf8');
 
+// crypto ของ "เบราว์เซอร์จำลอง" — digest คืน promise ของ vm ที่ "เสร็จแล้ว" (คำนวณ hash ทันที) แทน webcrypto ของ Node
+// เหตุ (พบ 20 ต.ค. 2569 · เทสต์ตกแบบสุ่ม เช่น test_batch6 P6 ตกครั้งเดียวในรอบตรวจ 19 ต.ค. และรอบซ้อม deploy 20 ต.ค.):
+//   Dexie ตอนโหลดเรียก crypto.subtle.digest หนึ่งครั้งเพื่อได้ promise ดั้งเดิมไว้คุม transaction ที่มี await ข้างใน
+//   webcrypto ของ Node คิดใน thread pool — ตอนเครื่องหนักเสร็จช้าหลายสิบมิลลิวินาที ถ้า transaction แรกที่มี await ข้างใน
+//   (เช่น writeStateRowsCAS) วิ่งก่อน promise นั้นเสร็จ จะ commit ก่อนเวลา (PrematureCommitError) → บันทึกล้มแบบสุ่ม
+//   ในเบราว์เซอร์จริง digest นี้เสร็จทันทีหลังโหลดหน้า ก่อนแอปเขียนอะไร — จึงเป็นเรื่องของสภาพทดสอบ ไม่ใช่บั๊กของแอป
+//   (ทดลองแล้ว: หน่วง digest 30ms = ตก 15/15 · เสร็จทันที = ไม่ตก) · ผล hash เหมือนเดิมทุกตัว (อัลกอริทึมเดียวกัน)
+function makeVmCrypto(getCtx) {
+  const nodeCrypto = require('crypto');
+  const wc = nodeCrypto.webcrypto;
+  const HASH = { SHA1: 'sha1', SHA256: 'sha256', SHA384: 'sha384', SHA512: 'sha512' };
+  return {
+    getRandomValues: (arr) => wc.getRandomValues(arr),
+    randomUUID: () => wc.randomUUID(),
+    subtle: {
+      digest(alg, data) {
+        const P = vm.runInContext('Promise', getCtx());
+        const name = HASH[String((alg && alg.name) || alg || '').toUpperCase().replace(/[^A-Z0-9]/g, '')];
+        if (!name) return P.reject(new Error('NotSupportedError: digest ' + String((alg && alg.name) || alg)));
+        const bytes = ArrayBuffer.isView(data) ? Buffer.from(data.buffer, data.byteOffset, data.byteLength) : Buffer.from(new Uint8Array(data));
+        const h = nodeCrypto.createHash(name).update(bytes).digest();
+        return P.resolve(h.buffer.slice(h.byteOffset, h.byteOffset + h.byteLength));
+      }
+    }
+  };
+}
+
 function makeEl(id, extra) {
   const el = { id, style: { cssText: '', display: '' }, dataset: {}, children: [], value: '', innerHTML: '',
     innerText: '', textContent: '', type: 'text', checked: false, disabled: false, placeholder: '',
@@ -89,7 +116,7 @@ function createEnv(opts) {
     navigator: { vibrate() {}, onLine: opts.onLine !== false, userAgent: 'node',
                  locks: opts.locks, storage: undefined },
     location: { href: 'https://example.com/', reload() {} },
-    crypto: require('crypto').webcrypto,
+    crypto: makeVmCrypto(() => ctx),   // ดู makeVmCrypto ด้านบน (กันเทสต์ตกแบบสุ่มตอนเครื่องหนัก)
     TextEncoder, TextDecoder, AbortController, URL,
     Blob: class { constructor(parts) { this.parts = parts; } }, FileReader: class {},
     fetch: opts.fetch || (async () => { throw new Error('fetch not stubbed'); }),

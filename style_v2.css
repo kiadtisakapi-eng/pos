@@ -25,7 +25,8 @@
   /* Typography Colors */
   --text-primary:   #f8fafc;
   --text-secondary: #94a3b8;
-  --text-muted:     #64748b;
+  /* ตรวจ 19 ต.ค. 2569 ข้อ 43: เดิม #64748b = คอนทราสต์ 4.07:1 บนพื้นมืด (ต่ำกว่าเกณฑ์อ่านได้ 4.5:1) */
+  --text-muted:     #7b8aa1;
   --text-hint:      #475569;
 
   /* Brand Colors (Luxurious Gold, Relaxing Teal, Exclusive Rose) */
@@ -61,6 +62,16 @@
   --color-success-glow:   var(--green-glow);
   --color-danger:         var(--rose);
   --color-warning:        var(--amber);
+
+  /* ตรวจ 19 ต.ค. 2569 ข้อ 43: พื้นกล่องตัวเลขปิดกะ + กล่องผลต่าง (ขาด/เกิน/ตรง) แยกตามธีม
+     เดิมเขียนสีพื้นตายตัวในหน้า/ในโค้ด — ธีมสว่างได้พื้นเทาเข้ม ตัวเลขแดง/เขียวอ่านแทบไม่ออก (1.15–1.37:1) */
+  --panel-sunken:   rgba(15, 23, 42, 0.6);
+  --diff-short-bg:  rgba(244, 63, 94, 0.12);
+  --diff-short-fg:  #fb7185;
+  --diff-over-bg:   rgba(234, 179, 8, 0.2);
+  --diff-over-fg:   var(--teal);
+  --diff-even-bg:   rgba(34, 197, 94, 0.2);
+  --diff-even-fg:   var(--green);
 
   /* Fonts */
   --font: 'Sarabun', 'Outfit', sans-serif;
@@ -1504,6 +1515,14 @@ body {
 
 .form-input::placeholder { color: var(--text-muted); }
 
+/* ตรวจ 19 ต.ค. 2569 ข้อ 23: ช่องที่ค่าใช้ไม่ได้ (เช่นช่องนับธนบัตรที่พิมพ์ทศนิยม/ติดลบ/เกิน 99,999) — แดงชัดทั้งสองธีม
+   แอปไม่แก้ค่าที่พิมพ์ให้เอง และไม่ให้ยืนยันเปิด/ปิดกะจนกว่าจะแก้ (app.readCashQty / confirmCashCount) */
+.form-input.input-invalid,
+.form-input.input-invalid:focus {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px var(--rose-glow);
+}
+
 /* กัน iOS ซูมหน้าจอเองตอนแตะช่องกรอก — Safari auto-zoom เมื่อ input font-size < 16px
    จำกัดเฉพาะจอสัมผัส (pointer: coarse) เดสก์ท็อปยังได้ขนาดกะทัดรัดเดิม
    หมายเหตุ: ช่องที่ตั้ง font-size แบบ inline เฉพาะจุด (เช่น select ใน modal แก้บิล) inline ชนะ — ยอมรับได้ */
@@ -1532,6 +1551,13 @@ body {
   }
   /* ช่องเลือกพนักงานในตะกร้า — ของเดิมสูง 20px กดยากที่สุดในแอป */
   .cart-item-staff select { min-height: 44px; padding: 8px 10px; }
+  /* ตรวจ 19 ต.ค. 2569 ข้อ 44: ปุ่มที่ยังเล็กกว่า 44px บน iPad — ปุ่มล็อก/สลับผู้ใช้ในแถบข้าง (แนวนอนกว้าง 16px) ·
+     ปุ่มสลับธีมบนหัวจอ (32px) · ปุ่มเพิ่มลูกค้าด่วน (40px) · ป้ายสถานะคลาวด์ (สูง 29/37px — กดเพื่อส่งงานที่ค้าง) */
+  #btn-lock-sidebar, #btn-theme-toggle-mobile, .btn-add-customer-quick {
+    min-width: 44px;
+    justify-content: center;
+  }
+  .sync-badge-container { min-height: 44px; }
 }
 
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1882,7 +1908,8 @@ body {
 
 /* Mobile Portrait specific tweaks */
 @media (max-width: 768px) {
-  .checkout-btn { position: sticky; bottom: calc(var(--nav-height) + 10px); z-index: 20; box-shadow: 0 10px 25px rgba(0,0,0,.5); }
+  /* ข้อ 66 (ตรวจ 19 ต.ค. 2569): ตัดกฎ "ปุ่มชำระเงินลอยติดล่าง" (position: sticky) ออก — ไม่เคยทำงานจริง
+     (กล่องตะกร้าตัดขอบด้วย overflow จึงไม่มีอะไรให้ปุ่มลอยตาม) · ปุ่มอยู่ตำแหน่งเดิมในตะกร้าเหมือนที่เห็นมาตลอด */
   .service-card { min-height: 100px; padding: 1.2rem; }
   .tab-btn { padding: 10px 18px; }
 }
@@ -1909,8 +1936,9 @@ html[data-theme="light"] {
   --text-muted:     #64748b;
   --text-hint:      #94a3b8;
 
-  --gold:           #b8860b;
-  --gold-dim:       #8a6508;
+  /* ข้อ 43: เดิม #b8860b = 3.2:1 บนพื้นขาว (ตัวเลขเงินบนตะกร้า/หน้าชำระ) */
+  --gold:           #8a6508;
+  --gold-dim:       #6f5106;
   --gold-glow:      rgba(184, 134, 11, 0.12);
   --gold-glow-sm:   rgba(184, 134, 11, 0.06);
 
@@ -1928,6 +1956,14 @@ html[data-theme="light"] {
   --green-glow:     rgba(4, 120, 87, 0.12);
   --amber:          #b45309;
   --danger:         #be123c;
+
+  --panel-sunken:   #f1f5f9;
+  --diff-short-bg:  #ffe4e6;
+  --diff-short-fg:  #9f1239;
+  --diff-over-bg:   #fef3c7;
+  --diff-over-fg:   #0d5c56;
+  --diff-even-bg:   #dcfce7;
+  --diff-even-fg:   #047857;
 }
 
 html[data-theme="light"] body {
@@ -1975,6 +2011,17 @@ html[data-theme="light"] .discount-input {
 html[data-theme="light"] .quick-cash-btn,
 html[data-theme="light"] .tab-count {
   background: rgba(15, 23, 42, 0.04);
+}
+
+/* ── ตรวจ 19 ต.ค. 2569 ข้อ 43: กล่องผลต่างตอนปิดกะ (app.updateCashSum ใส่คลาส) — สีตามธีม อ่านได้ ≥ 4.5:1 ── */
+#closing-diff-box.diff-short { background: var(--diff-short-bg); color: var(--diff-short-fg); }
+#closing-diff-box.diff-over  { background: var(--diff-over-bg);  color: var(--diff-over-fg); }
+#closing-diff-box.diff-even  { background: var(--diff-even-bg);  color: var(--diff-even-fg); }
+
+/* ── ข้อ 43: ข้อความแจ้งเตือน (app.showToast ใส่คลาส pos-toast + สีโทนใน --toast-tint) — พื้นทึบตามธีม
+   เดิมพื้นโปร่ง 15% — ทับหน้าต่าง (ชำระเงิน/ปิดกะ) ในธีมสว่างได้พื้นเทาเข้มกับตัวหนังสือเข้ม อ่านไม่ออก (1.9–2.2:1) ── */
+.pos-toast {
+  background: linear-gradient(var(--toast-tint, transparent), var(--toast-tint, transparent)), var(--bg-surface-solid) !important;
 }
 
 /* ============================================================
@@ -2034,7 +2081,7 @@ html[data-theme="light"] .tab-count {
 
   /* หัวหน้าต่าง ("ใบเสร็จรับเงินสำเร็จ") กับปุ่มต่าง ๆ เป็นส่วนของหน้าจอ ไม่ใช่ของใบเสร็จ */
   .modal-header, .modal-title, .modal-close, .modal-footer,
-  #btn-print-receipt, #btn-print-quote {
+  #btn-print-quote {   /* ข้อ 67 (ตรวจ 19 ต.ค. 2569): ตัด id ปุ่มพิมพ์ใบเสร็จที่ไม่มีในหน้าแล้วออก — ปุ่มนั้นอยู่ใน .modal-footer ซึ่งซ่อนอยู่แล้ว */
     display: none !important;
   }
 

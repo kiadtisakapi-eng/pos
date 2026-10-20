@@ -6,7 +6,12 @@ const { makeRunner, eq, ok, failPutForKeys } = require('./harness_db');
 const { createGasEnv } = require('./gas_env');
 const R = makeRunner('--- ตรวจ 14 ต.ค. 2569: fx5 (ข้อ 2 · 9 · 12) ---');
 const copy = x => JSON.parse(JSON.stringify(x));
-const REAL = process.env.POS_REAL_BACKUP || require('path').join(__dirname, '..', 'audit', 'pos_backup_2026-09-25_21-38-31.json');   // ไฟล์จริงของร้าน (audit\ ไม่ขึ้น repo) · ไม่มีไฟล์ = ข้ามข้อนี้
+// ไฟล์สำรองจริงของร้าน (อยู่ใน audit/ ที่ไม่ขึ้น repo): POS_REAL_BACKUP หรือไฟล์ pos_backup_*.json ใหม่สุดใน audit/ · ไม่มี = ข้ามข้อนี้
+// ผลตรวจ 19 ต.ค. 2569 ข้อ 71: ไม่เขียนชื่อไฟล์/จำนวนบิลจริงของร้านไว้ในไฟล์นี้ (repo สาธารณะ)
+const REAL = process.env.POS_REAL_BACKUP || (() => {
+  const dir = require('path').join(__dirname, '..', 'audit');
+  try { const f = fs.readdirSync(dir).filter(n => /^pos_backup_.*\.json$/.test(n)).sort().pop(); return f ? require('path').join(dir, f) : ''; } catch (e) { return ''; }
+})();
 
 async function sale(env, method, amount = 300) {
   readyCheckout(env, [{ id: 's1', name: 'ตัดผม', price: amount }], method, method === 'cash' ? amount : undefined);
@@ -91,7 +96,8 @@ const optLabel = (env, app, tx) => {
       ok(!/คนละทางไว้แล้ว/.test(app.planVoidCash(a, 'refunded').text), 'ข้อความอ้างว่าคืนคนละทางไว้แล้วทั้งที่ไม่เคยบันทึก');
       // บิลเงินสดปกติ
       const b = await sale(env, 'cash');
-      ok(/เงินออกจากลิ้นชัก/.test(optLabel(env, app, b)), 'บิลเงินสดปกติ');
+      // ตรวจ 19 ต.ค. 2569 ข้อ 1: ป้ายใหม่ของบิลเงินสด = "เอาเงินของบิลนี้ออกจากยอดที่ควรมี" (เดิม "…เงินออกจากลิ้นชัก")
+      ok(/ออกจากยอดที่ควรมี/.test(optLabel(env, app, b)) && !/ไม่กระทบลิ้นชัก/.test(optLabel(env, app, b)), 'บิลเงินสดปกติ');
       // บิลโอน 500 ลดเป็น 400 แล้วทอนคืนเป็นเงินสด 100 (คนละทางจริง) → ยกเลิกยังบอกว่าคืนคนละทางไว้แล้ว
       const c = await sale(env, 'promptpay', 500);
       app.openTransactionEdit(c.id); env.document.getElementById('edit-tx-discount').value = '100';
@@ -209,14 +215,14 @@ const optLabel = (env, app, tx) => {
       ok(!adj.some(a => Math.abs(a.amount) > 300), 'บันทึกเงินคืน ' + JSON.stringify(adj));
     } finally { env.dispose(); }
   });
-  await R.t('[12.5] ไฟล์สำรองจริง (746 บิล) → กฎใหม่ไม่ทำให้บิลจริงใบไหนเสีย/มีข้อสังเกตเพิ่ม', async () => {
-    if (!fs.existsSync(REAL)) { console.log('    (ข้าม — ไม่มีไฟล์จริงในเครื่องนี้)'); return; }
+  await R.t('[12.5] ไฟล์สำรองจริงของร้าน (ถ้ามีในเครื่อง) → กฎใหม่ไม่ทำให้บิลจริงใบไหนเสีย/มีข้อสังเกตเพิ่ม', async () => {
+    if (!REAL || !fs.existsSync(REAL)) { console.log('    (ข้าม — ไม่มีไฟล์จริงในเครื่องนี้)'); return; }
     const { env, app } = await makeShop();
     try {
       const raw = JSON.parse(fs.readFileSync(REAL, 'utf8'));
       const NEW = ['vat-rate-missing', 'bad-tender', 'bad-settlement'];
       const hit = raw.transactions.filter(t => app.validateBillRecord(t, { rejectFuture: true }).some(p => NEW.includes(p.code)));
-      eq(raw.transactions.length, 746);
+      ok(Array.isArray(raw.transactions) && raw.transactions.length > 0, 'ไฟล์จริงไม่มีบิล');
       eq(hit.length, 0, 'บิลจริงโดนกฎใหม่');
       const audit = app.auditBackupData(copy(raw));
       eq(audit.badMoney, 0, 'บิลจริงถูกนับเป็นเงินเสีย');

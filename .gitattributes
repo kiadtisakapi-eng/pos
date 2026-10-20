@@ -1,4 +1,4 @@
-# บังคับ line ending ให้เป็น LF ใน repo (checkout บน Windows ยังได้ CRLF ตามปกติ)
+# บังคับ line ending เป็น LF ทั้งใน repo และตอน checkout (ทุกเครื่องรวม Windows ได้ LF) — ยกเว้นไฟล์ที่ระบุ eol=crlf ด้านล่าง
 #
 # ทำไมต้องมี: ก่อนหน้านี้ app.js เป็น CRLF ปนกับ LF พอ editor คนละตัวบันทึกทับ
 # git มองว่าทั้งไฟล์เปลี่ยน — เคยได้ diff 11,000 บรรทัดทั้งที่แก้จริง 461 บรรทัด
@@ -11,6 +11,10 @@
 # สองไฟล์นี้คง CRLF ตามกติกาของโปรเจกต์ ทั้งในเครื่องทำงานและ checkout ใหม่
 deploy.ps1 text eol=crlf
 .gitignore text eol=crlf
+# ไฟล์ .bat ของ Windows ต้องเป็น CRLF ตอน checkout (cmd.exe อ่าน .bat ที่เป็น LF ผิดได้บางกรณี เช่นป้าย :label / goto)
+# ผลตรวจ 19 ต.ค. 2569 ข้อ 73: เดิมโดนกฎ * eol=lf ด้านบน → deploy.bat / fix-push.bat ออกมาเป็น LF บน Windows
+# ใน repo ยังเก็บเป็น LF เหมือนเดิม (git แปลงให้ตอน checkout) — ไฟล์ .bat ที่มีอยู่แล้วในเครื่องเปลี่ยนเป็น CRLF เมื่อถูก checkout ใหม่
+*.bat text eol=crlf
 
 # ไฟล์ไบนารี ห้ามแตะ
 *.png binary

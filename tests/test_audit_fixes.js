@@ -230,7 +230,9 @@ const bill = over => Object.assign({ action: 'transaction', id: 'TX-AUDIT-202610
   await test('17 reset blocks a new sale throughout its backup; only the captured data is cleared', async () => {
     const s = await shop();
     try {
-      await sale(s); const device = s.app.deviceId, hold = s.gas.hold(b => b.action === 'backup');
+      // ตรวจ 19 ต.ค. 2569 ข้อ 11: ล้างข้อมูลไม่ยอมทิ้งบิลที่ยังไม่ขึ้นชีต — ส่งบิลขึ้นชีตให้ครบก่อน (เดิมล้างทั้งที่บิลยังค้างส่ง)
+      await sale(s); await s.app.syncPendingTransactions(true); await until(() => s.app.state.transactions.every(t => t.syncStatus === 'synced'));
+      const device = s.app.deviceId, hold = s.gas.hold(b => b.action === 'backup');
       s.ctx.prompt = () => 'ลบทั้งหมด'; const reset = s.app.resetData(); await until(() => hold.count);
       readyCheckout(s); assert.equal(await s.app.processCheckout(), false); hold.releaseAll(); assert.equal(await reset, true);
       assert.equal((await s.raw('transactions')).length, 0); assert.equal(await s.raw('deviceId'), device);

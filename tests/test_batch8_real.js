@@ -159,6 +159,10 @@ await section('[U]', async () => {
   withFileReader(env);
   const wrong = JSON.parse(JSON.stringify(app.buildBackupPayload()));
   wrong.shopPromptPayId = '0899999999'; wrong.telegramChatId = '777OTHERCHAT'; wrong.shopName = 'ร้านอื่น';
+  // ตรวจ 19 ต.ค. 2569 ข้อ 3: เครื่องที่มีข้อมูลอยู่แล้วคงเลขพร้อมเพย์ของเครื่องเป็นค่าเริ่มต้น — เทสต์นี้ต้องการ "นำเข้าไฟล์ผิดทั้งชุด"
+  // จึงเลือกใช้ตั้งค่าเงินจากไฟล์ (กดยกเลิกขั้นแรก แล้วพิมพ์ "ใช้ค่าในไฟล์") เพื่อทดสอบว่าการย้อนคืนค่าว่างได้ตรง
+  app.askConfirm = async (m) => !/ตั้งค่าเงินในไฟล์ต่าง/.test(String(m));
+  app.askTypedConfirm = async (m, k) => k === 'ใช้ค่าในไฟล์';
   await importFile(env, wrong);
   await t('หลังนำเข้า: ได้ค่าจากไฟล์ (เครื่องว่างอยู่)', () => { eq(app.shopPromptPayId, '0899999999'); eq(app.telegramChatId, '777OTHERCHAT'); });
   await app.undoLastRestore(); await app._confirmP; await settle(50);
@@ -388,15 +392,16 @@ await section('[C]', async () => {
   const d = env.document;
   d.getElementById('report-date-input').value = app.getBusinessISODate(tx.date);
   app.state.selectedReportType = 'daily';
-  const bars = () => [...d.getElementById('css-bar-chart').innerHTML.matchAll(/chart-bar-tooltip">([^<]*)</g)].map(m => m[1]).filter(x => x !== '฿0');
+  // ตรวจ 19 ต.ค. 2569 ข้อ 37: ตัวเลขบนแท่งกราฟทศนิยม 2 ตำแหน่ง (เดิม "฿100" / "฿0")
+  const bars = () => [...d.getElementById('css-bar-chart').innerHTML.matchAll(/chart-bar-tooltip">([^<]*)</g)].map(m => m[1]).filter(x => x !== '฿0.00');
   d.getElementById('report-staff-filter').value = 'st-1';
   app.filterReports();
-  await t('เลือกพนักงานรายคน: กราฟเท่ากับยอดงานของคนนั้น (฿100) ไม่ใช่ยอดทั้งบิล', () => eq(bars().join(), '฿100'));
+  await t('เลือกพนักงานรายคน: กราฟเท่ากับยอดงานของคนนั้น (฿100) ไม่ใช่ยอดทั้งบิล', () => eq(bars().join(), '฿100.00'));
   d.getElementById('report-staff-filter').value = 'all';
   const bad = JSON.parse(JSON.stringify(tx)); bad.id = 'TX-BAD-1'; bad.vatAmount = 99;
   app.state.transactions.push(bad);
   app.filterReports();
-  await t('ทั้งร้าน + มีบิลรอตรวจ: กราฟไม่นับบิลรอตรวจ (เท่ากับตัวเลขสรุป ฿407)', () => eq(bars().join(), '฿' + (407).toLocaleString()));
+  await t('ทั้งร้าน + มีบิลรอตรวจ: กราฟไม่นับบิลรอตรวจ (เท่ากับตัวเลขสรุป ฿407)', () => eq(bars().join(), '฿407.00'));
   app.state.transactions.pop();
 
   // ใบเสร็จบิลเก่า

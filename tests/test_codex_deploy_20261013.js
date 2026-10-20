@@ -3,6 +3,7 @@
 const fs = require('fs'), path = require('path');
 const { spawnSync } = require('child_process');
 const { makeRunner, ok, eq } = require('./harness_db');
+const { writeAppSkeleton } = require('./deploy_test_kit');
 const R = makeRunner('--- Codex deploy compatibility ---');
 const ROOT = path.resolve(__dirname, '..');
 function run(shell, script, cfg) {
@@ -11,6 +12,8 @@ function run(shell, script, cfg) {
     fs.mkdirSync(path.join(dir, 'tests'));
     fs.mkdirSync(path.join(dir, '.git'));
     for (const f of [script, 'sw.js', 'app.js']) fs.copyFileSync(path.join(ROOT, f), path.join(dir, f));
+    // ผลตรวจ 19 ต.ค. 2569 ข้อ 13: สคริปต์ตรวจไฟล์ที่แอปอ้างก่อน stage → วางโครงแอป + git ls-files จำลองตอบรายชื่อนี้
+    cfg = Object.assign({ tracked: writeAppSkeleton(dir, ROOT).concat([script, 'app.js']) }, cfg);
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg));
     fs.writeFileSync(path.join(dir, 'tests/run-all.js'), `
 const fs = require('fs'), path = require('path');
@@ -41,6 +44,7 @@ function git {
       return [string][char]0
     }
     'rev-list' { return '2' }
+    'ls-files' { return ((@($global:cfg.tracked) | Where-Object { $_ }) -join [char]0) + [char]0 }
     'symbolic-ref' { return 'main' }
     'rev-parse' { return 'origin/main' }
     'fetch' { return }

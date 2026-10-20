@@ -148,7 +148,11 @@ await section('[P6]', async () => {
   const env = createEnv({ fetch: gas.fetch, factory: N.env.factory });
   quiet(env.app);
   await env.app.init(); loginAs(env.app, 'owner');
-  await settle(150);
+  // ผลตรวจ 19 ต.ค. 2569 ข้อ 52: เดิมรอคงที่ 150ms — เครื่องหนัก (รันหลายชุดพร้อมกัน) ตกได้ทั้งที่แอปถูก
+  // ตอนนี้วนเช็คจนแอปได้คำตอบเรื่องเครื่องหลัก (สูงสุด 5 วิ) แล้วรออีกนิดให้ป้ายวาดเสร็จ
+  // (20 ต.ค. 2569: ต้นเหตุจริงของการตกแบบสุ่มไม่ใช่เวลารอ แต่เป็น crypto ของ harness_db ที่ทำให้ Dexie commit ก่อนเวลา — แก้ที่ harness_db.js แล้ว · ดู test_fix_20261020_harness_crypto.js)
+  for (const end = Date.now() + 5000; !env.app.primaryStatus && Date.now() < end;) await settle(25);
+  await settle(50);
   await t('เปิดแอปแล้วรู้ทันทีว่าไม่ใช่เครื่องหลัก (ก่อนปิดกะใด ๆ)', () => ok(env.app.primaryStatus && env.app.primaryStatus.isPrimary === false, JSON.stringify(env.app.primaryStatus)));
   const b = badge(env);
   await t('ป้ายหน้าหลักฟ้อง "ไม่ใช่เครื่องหลัก"', () => ok(/ไม่ใช่เครื่องหลัก/.test(b.text), b.text));
