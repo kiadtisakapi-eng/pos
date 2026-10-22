@@ -90,7 +90,7 @@ function isAppsScriptExecUrl(u) {
 const BACKUP_SCHEMA_VERSION = 3;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.12.0 (2026-10-20)';
+const APP_VERSION = '1.12.2 (2026-10-22)';
 
 // ═══ กติกาตัวเลข (เจ้าของสั่ง 26 ก.ย. 2569 — ห้ามแก้กลับ) ═══════════════════════════
 // ตัวเลขทุกตัวที่ "คนกรอก" ต้องเป็นจำนวนเต็มเท่านั้น ห้ามทศนิยมเด็ดขาด:
@@ -1236,24 +1236,8 @@ class PosApp {
       const repairs = [];
       // ข้อ 54: บันทึกครั้งเดียวหลังรู้ว่าเป็นหน้าต่างหลัก (persistLoadRepairs) — ค่าเดิมลงเครื่องพร้อมใน "รายการที่แยกไว้ตรวจสอบ"
       if (badListRepairs.length) repairs.push('ข้อมูลผิดชนิด: ' + badListRepairs.map(r => r.label).join(' · '));
-      const dedupeIds = (list, prefix, label) => {
-        const seen = new Set();
-        let fixed = false;
-        (Array.isArray(list) ? list : []).forEach(item => {
-          if (!item || typeof item !== 'object') return;
-          if (!item.id || seen.has(item.id)) {
-            let maxNum = 0;
-            list.forEach(x => {
-              const match = String((x && x.id) || '').match(new RegExp('^' + prefix + '(\\d+)$'));
-              if (match) { const num = parseInt(match[1], 10); if (num > maxNum) maxNum = num; }
-            });
-            item.id = `${prefix}${maxNum + 1}`;
-            fixed = true;
-          }
-          seen.add(item.id);
-        });
-        if (fixed) repairs.push(label);
-      };
+      // F05 (21 ต.ค. 2569): ตัวซ่อมเดียวกับทางรับไฟล์สำรอง (dedupeEntityIds)
+      const dedupeIds = (list, prefix, label) => { if (this.dedupeEntityIds(list, prefix).length) repairs.push(label); };
       dedupeIds(this.state.staff, 'st', 'รหัสพนักงานซ้ำ');
       dedupeIds(this.state.customers, 'c', 'รหัสลูกค้าซ้ำ');
       dedupeIds(this.state.services, 's', 'รหัสบริการซ้ำ');
@@ -1433,6 +1417,9 @@ class PosApp {
       // ทั้งที่ในเครื่องมีของครึ่งเดียวค้างอยู่ — เปิดแอปใหม่ได้ข้อมูลที่ไม่เคยมีอยู่จริง
       // ห่อด้วย transaction แล้วปล่อย error ทะลุออกมา = IndexedDB ยกเลิกทั้งชุดให้เอง
       await this.writeStateRowsCAS(rows);
+      // R1 (Codex ตรวจ 22 ต.ค. 2569): บันทึกทั้งร้านสำเร็จ = คิวงานคลาวด์ในหน่วยความจำลงเครื่องแล้ว
+      // รวมธง "Telegram ส่งแล้ว" ที่ค้างจากการบันทึกครั้งก่อนที่ล้ม → ไม่ต้องบันทึกซ้ำอีก
+      this._telegramSentUnsaved = false;
       return true;
     } catch (e) {
       if (e && e.staleState) { this.onStaleStateWrite(); return false; }
@@ -1515,6 +1502,24 @@ class PosApp {
   //   · รุ่นในเครื่องยังเป็นรุ่นที่หน้าต่างนี้โหลดมา → ยังไม่มีใครแทรก
   //   · ไม่มีรุ่นในเครื่อง (เครื่องที่อัปเดตจากรุ่นก่อนมีด่านนี้ / หลังรีเซ็ต) → ได้เฉพาะหน้าต่างที่โหลดตอนยังไม่มีรุ่น
   //     หน้าต่างที่เคยเห็นรุ่น > 0 แต่ตอนนี้ไม่มี = มีคนล้างฐานข้อมูลไปแล้ว ห้ามเขียนข้อมูลเก่าทับ
+  // ตรวจ 21 ต.ค. 2569 (F03): ข้อมูลในหน่วยความจำของหน้าต่างนี้ยังเป็นรุ่นล่าสุดในเครื่องไหม (อ่านแถวรุ่นจาก IndexedDB)
+  // ใช้กับงานที่ไม่ผ่าน saveState แต่ใช้ข้อมูลในหน่วยความจำเป็นหลักฐาน: จับข้อมูลสำรองขึ้น Drive · ล้างข้อมูล/ล้างยอดขาย
+  // ⚠️ ที่เก็บข้อมูลในเครื่องหายไปเอง (ไม่มีแถวรุ่น + ไม่มีแถวที่ทุกการเขียนทิ้งไว้) = หน่วยความจำคือสำเนาเดียว → ถือว่าเป็นรุ่นล่าสุด
+  //    (กติกาเดียวกับ storageLost ใน saveState — ห้ามกันทางสำรองฉุกเฉินของกรณีนี้)
+  async isStateRevisionCurrent() {
+    const stored = this.parseStateRevision(await db.state.get(STATE_REVISION_KEY));
+    if (this.stateRevisionMatches(stored)) return true;
+    const known = this._stateRev || null;
+    if (!stored && known && known.rev > 0) {
+      const marks = await db.state.bulkGet(['db_migrated', 'ownerPin', 'transactions']);
+      if (marks.every(r => !r)) return true;
+    }
+    return false;
+  }
+  staleWindowText(action) {
+    return `ข้อมูลในหน้าต่างนี้เก่ากว่าในเครื่อง (มีหน้าต่างอื่นบันทึกไปแล้ว) — ยังไม่ได้${action} · ` +
+      'กดปุ่มสีแดงด้านล่างเพื่อโหลดข้อมูลล่าสุดก่อน แล้วค่อยสั่งใหม่';
+  }
   stateRevisionMatches(stored) {
     const known = this._stateRev || null;
     if (!stored) return !known || known.rev === 0;
@@ -1619,6 +1624,7 @@ class PosApp {
     if (this._maintenance) { this.showToast('กำลังดูแลข้อมูล — รอให้งานปัจจุบันเสร็จก่อน', 'warning'); return false; }
     const token = {};
     this._maintenance = token;
+    this.refreshCheckoutGate();   // F01: ระหว่างสำรอง/ล้างข้อมูลห้ามรับเงิน — ปิดหน้าชำระเงินที่เปิดค้าง
     try {
       await this._mutationChain;
       return await fn(token);
@@ -1996,6 +2002,7 @@ class PosApp {
   setReadOnlyWindow(on) {
     this.isReadOnlyWindow = !!on;
     this.renderReadOnlyBanner();
+    if (on) this.refreshCheckoutGate();   // F01: หน้าชำระเงินที่เปิดค้างต้องปิด/ซ่อน QR ทันที
   }
 
   // เตือนเมื่อมีคนพยายามบันทึกจากหน้าต่างอ่านอย่างเดียว — เว้นระยะ ไม่ให้ขึ้นรัว
@@ -2006,11 +2013,34 @@ class PosApp {
     this.showToast('หน้าต่างนี้เปิดซ้ำอยู่ จึงบันทึกอะไรไม่ได้ — ให้ใช้หน้าต่างเดิมที่เปิดไว้ก่อน', 'error', 8000);
   }
 
+  // ตรวจ 21 ต.ค. 2569 (F01): แถบแดงลอยทับขอบล่างของจอ — หน้าต่าง (modal) ต้องหักความสูงแถบ ไม่งั้นปุ่มท้ายกล่องอยู่ใต้แถบ
+  // (เลื่อนกล่องได้แต่เลื่อนสุดแล้วปุ่มยังถูกบัง · iPad แนวนอน) · ความสูงจริงวัดทุกครั้งที่แถบขึ้น/จอหมุน → --ro-banner-h (style_v2.css)
+  syncReadOnlyBannerSpace() {
+    if (typeof document === 'undefined' || !document.body) return;
+    const body = document.body, root = document.documentElement;
+    const el = this.isReadOnlyWindow ? document.getElementById('read-only-window-banner') : null;
+    let h = 0;
+    try { h = (el && typeof el.getBoundingClientRect === 'function') ? Math.ceil(el.getBoundingClientRect().height || 0) : 0; } catch (e) { h = 0; }
+    if (h > 0) {
+      if (body.classList) body.classList.add('ro-banner-on');
+      if (root && root.style && typeof root.style.setProperty === 'function') root.style.setProperty('--ro-banner-h', h + 'px');
+    } else {
+      if (body.classList) body.classList.remove('ro-banner-on');
+      if (root && root.style && typeof root.style.removeProperty === 'function') root.style.removeProperty('--ro-banner-h');
+    }
+  }
+
   renderReadOnlyBanner() {
     if (typeof document === 'undefined' || !document.body) return;
+    if (!this._roBannerResizeBound && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      this._roBannerResizeBound = true;
+      const resync = () => { try { this.syncReadOnlyBannerSpace(); } catch (e) { /* ไม่สำคัญ */ } };
+      window.addEventListener('resize', resync);
+      window.addEventListener('orientationchange', resync);
+    }
     const existing = document.getElementById('read-only-window-banner');
-    if (!this.isReadOnlyWindow) { if (existing) existing.remove(); return; }
-    if (existing) return;
+    if (!this.isReadOnlyWindow) { if (existing) existing.remove(); this.syncReadOnlyBannerSpace(); return; }
+    if (existing) { this.syncReadOnlyBannerSpace(); return; }
 
     const el = document.createElement('div');
     el.id = 'read-only-window-banner';
@@ -2026,6 +2056,7 @@ class PosApp {
       '<button type="button" id="read-only-retry-btn" style="margin-top:10px;padding:8px 18px;border-radius:8px;border:none;' +
       'background:#fff;color:#7f1d1d;font-weight:700;cursor:pointer">ปิดหน้าต่างอื่นแล้ว — ใช้หน้าต่างนี้</button>';
     document.body.appendChild(el);
+    this.syncReadOnlyBannerSpace();
 
     const btn = document.getElementById('read-only-retry-btn');
     if (btn) btn.addEventListener('click', () => { this.retryWriterFromBanner(btn); });
@@ -2826,10 +2857,22 @@ class PosApp {
     if (this.isRecoveryIncomplete()) { this._cloudFailReason = this.recoveryWarning(); if (!silent) this.showToast(this._cloudFailReason, 'warning', 10000); return false; }
 
     const requestedContext = this.cloudContext();
-    const capture = await this.withMutation('จับข้อมูลสำรอง', () => this.isCloudContextCurrent(requestedContext) ? ({
-      data: this.cloneForRollback(this.buildBackupPayload()), generation: this._dataGeneration,
-      connection: this._connectionGeneration || 0, context: this.cloudContext(), at: Date.now()
-    }) : false, { background: true });
+    // F03 (21 ต.ค. 2569): หน้าต่างที่ข้อมูลเก่า (อีกหน้าต่างบันทึกไปแล้ว · เบราว์เซอร์ไม่มี Web Locks) ห้ามส่งข้อมูลของตัวเองเป็นสำเนาล่าสุด
+    // เดิมส่งสำเนาที่ขาดบิลใหม่ขึ้น Drive สำเร็จก่อน แล้วค่อยรู้ตัวตอนบันทึกสถานะสำรอง (ผลตรวจ Codex F03 cloud)
+    const capture = await this.withMutation('จับข้อมูลสำรอง', async () => {
+      if (!this.isCloudContextCurrent(requestedContext)) return false;
+      if (!await this.isStateRevisionCurrent()) return { stale: true };
+      return {
+        data: this.cloneForRollback(this.buildBackupPayload()), generation: this._dataGeneration,
+        connection: this._connectionGeneration || 0, context: this.cloudContext(), at: Date.now()
+      };
+    }, { background: true });
+    if (capture && capture.stale) {
+      this._cloudFailReason = this.staleWindowText('สำรองข้อมูล');
+      this.setReadOnlyWindow(true);
+      if (!silent) this.showToast(this._cloudFailReason, 'error', 10000);
+      return false;
+    }
     if (!capture) { this._cloudFailReason = 'ข้อมูลหรือปลายทางคลาวด์เปลี่ยนระหว่างรอ — ลองใหม่อีกครั้ง'; return false; }
     const backupData = capture.data;
     const stillCurrent = () => this.isCloudContextCurrent(capture.context);
@@ -3245,6 +3288,7 @@ class PosApp {
       this.primaryStatus = next;
       return next;
     }, { background: true });
+    this.refreshCheckoutGate();   // F01: รู้ว่าเป็นเครื่องรองระหว่างหน้าชำระเงินเปิดค้าง = ปิด/ซ่อน QR
     if (!saved || !this.isCloudContextCurrent(context)) return false;
     this.renderPrimaryStatus();
     // ป้ายสถานะหน้าหลัก + สถานะสำรองต้องเปลี่ยนตามทันที ไม่ใช่รอรอบวาดหน้าจอถัดไป
@@ -3741,6 +3785,12 @@ class PosApp {
     // ตรวจ 19 ต.ค. 2569 ข้อ 11: ต่อชีตไว้แล้วยังมีงานค้างส่ง (บิลที่ยังไม่ขึ้นชีต / คำสั่งลบแถวบิลที่ยกเลิก) → ไม่ล้าง
     // เดิมล้างเงียบ ๆ: บิลที่ยังไม่ขึ้นไม่มีวันขึ้น · แถวบิลที่ยกเลิกแล้วค้างนับในชีตถาวร (แบบเดียวกับ clearSalesData)
     if (this.refusePendingSheetWork('ล้างข้อมูลทั้งหมด')) return;
+    // F03 (21 ต.ค. 2569): จำนวนบิลในกล่องยืนยัน · งานค้างที่ตรวจ · สำเนาก่อนล้าง ต้องมาจากข้อมูลล่าสุด ไม่ใช่หน่วยความจำของหน้าต่างเก่า
+    if (!await this.isStateRevisionCurrent()) {
+      this.setReadOnlyWindow(true);
+      this.showToast(this.staleWindowText('ล้างข้อมูล'), 'error', 12000);
+      return;
+    }
 
     const KEYWORD = 'ลบทั้งหมด';
     const typed = window.prompt(
@@ -3792,6 +3842,11 @@ class PosApp {
       fresh.state.transactions = this.cloneForRollback(DEFAULT_TRANSACTIONS);
       const rows = fresh.buildStateRows();
       await db.transaction('rw', db.state, async () => {
+        // F03: ตรวจซ้ำ ณ จุดล้างจริง (ระหว่างถาม/สำรอง อีกหน้าต่างอาจบันทึกเพิ่ม) — ไม่ตรง = ยกเลิกทั้ง transaction
+        if (!await this.isStateRevisionCurrent()) {
+          this.setReadOnlyWindow(true);
+          throw new Error(this.staleWindowText('ล้างข้อมูล'));
+        }
         // An unreadable identity aborts the entire reset, rather than silently creating a new device.
         for (const key of ['deviceId', 'primaryStatus']) {
           const saved = await db.state.get(key);
@@ -3832,6 +3887,12 @@ class PosApp {
     // ตรวจ 19 ต.ค. 2569 ข้อ 57: คำสั่งลบแถวบิลที่ยกเลิกค้างอยู่ก็ไม่ล้าง (เดิมเก็บคำสั่งลบไว้แต่ตัดงานส่งสรุปใหม่ทิ้ง
     // → สรุปบนชีตยังนับบิลที่ลบแถวไปแล้ว) · ใช้ด่านเดียวกับ resetData
     if (this.refusePendingSheetWork('ล้างยอดขาย')) return false;
+    // F03 (21 ต.ค. 2569): ตัวเลขในกล่องยืนยันและสำเนาก่อนล้างต้องเป็นข้อมูลล่าสุด (ตอนบันทึกจริง saveStateOrThrow ตรวจรุ่นซ้ำอยู่แล้ว)
+    if (!await this.isStateRevisionCurrent()) {
+      this.setReadOnlyWindow(true);
+      this.showToast(this.staleWindowText('ล้างยอดขาย'), 'error', 12000);
+      return false;
+    }
 
     const KEYWORD = 'ล้างยอดขาย';
     const txCount = Array.isArray(this.state.transactions) ? this.state.transactions.length : 0;
@@ -5498,8 +5559,95 @@ class PosApp {
 
   // ==================== CHECKOUT AND PAYMENT ====================
 
+  // ── ด่าน "เครื่อง/หน้าต่างนี้ออกบิลได้ไหม" (ไม่ขึ้นกับช่องทางจ่าย) ───────────────────────────
+  // ตรวจ 21 ต.ค. 2569 (F01 · Codex + Claude): เดิมด่านชุดนี้อยู่แค่ตอนกด "ยืนยันรับชำระ" (processCheckout/_processCheckoutLocked)
+  // หน้าต่างอ่านอย่างเดียว/เครื่องรอง/ช่วงสำรอง-ล้างข้อมูล/โหลดไม่สำเร็จ/ยอดเกินเพดาน จึงเปิดหน้าชำระเงินและโชว์ QR ให้ลูกค้าสแกนได้
+  // แล้วค่อยบอกว่าบันทึกไม่ได้ = เงินเข้าแต่ไม่มีบิล · ตอนนี้ใช้ก่อนเปิดหน้าชำระเงิน · ก่อนวาด QR · ตอนกดยืนยัน
+  // ⚠️ ด่านเดิมใน _processCheckoutLocked คงไว้ทั้งหมด (ตัวนี้เป็นด่านหน้า ไม่ใช่ตัวแทน)
+  // สิทธิ์ของคนออกบิล (authorize 'sale.checkout') ตรวจคู่กันที่ผู้เรียก — ใช้ข้อความมาตรฐานของ authorize
+  // คืนข้อความเหตุผลเมื่อออกบิลไม่ได้ · null = ผ่าน
+  checkoutBlockReason(opts) {
+    if (this._maintenance) return 'กำลังสำรอง/ล้างข้อมูล — ยังชำระเงินไม่ได้';
+    if (this.loadFailed) return 'โหลดข้อมูลร้านไม่สำเร็จ — ห้ามออกบิลเพื่อกันข้อมูลเดิมถูกทับ';
+    if (this.isReadOnlyWindow) return 'หน้าต่างนี้เปิดซ้ำอยู่ จึงออกบิลไม่ได้ — ให้ใช้หน้าต่างเดิม';
+    if (this.primaryStatus && this.primaryStatus.registered !== false && this.primaryStatus.isPrimary === false) {
+      return 'เครื่องนี้เป็นเครื่องรอง — ให้ขายจากเครื่องหลัก หรือให้เจ้าของย้ายเครื่องหลักพร้อมข้อมูลล่าสุดก่อน';
+    }
+    if (this.cartExceedsBillCap()) return 'ยอดหรือรายการของบิลเกินเพดานที่ระบบบันทึกได้ — ตรวจราคาและรายการก่อนรับชำระ';
+    // R1 (Codex 21 ต.ค.): ต่อคลาวด์แล้วแต่ยังไม่เคยยืนยันเครื่องหลัก = ยังไม่รู้ว่าเครื่องนี้ขายได้ไหม — ห้ามโชว์ช่องรับเงิน/QR
+    // (openCheckoutModal ยืนยันให้ก่อนเปิด · processCheckout ไม่ใช้ข้อนี้ เพราะมีขั้นลงทะเบียนเครื่องหลักของตัวเองตามเดิม)
+    // เครื่องหลักที่ยืนยันแล้วขายออฟไลน์ได้ตามเดิม · ร้านที่ไม่ต่อคลาวด์ไม่เกี่ยว
+    if (opts && opts.forPayment && this.hasCloudSyncConfig() && !this.primaryStatus) {
+      return 'ยังไม่ได้ยืนยันเครื่องขายหลัก — เชื่อมต่ออินเทอร์เน็ตแล้วกด "ไปที่หน้าชำระเงิน" อีกครั้ง';
+    }
+    return null;
+  }
+  // R1 (Codex 21 ต.ค.): ยืนยัน/ลงทะเบียนเครื่องหลักก่อนเปิดหน้ารับเงิน — ทางเดียวกับขั้นลงทะเบียนใน processCheckout
+  // คืน true = เป็นเครื่องหลักแล้ว (บันทึกสถานะลงเครื่อง) · false = ยังขายไม่ได้ (บอกเหตุแล้ว)
+  async confirmPrimaryBeforeCheckout() {
+    if (!this.hasCloudSyncConfig() || this.primaryStatus) return true;
+    if (!this.canWriteData('ยืนยันเครื่องขายหลัก')) return false;
+    const context = this.cloudContext();
+    let reg;
+    try { reg = await this.cloudPost('register_primary', {}, 15000); }
+    catch (e) { reg = { status: 'error', message: this.explainCloudError(e) }; }
+    if (!this.isCloudContextCurrent(context)) return false;
+    if (reg && reg.status === 'success') {
+      const p = (reg.details && reg.details.primary) || {};
+      const saved = await this.notePrimaryStatus(true, p, context);
+      if (saved && this.primaryStatus && this.primaryStatus.isPrimary === true) return true;
+      this.showToast('ยืนยันเครื่องขายหลักแล้ว แต่บันทึกสถานะลงเครื่องไม่สำเร็จ — ลองใหม่อีกครั้ง', 'error', 8000);
+      return false;
+    }
+    if (reg && reg.code === 'NOT_PRIMARY_DEVICE') {
+      await this.notePrimaryStatus(false, reg.details && reg.details.primary, context);
+      this.showToast('เครื่องนี้เป็นเครื่องรอง — ให้ขายจากเครื่องหลัก หรือให้เจ้าของย้ายเครื่องหลักพร้อมข้อมูลล่าสุดก่อน', 'error', 8000);
+      return false;
+    }
+    this.showToast((reg && reg.message) || 'ยืนยันเครื่องขายหลักไม่ได้ — เชื่อมต่ออินเทอร์เน็ตและลองใหม่', 'error', 8000);
+    return false;
+  }
+  // เพดานเดียวกับ buildCheckoutPlan (ยอดบิล/ราคารวม/จำนวนรายการ) — คิดยอดไม่ได้ (ส่วนลดผิด) = ไม่ตัดสินที่นี่ ให้ด่านเดิมบอกเหตุ
+  cartExceedsBillCap() {
+    const cart = Array.isArray(this.state.cart) ? this.state.cart : [];
+    if (cart.length > 500) return true;
+    try {
+      if (Math.round(this.getCartSubtotal() * 100) > BILL_MAX_BAHT * 100) return true;
+      return this.getCartBillTotals().total > BILL_MAX_BAHT;
+    } catch (e) { return false; }
+  }
+  isCheckoutModalOpen() {
+    if (typeof document === 'undefined' || !document.getElementById) return false;
+    const el = document.getElementById('modal-payment');
+    return !!(el && el.classList && el.classList.contains('active'));
+  }
+  // ปิดหน้าชำระเงินพร้อมซ่อน QR — ตะกร้าคงไว้ (ขายต่อจากหน้าต่าง/เครื่องที่ถูกต้องได้) · รอบชำระเงินนี้ใช้ต่อไม่ได้
+  closeBlockedCheckout(reason) {
+    try { this.selectPaymentMethod(null); } catch (e) { /* หน้าจอพัง — ปิดหน้าต่างต่อ */ }
+    const qrBox = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('dynamic-qr-box') : null;
+    if (qrBox) qrBox.innerHTML = '';
+    this._checkoutAttempt = null;
+    this.closeModal('modal-payment');
+    if (reason) this.showToast(reason, 'error', 8000);
+  }
+  // สถานะเครื่อง/หน้าต่างเปลี่ยนระหว่างหน้าชำระเงินเปิดค้าง (ล็อกถูกแย่ง · เข้าโหมดดูแลข้อมูล · รู้ว่าเป็นเครื่องรอง)
+  // ไม่แตะระหว่างกำลังบันทึกบิล (ด่านใน _processCheckoutLocked ตัดสินผลเอง)
+  refreshCheckoutGate() {
+    if (this._checkoutBusy || !this.isCheckoutModalOpen()) return false;
+    const block = this.checkoutBlockReason({ forPayment: true });
+    if (!block) return false;
+    this.closeBlockedCheckout(block);
+    return true;
+  }
+
   openCheckoutModal() {
     if (this.state.cart.length === 0) return;
+    // F01 (21 ต.ค. 2569): หน้าต่าง/เครื่องที่ออกบิลไม่ได้ ห้ามเปิดหน้าชำระเงิน (ก่อนเรื่องกะ — ไม่เปิดหน้านับเงินในหน้าต่างที่บันทึกไม่ได้)
+    {
+      const block = this.checkoutBlockReason();
+      if (block) { this.showToast(block, 'error', 8000); return; }
+      if (!this.authorize('sale.checkout', 'ชำระเงิน')) return;
+    }
     // กันออกบิลโดยไม่เปิดกะ (ยอดเงินสดจะไม่เข้าการนับลิ้นชัก) — เผื่อหลุดมาหน้าขายทางอื่น
     if (!this.state.shift || !this.state.shift.active) {
       this.showToast('ยังไม่ได้เปิดกะ — กรุณานับเงินตั้งต้นเปิดกะก่อนออกบิล', 'warning', 4000);
@@ -5537,6 +5685,19 @@ class PosApp {
     // ยอด 0 บาท (เช่นรายการราคา 0 ที่หลุดมา) = ไม่เปิดหน้าชำระเงิน (เจ้าของตัดสิน 8 ต.ค. 2569)
     if (!(Math.round(openTotal * 100) > 0)) { this.showToast(ZERO_TOTAL_MSG, 'warning', 6000); return; }
 
+    // R1 (Codex 21 ต.ค.): ต่อคลาวด์แต่ยังไม่เคยยืนยันเครื่องหลัก → ยืนยันก่อน แล้วค่อยเปิดหน้ารับเงิน (เดิมเปิด/โชว์ QR ก่อนรู้ผล)
+    if (this.hasCloudSyncConfig() && !this.primaryStatus) {
+      if (this._checkoutPrimaryCheck) return;            // กำลังยืนยันอยู่ (กดซ้ำ)
+      this.showToast('กำลังยืนยันเครื่องขายหลักก่อนรับเงิน…', 'info', 4000);
+      const check = this.confirmPrimaryBeforeCheckout();
+      this._checkoutPrimaryCheck = check;
+      return check.then(ok => {
+        this._checkoutPrimaryCheck = null;
+        if (ok && this.primaryStatus) return this.openCheckoutModal();   // ตรวจด่านทั้งหมดใหม่ (ตะกร้า/สถานะอาจเปลี่ยนระหว่างรอ)
+        return undefined;
+      }, err => { this._checkoutPrimaryCheck = null; console.warn('[Checkout] ยืนยันเครื่องหลักไม่สำเร็จ', err); });
+    }
+
     // ตั้งค่าบิลเริ่มต้นในป๊อปอัป
     this.selectPaymentMethod(null); // ยกเลิกการเลือกช่องทางจ่ายเงินเดิมก่อน
     // เปิดรอบชำระเงินใหม่ — ผูกกับตะกร้าและยอดที่ลูกค้าเห็นตอนนี้ (ดู beginCheckoutAttempt)
@@ -5546,6 +5707,12 @@ class PosApp {
   }
 
   selectPaymentMethod(method) {
+    // F01 (21 ต.ค. 2569): สถานะเปลี่ยนหลังเปิดหน้าชำระเงิน = ไม่วาด QR/ช่องรับเงิน ปิดหน้าชำระเงินแทน
+    if (method) {
+      const block = this.checkoutBlockReason({ forPayment: true }) ||
+        (this.authorize('sale.checkout', 'ชำระเงิน', { quiet: true }) ? null : 'ยังไม่ได้เข้าสู่ระบบ (หรือบัญชีนี้ออกบิลไม่ได้) — ล็อกอินก่อนเก็บเงิน');
+      if (block) { this.closeBlockedCheckout(block); return; }
+    }
     this.state.selectedPaymentMethod = method;
     
     const cashBtn = document.getElementById('pay-cash-btn');
@@ -5838,9 +6005,11 @@ class PosApp {
   }
 
   async processCheckout() {
-    if (this._maintenance) { this.showToast('กำลังสำรอง/ล้างข้อมูล — ยังชำระเงินไม่ได้', 'warning'); return false; }
-    if (this.primaryStatus && this.primaryStatus.registered !== false && this.primaryStatus.isPrimary === false) {
-      this.showToast('เครื่องนี้เป็นเครื่องรอง — ให้ขายจากเครื่องหลัก หรือให้เจ้าของย้ายเครื่องหลักพร้อมข้อมูลล่าสุดก่อน', 'error', 8000); return false;
+    // F01 (21 ต.ค. 2569): ด่านหน้าชุดเดียวกับตอนเปิดหน้าชำระเงิน (maintenance · เครื่องรอง · อ่านอย่างเดียว · โหลดไม่สำเร็จ · เพดาน)
+    // สิทธิ์ของคนออกบิลตรวจต่อด้านล่าง (authorize) ตามเดิม
+    {
+      const block = this.checkoutBlockReason();
+      if (block) { this.showToast(block, this._maintenance ? 'warning' : 'error', 8000); return false; }
     }
     // ── ด่านกันเรียกซ้อน ────────────────────────────────────────────────
     // ⚠️ เดิมพึ่ง "ปุ่มถูก disable" อย่างเดียว — กดรัว/เน็ตหน่วง/เรียกจากโค้ดตรง ๆ
@@ -5896,6 +6065,9 @@ class PosApp {
       if (!done && newlyRegistered && this.isCloudContextCurrent(context)) this.primaryStatus = previousPrimary;
       this._checkoutBusy = false;
       if (!done && btn) btn.disabled = false;
+      // R1/R2 (Codex 21 ต.ค.): ระหว่างกำลังบันทึก refreshCheckoutGate ข้ามไว้ — พอพ้น busy แล้วขายไม่สำเร็จ ต้องประเมินหน้ารับเงินใหม่
+      // (กลายเป็นอ่านอย่างเดียว/เครื่องรอง/ยืนยันเครื่องหลักไม่ได้ระหว่างรอ = ปิดหน้าชำระเงินและซ่อน QR ไม่ปล่อยค้างให้ลูกค้าสแกน)
+      if (!done) { try { this.refreshCheckoutGate(); } catch (e) { console.warn('[Checkout] ประเมินหน้ารับเงินใหม่ไม่สำเร็จ', e); } }
     }
   }
 
@@ -5954,6 +6126,11 @@ class PosApp {
     // 1) สภาพเครื่อง
     if (this.loadFailed) fail('โหลดข้อมูลร้านไม่สำเร็จ — ห้ามออกบิลเพื่อกันข้อมูลเดิมถูกทับ');
     if (this.isReadOnlyWindow) fail('หน้าต่างนี้เปิดซ้ำอยู่ จึงออกบิลไม่ได้ — ให้ใช้หน้าต่างเดิม');
+    // R2 (Codex 21 ต.ค.): รู้ว่าเป็นเครื่องรองระหว่างงานขายรอคิว (notePrimaryStatus เข้าคิวก่อน) — ตรวจซ้ำ ณ จุดบันทึกจริง
+    // เดิมด่านเครื่องรองอยู่แค่ต้น processCheckout (ก่อนรอคิว) → บิลลงเครื่องได้ทั้งที่ isPrimary=false
+    if (this.primaryStatus && this.primaryStatus.registered !== false && this.primaryStatus.isPrimary === false) {
+      fail('เครื่องนี้เป็นเครื่องรอง — ให้ขายจากเครื่องหลัก หรือให้เจ้าของย้ายเครื่องหลักพร้อมข้อมูลล่าสุดก่อน');
+    }
 
     // 2) คนออกบิล
     if (!this.authorize('sale.checkout', 'ออกบิล', { quiet: true })) {
@@ -8823,11 +9000,16 @@ class PosApp {
   }
 
   resumePendingCloudWork() {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     // หน้าต่างรองห้ามส่งอะไรขึ้นคลาวด์ — ข้อมูลในมือมันเก่ากว่าที่หน้าต่างหลักเพิ่งบันทึก
     // ถ้าปล่อยไป ยอดบนชีตจะถูกเขียนทับด้วยตัวเลขเก่า ทั้งที่ในเครื่องถูกต้องแล้ว
     // หน้าต่างหลักจะส่งเองอยู่แล้ว และหน้าต่างนี้จะโหลดข้อมูลใหม่ก่อนรับสิทธิ์เสมอ
     if (!this.canWriteData()) return;
+    // R1-A: การบันทึกว่า Telegram ส่งแล้วเป็นงานในเครื่อง — ต้องทำได้แม้ออฟไลน์
+    // หรือคิวชีต/Drive ยังติดคำขอก่อนหน้า ไม่รอ runCloudTask และไม่เปลี่ยนลำดับงานเครือข่ายด้านล่าง
+    this.kickTelegramSentSave();
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    // 22 ต.ค. 2569: Telegram ที่ค้าง (เช่นปิดกะแล้วล็อกจอก่อนข้อความออก) ส่งทันทีที่เปิดแอป/เน็ตกลับ — ไม่รอบิลค้าง/สรุป/ไฟล์สำรองก่อน
+    this.kickTelegram();
     if (!this.hasCloudSyncConfig()) {
       this.checkSyncStatus();
       // ⚠️ ข้อ 14: ร้านที่ตั้งเฉพาะ Telegram (ยังไม่ตั้ง Google Sheets) เดิมออกตรงนี้เลย
@@ -9484,14 +9666,20 @@ class PosApp {
 
   // ── หมายเหตุปิดกะ (เจ้าของสั่ง 14 ต.ค. 2569): เงินขาด/เกิน (ผลต่างไม่ใช่ 0) ต้องกรอก · ตรงพอดี = ไม่บังคับ ──
   // ตัวตัดสินเดียว ใช้ทั้งป้ายบนจอ (updateCashSum) และด่านตอนกดยืนยัน (confirmCashCount)
+  // F06 (21 ต.ค. 2569 · เจ้าของเลือกแบบ ก): กะที่เงินเปิดกะไม่ทราบ (กู้จากไฟล์ที่เสีย) ปิดได้ตามปกติ แต่ต้องกรอกหมายเหตุเสมอ
+  closeStartCashUnknown() {
+    const sh = this.state && this.state.shift;
+    return !!(sh && sh.active === true && sh.startCashInvalid === true);
+  }
   closeNoteRequired(diff) {
+    if (this.closeStartCashUnknown()) return true;
     return Math.round((Number(diff) || 0) * 100) !== 0;
   }
   renderCloseNoteRequirement(diff) {
     const tag = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('closing-note-required') : null;
     if (!tag) return;
     const need = this.closeNoteRequired(diff);
-    tag.innerText = need ? '* ต้องกรอก (เงินขาด/เกิน)' : '(ไม่บังคับ)';
+    tag.innerText = need ? (this.closeStartCashUnknown() ? '* ต้องกรอก (เงินเปิดกะไม่ทราบ)' : '* ต้องกรอก (เงินขาด/เกิน)') : '(ไม่บังคับ)';
     tag.style.color = need ? 'var(--accent-premium)' : 'var(--text-muted)';
   }
 
@@ -9526,7 +9714,8 @@ class PosApp {
     if (!Array.isArray(adjList)) invalidAdjustments++;
     else adjList.forEach(a => {
       const n = (a && typeof a === 'object') ? this.toFiniteNumber(a.amount) : null;
-      if (n === null) { invalidAdjustments++; return; }
+      // F07 (21 ต.ค. 2569): เกินเพดาน/ต่ำกว่าสตางค์ = ข้อมูลเสีย ไม่นับ (เดิม 1e20 กลายเป็นยอดที่ควรมี)
+      if (n === null || !this.isValidCashAdjustmentAmount(n)) { invalidAdjustments++; return; }
       // ถูกกลับรายการเพราะบิลถูกยกเลิกในกะเดียวกัน (ดู _voidBillLocked) — เก็บไว้เป็นหลักฐาน แต่ไม่นับเงิน
       if (!a.reversedByVoid) adjSat += sat(n);
       cashAdjustments.push(Object.assign({}, a, { amount: n }));
@@ -9614,6 +9803,11 @@ class PosApp {
     const box = document.getElementById('closing-money-notes');
     if (!box) return;
     const lines = [];
+    // F06 (21 ต.ค. 2569 · แบบ ก): เงินเปิดกะไม่ทราบ — ยอดที่ควรมี/ผลต่างเชื่อไม่ได้ · ปิดได้ แต่ต้องกรอกหมายเหตุ และประวัติกะติดธงไว้
+    if (this.closeStartCashUnknown()) {
+      lines.push('<b>⚠️ เงินเปิดกะของกะนี้ไม่ทราบ (กู้มาจากไฟล์สำรองที่ข้อมูลเสีย) — ยอดที่ควรมีด้านบนนับเงินเปิดกะเป็น 0 จึงเชื่อไม่ได้</b> ' +
+        '· ปิดกะได้ตามปกติ แต่ต้องกรอกหมายเหตุปิดกะ · ประวัติกะ/รายงานจะแสดงผลต่างของกะนี้ว่า "ไม่ทราบ" ไม่นับเป็นเงินขาด/เกิน');
+    }
     const un = calc.unsettledAdjustments || [];
     if (un.length) {
       lines.push(`<b>บิลที่แก้ยอด/ช่องทางหลังรับเงิน แต่ยังไม่บันทึกว่าคืน/เก็บเงินจริงหรือไม่: ${un.length} ใบ</b> ` +
@@ -9738,7 +9932,9 @@ class PosApp {
         const closeNoteRead = this.readNoteInput('closing-note');
         const closeNoteMissing = (d) => closeNoteRead.found && this.closeNoteRequired(d) && !closeNoteRead.value;
         const askCloseNote = () => {
-          this.showToast('เงินขาด/เกิน — กรอก "หมายเหตุปิดกะ" ก่อน (บอกสาเหตุ ถ้าไม่ทราบให้พิมพ์ว่าไม่ทราบ)', 'warning', 7000);
+          this.showToast(this.closeStartCashUnknown()
+            ? 'เงินเปิดกะของกะนี้ไม่ทราบ — กรอก "หมายเหตุปิดกะ" ก่อน (เช่น เงินเปิดกะจริงเท่าไร ถ้าไม่ทราบให้พิมพ์ว่าไม่ทราบ)'
+            : 'เงินขาด/เกิน — กรอก "หมายเหตุปิดกะ" ก่อน (บอกสาเหตุ ถ้าไม่ทราบให้พิมพ์ว่าไม่ทราบ)', 'warning', 7000);
           const el = document.getElementById('closing-note');
           if (el && typeof el.focus === 'function') { try { el.focus(); } catch (e) {} }
         };
@@ -9807,6 +10003,9 @@ class PosApp {
           // ตรวจ 19 ต.ค. 2569 ข้อ 59: คนที่นับเงินตั้งต้นตอนเปิดกะ — เดิมลบทิ้งตอนปิดกะ ไม่เคยลงประวัติ
           // (กะที่ขาดทั้งกะมักมาจากนับตั้งต้นผิด) · เก็บในประวัติกะในเครื่องเท่านั้น ไม่ส่งขึ้นชีต (buildShiftCashSummary เลือกช่องเอง)
           if (typeof this.state.shift.openedBy === 'string' && this.state.shift.openedBy) shiftLog.openedBy = this.state.shift.openedBy;
+          // F06 (21 ต.ค. 2569 · แบบ ก): เงินเปิดกะไม่ทราบ — ติดธงไปกับประวัติ (ชื่อเดียวกับธงของแถวประวัติที่กู้จากไฟล์)
+          // ผลต่างของกะนี้ = ไม่ทราบ ไม่ใช่เงินขาด/เกิน · ห้ามให้ความไม่ทราบกลายเป็นยอดเงินจริงในประวัติ
+          if (this.state.shift.startCashInvalid === true) shiftLog.startCashInvalid = true;
           // หมายเหตุปิดกะ — ไม่มี = ไม่มีช่องนี้ (กะหน้าตาเหมือนรุ่นก่อน)
           if (closeNoteRead.value) shiftLog.closeNote = closeNoteRead.value;
           if (drawerCalc.otherExpensesTotal > 0) shiftLog.otherExpensesTotal = drawerCalc.otherExpensesTotal;
@@ -9845,6 +10044,7 @@ class PosApp {
           this.state.shift.expenses = [];
           delete this.state.shift.cashAdjustments;
           delete this.state.shift.openedBy;
+          delete this.state.shift.startCashInvalid;   // F06: ธงเป็นของกะที่เพิ่งปิด ไม่ติดไปกะถัดไป
           
           // ล้างข้อมูลตะกร้า คิว และสถานะชั่วคราว (ตรวจ 14 ต.ค. ข้อ 3: รวมช่องส่วนลด)
           this.resetCartState();
@@ -9869,35 +10069,8 @@ class PosApp {
           return shiftLog;
         });
         if (!closedLog) { if (btnConfirm) btnConfirm.disabled = false; return; }
-
-        // ── งานเน็ตทั้งหมดอยู่นอกคิวงานบันทึก (ขายต่อได้ระหว่างรอ) ────────────
-        // สรุป/Telegram/สำรองข้อมูลขึ้น Drive อยู่ในคิวงานคลาวด์ที่บันทึกพร้อมการปิดกะแล้ว
-        // ออนไลน์อยู่ก็ส่งทันที · ล้มเหลว/ออฟไลน์ = ค้างในคิวแล้วลองใหม่เอง (มีตัวปลุก)
-        this.flushCloudOutbox();
-
-        this.closeModal('modal-cash-counter');
-        this.renderAll();
-        this.vibrateDevice(150);
-        
-        this.showToast('ปิดร้านเรียบร้อยแล้ว! ข้อมูลคิวงานและตะกร้าของกะที่ผ่านมาได้รับการรีเซ็ตเพื่อเตรียมพร้อมสำหรับกะใหม่', 'info');
-        // ไฟล์สำรอง/สรุปของกะนี้จะไม่ถูกส่ง (เครื่องไม่ใช่เครื่องหลัก) — ต้องบอกคนที่ปิดกะตอนนี้เลย
-        if (this.hasCloudSyncConfig() && this.isPrimaryBlocked()) {
-          this.showToast('ปิดกะแล้ว แต่' + this.primaryPausedMessage(), 'warning', 15000);
-        }
-        
-        // ⚠️ ไม่เด้งหน้าต่างเปิดกะใหม่ทันทีแล้ว (ข้อ 3 รอบตรวจ 26 ก.ย. 2569)
-        // เดิมปิดกะตี 3 แล้วหน้าต่างเปิดกะเด้งค้าง → คนนับเงินเปิดกะตอนนั้นเลย กะของพรุ่งนี้ทั้งวันไปลงวันเมื่อวาน
-        // ตอนนี้เปิดกะเมื่อมีคนจะขายครั้งแรก (ล็อกอิน / กดชำระเงิน / เข้าหน้าขาย) — ร้านเปิดกะ 10:00
-        // ตรวจ 13 ต.ค. 2569 ข้อ 4: ผู้จัดการ/พนักงานปิดกะแล้วออกจากระบบทันที — เดิมล็อกอินค้าง 20 ชม.
-        // คนที่หยิบ iPad ตอนเช้าได้สิทธิ์ผู้จัดการคนที่ปิดกะไปโดยไม่ต้องใส่ PIN (เปิดกะ/ลงค่าใช้จ่ายในชื่อเขาได้)
-        // เจ้าของไม่ต้อง: มีออกจากระบบเองเมื่อไม่แตะจอ 5 นาที / สลับออกจากแอป อยู่แล้ว (และอาจต้องทำงานหลังร้านต่อ)
-        if (this.currentRole !== 'owner') {
-          this.logout('ปิดกะแล้ว — ออกจากระบบให้อัตโนมัติ คนถัดไปเข้าระบบด้วย PIN ของตัวเอง (เปิดกะใหม่ตอนเริ่มขายรอบถัดไป)');
-        } else {
-          setTimeout(() => {
-            this.showToast('ปิดกะแล้ว — เปิดกะใหม่ตอนเริ่มขายรอบถัดไป (ระบบจะให้นับเงินตั้งต้นตอนนั้น)', 'info', 6000);
-          }, 600);
-        }
+        // ปิดกะลงเครื่องแล้ว — จากนี้ทุกขั้นห้ามพาให้ค้างอยู่หน้าเดิม (ดู afterShiftClosed)
+        this.afterShiftClosed();
       } else {
         this.showToast('ไม่รู้ว่ากำลังเปิดหรือปิดกะ — ปิดหน้าต่างแล้วเปิดใหม่', 'warning');
         if (btnConfirm) btnConfirm.disabled = false;
@@ -9908,6 +10081,45 @@ class PosApp {
       if (btnConfirm) btnConfirm.disabled = false;
     }
   }
+  // ── หลังปิดกะบันทึกลงเครื่องแล้ว (แก้ 22 ต.ค. 2569) ────────────────────────────────────────
+  // ร้านแจ้ง (iPad รุ่น 1.12.0): "ผู้จัดการปิดกะแล้วกลับหน้าแดชบอร์ดเฉย ๆ ไม่เด้งหน้าเปิดกะ ต้องปัดแอปทิ้งแล้วเข้าใหม่"
+  // เดิม: (1) บัญชีพนักงานที่ตั้งสิทธิ์เป็น "เจ้าของ" (หน้าร้านเรียกผู้จัดการ) ถูกนับเป็นเจ้าของ → ไม่ออกจากระบบหลังปิดกะ
+  //       จอเหมือนก่อนปิดทุกอย่าง (ปุ่ม "ปิดร้าน" ยังอยู่ ยอดวันนี้ยังโชว์ มีแค่ข้อความเด้งแป๊บเดียว) คนหน้าร้านจึงคิดว่าระบบค้าง
+  //       → ปัดแอปทิ้ง → เปิดใหม่ต้องใส่ PIN → ระบบเด้งหน้าเปิดกะ (ทางเดียวที่เห็นว่าไปต่อได้) — ตรงกับอาการที่ร้านเจอทุกข้อ
+  //       (2) การออกจากระบบอยู่ "หลัง" งานวาดจอ/ข้อความแจ้งเตือน — งานใดพังเมื่อไหร่ = ข้ามการออกจากระบบไปเงียบ ๆ (ค้างหน้าเดิม)
+  // ตอนนี้: ทุกบัญชีพนักงาน (ผู้จัดการ · พนักงาน · พนักงานที่ตั้งสิทธิ์เป็นเจ้าของ) ออกจากระบบทันทีหลังปิดกะ ก่อนงานวาดจอ
+  //   → หน้าเข้าสู่ระบบขึ้นเสมอ = สัญญาณว่าปิดกะจบแล้ว · คนถัดไปเข้าระบบ → ระบบเด้งหน้านับเงินเปิดกะเอง (afterLogin)
+  //   บัญชีเจ้าของร้านหลัก (เจ้าของตัวจริง) อยู่ในระบบต่อเหมือนเดิม — ทำงานหลังร้านต่อได้ (รวมขั้นกู้ข้อมูลหลังปิดกะฉุกเฉิน)
+  //   และออกเองเมื่อไม่แตะจอ 5 นาที / สลับออกจากแอปนาน (ตรวจ 13 ต.ค. 2569 ข้อ 4)
+  //   ยังไม่เด้งหน้าเปิดกะ "ทันที" ตามข้อ 3 รอบตรวจ 26 ก.ย. 2569: คนปิดกะตอนดึกมักนับเงินเปิดกะต่อเลย → กะของพรุ่งนี้ไปผูกกับวันนี้
+  //   แต่ละขั้นแยก try ของตัวเอง — ขั้นหนึ่งพังต้องไม่ลากขั้นที่เหลือ (การปิดกะลงเครื่องไปแล้ว ห้ามโยน error กลับไปให้ผู้ใช้กดปิดซ้ำ)
+  // Telegram ส่งก่อนงานชีต/ไฟล์สำรอง (flushTelegramNow) — ออกภายในไม่กี่วินาที ก่อนคนปิดกะจะล็อกจอ
+  afterShiftClosed() {
+    const step = (label, fn) => { try { fn(); } catch (e) { console.error(`[ปิดกะ] ${label} ล้มเหลว`, e); } };
+    const mainOwner = !!(this.currentUser && this.currentUser.id === '__owner__');
+    step('ส่ง Telegram', () => this.kickTelegram());
+    // สรุปวัน/เดือน + สำรองขึ้น Drive อยู่ในคิวงานคลาวด์ที่บันทึกพร้อมการปิดกะแล้ว (นอกคิวงานบันทึก — ขายต่อได้ระหว่างรอ)
+    // ออนไลน์อยู่ก็ส่งทันที · ล้มเหลว/ออฟไลน์ = ค้างในคิวแล้วลองใหม่เอง (มีตัวปลุก)
+    step('ส่งงานคลาวด์', () => { Promise.resolve(this.flushCloudOutbox()).catch(e => console.error('flushCloudOutbox failed', e)); });
+    step('ปิดหน้านับเงิน', () => this.closeModal('modal-cash-counter'));
+    // ตรวจ 13 ต.ค. 2569 ข้อ 4 + 22 ต.ค. 2569: ไม่ทิ้งการล็อกอินของคนปิดกะไว้ให้คนถัดไป · ทำก่อนงานวาดจอเสมอ
+    if (!mainOwner) {
+      step('ออกจากระบบ', () => this.logout('ปิดกะเรียบร้อยแล้ว — ออกจากระบบให้อัตโนมัติ · คนที่จะขายรอบถัดไปเข้าระบบด้วย PIN ของตัวเอง แล้วระบบจะให้นับเงินเปิดกะ'));
+    }
+    this.safeRender('หน้าจอหลักหลังปิดกะ', () => this.renderAll());
+    step('สั่นเครื่อง', () => this.vibrateDevice(150));
+    if (mainOwner) {
+      step('แจ้งผล', () => {
+        this.showToast('ปิดร้านเรียบร้อยแล้ว! ข้อมูลคิวงานและตะกร้าของกะที่ผ่านมาได้รับการรีเซ็ตเพื่อเตรียมพร้อมสำหรับกะใหม่', 'info');
+        setTimeout(() => { this.showToast('ปิดกะแล้ว — เปิดกะใหม่ตอนเริ่มขายรอบถัดไป (ระบบจะให้นับเงินตั้งต้นตอนนั้น)', 'info', 6000); }, 600);
+      });
+    }
+    // ไฟล์สำรอง/สรุปของกะนี้จะไม่ถูกส่ง (เครื่องไม่ใช่เครื่องหลัก) — ต้องบอกคนที่ปิดกะตอนนี้เลย
+    step('เตือนเครื่องรอง', () => {
+      if (this.hasCloudSyncConfig() && this.isPrimaryBlocked()) this.showToast('ปิดกะแล้ว แต่' + this.primaryPausedMessage(), 'warning', 15000);
+    });
+  }
+
   onExpenseTypeChange() {
     const type = document.getElementById('expense-type').value;
     const staffContainer = document.getElementById('expense-staff-container');
@@ -11039,7 +11251,11 @@ class PosApp {
           const diff = sh.difference || 0;
           let diffText = `฿${diff.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           let diffColor = 'var(--text-primary)';
-          if (diff > 0) {
+          // F06 (21 ต.ค. 2569 · แบบ ก): เงินเปิดกะไม่ทราบ = ผลต่างไม่ทราบ (ไม่แสดงเป็นเงินขาด/เกิน)
+          if (sh.startCashInvalid === true) {
+            diffText = `ไม่ทราบ (เงินเปิดกะไม่ทราบ · ตัวเลขที่บันทึก ${diff >= 0 ? '+' : ''}฿${diff.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+            diffColor = 'var(--accent-premium)';
+          } else if (diff > 0) {
             diffText = `+฿${diff.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (เกิน)`;
             diffColor = 'var(--accent-massage)';
           } else if (diff < 0) {
@@ -11057,7 +11273,7 @@ class PosApp {
               <td>${openTimeStr}${typeof sh.openedBy === 'string' && sh.openedBy ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">นับเงินตั้งต้นโดย ${escapeHtml(sh.openedBy)}</span>` : ''}</td>
               <td>${closeTimeStr}${sh.closedBy ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">โดย ${escapeHtml(sh.closedBy)}</span>` : ''}${sh.emergencyRecovery
                 ? '<br><span style="font-size:0.7rem;color:var(--accent-premium);">⚠️ ปิดระหว่างรับช่วงฉุกเฉิน — ข้อมูลย้อนหลังตอนนั้นยังไม่ครบ</span>' : ''}</td>
-              <td>${this.reportMoney(sh.startCash)}</td>
+              <td>${sh.startCashInvalid === true ? '<span style="color:var(--accent-premium);">ไม่ทราบ</span>' : this.reportMoney(sh.startCash)}</td>
               <td>${this.reportMoney(sh.cashSales)}${(Number(sh.cashAdjustTotal) || 0) !== 0
                 ? `<br><span style="font-size:0.7rem;color:var(--text-muted);">คืน/เก็บส่วนต่าง ${Number(sh.cashAdjustTotal) > 0 ? '+' : '-'}${this.reportMoney(Math.abs(Number(sh.cashAdjustTotal)))}</span>` : ''}${(Number(sh.unsettledCount) || 0) > 0
                 ? `<br><span style="font-size:0.7rem;color:var(--accent-premium);">ค้างบันทึกส่วนต่าง ${Number(sh.unsettledCount)} ใบ</span>` : ''}</td>
@@ -11470,46 +11686,9 @@ class PosApp {
     // ช่อง "เงินของบิลนี้" ของการยกเลิกบิล — ต้องเริ่มที่ยังไม่เลือกทุกครั้ง (ห้ามค้างค่าจากบิลใบก่อน)
     // เหตุผลที่ยกเลิก (เจ้าของสั่ง 14 ต.ค. 2569) — เริ่มว่างทุกครั้งเหมือนช่องเงินของบิล (ห้ามค้างเหตุผลของบิลใบก่อน)
     { const vn = document.getElementById('void-note'); if (vn) vn.value = ''; }
-    const voidSel = document.getElementById('void-money-outcome');
-    if (voidSel) {
-      voidSel.value = '';
-      // ตรวจ 13 ต.ค. 2569 ข้อ 21: ป้ายตัวเลือก "คืนเงิน" ตามช่องทางของบิล — บิลบัตร/โอนไม่มีเงินออกจากลิ้นชัก
-      const opt = voidSel.querySelector ? voidSel.querySelector('option[value="refunded"]') : null;
-      if (opt) {
-        // ตรวจ 14 ต.ค. ข้อ 2: ป้ายคิดจาก planVoidCash ตัวเดียวกับกล่องยืนยัน (เดิมดูจาก tender — บิลที่แก้ช่องทางแล้วป้ายขัดกับกล่องยืนยัน)
-        const tv0 = this.tenderOf(tx);
-        const vp0 = tv0.valid ? this.planVoidCash(tx, 'refunded') : null;
-        const outSat0 = vp0 ? Math.round((vp0.inShift ? -vp0.cashEffect : vp0.paid) * 100) : 0;
-        const nonCash0 = (this.paymentPartsOf(tx) || []).some(x => x.method !== 'cash');
-        // ตรวจ 19 ต.ค. 2569 ข้อ 1: ป้ายถามว่า "เอาเงินของบิลนี้ออกจากยอดที่ควรมีไหม" (บิลซ้ำ/ออกบิลใหม่แทน = เอาออก)
-        // เดิมป้ายถามว่า "คืนเงินแล้วไหม" — บิลซ้ำไม่ได้คืนเงิน พนักงานจึงเลือกอีกข้อ แล้วปิดกะขาดเท่าเงินสดของบิล
-        opt.textContent = (outSat0 > 0 && nonCash0)
-          ? 'เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน) · ส่วนบัตร/โอนคืนทางเดิม'
-          : (tv0.valid && outSat0 === 0)
-            ? (nonCash0 ? 'เอาบิลนี้ออก (คืนทางบัตร/โอนแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน) — ไม่กระทบลิ้นชัก'
-              : 'เอาบิลนี้ออก (บิลซ้ำ · จะออกบิลใหม่แทน) — ไม่กระทบลิ้นชัก')
-            : 'เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน)';
-      }
-    }
-    const voidHint = document.getElementById('void-money-hint');
-    if (voidHint) {
-      // แยกบิลของกะนี้/กะก่อนด้วยตัวคำนวณเดียวกับตอนยกเลิกจริง (planVoidCash)
-      const p = this.planVoidCash(tx, 'none');
-      const baht = v => '฿' + Math.abs(Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      // ส่วนที่รูดบัตร (บิลบัตร/แบ่งจ่าย) — คืนเงินต้องยกเลิกที่เครื่องรูดบัตร (ดู planVoidCash)
-      const tv = this.tenderOf(tx);
-      const cardSat = tv.valid ? tv.parts.reduce((s, x) => s + (x.method === 'credit' ? Math.round(x.amount * 100) : 0), 0) : 0;
-      // ตรวจ 19 ต.ค. 2569 ข้อ 1: บอกตรง ๆ ว่าบิลซ้ำ/ออกบิลใหม่แทนต้องเลือกข้อไหน (บิลกะนี้ vs บิลกะก่อน คนละข้อ)
-      voidHint.innerText = (p.inShift
-        ? (Math.round(p.held * 100) > 0
-          ? `บิลนี้มีเงินสด ${baht(p.held)} นับอยู่ในลิ้นชักของกะที่เปิดอยู่ · บิลซ้ำ/ออกบิลใหม่แทน → เลือกข้อแรก ไม่งั้นปิดกะขาด ${baht(p.held)}`
-          : Math.round(p.held * 100) !== 0 ? `บิลนี้มีเงินสด ${baht(p.held)} นับอยู่ในลิ้นชักของกะที่เปิดอยู่` : 'บิลนี้ไม่ได้รับเป็นเงินสด')
-        : (Math.round(p.paid * 100) > 0
-          ? `บิลนี้ขายในกะก่อน · รับเงินสดสุทธิ ${baht(p.paid)} · บิลซ้ำของกะก่อน → เลือกข้อสอง (ไม่กระทบลิ้นชักกะนี้)`
-          : 'บิลนี้ขายในกะก่อน · ไม่ได้รับเงินสดสุทธิ')) +
-        (cardSat > 0 ? ` · ส่วนที่รูดบัตร ${baht(cardSat / 100)} ต้องยกเลิกที่เครื่องรูดบัตรเอง` : '') +
-        (this.isPendingSettlementBill(tx) ? ' · ⚠️ ต้องบันทึกส่วนต่างเงินในกล่อง "เงินที่รับจริงของบิลนี้" ก่อน จึงจะยกเลิกบิลได้' : '');   // ตรวจ 14 ต.ค. ข้อ 2
-    }
+    // ช่องเงินของบิล/ป้ายตัวเลือก/คำแนะนำ วาดใน renderVoidMoneySection (เรียกจาก renderEditMoneyBox ท้ายฟังก์ชันนี้)
+    // ตรวจ 21 ต.ค. 2569 (F02): เดิมวาดที่นี่ครั้งเดียว — บันทึกส่วนต่างแล้วข้อความยังเป็นยอดเก่า
+    { const voidSel = document.getElementById('void-money-outcome'); if (voidSel) voidSel.value = ''; }
 
     const servicesContainer = document.getElementById('edit-tx-services-list');
     const money2 = v => (Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -11948,7 +12127,56 @@ class PosApp {
 
   // ── ส่วน "เงินที่รับจริงของบิลนี้" ในหน้าต่างแก้บิล (ข้อ 16) ─────────────────────────
   // แสดงเฉพาะบิลที่เคยถูกแก้ยอด/ช่องทางหลังรับเงิน — บิลปกติไม่มีอะไรต่างให้ดู
+  // ── ส่วน "ยกเลิกบิล" ในหน้าต่างแก้บิล: ป้ายตัวเลือก "เงินของบิลนี้" + คำแนะนำเงินสด/ส่วนต่าง ─────────────
+  // ตรวจ 21 ต.ค. 2569 (F02): แยกออกจาก openTransactionEdit — เรียกทุกครั้งที่กล่องเงินของบิลถูกวาด (renderEditMoneyBox)
+  // ข้อมูลชุดเดียวกับกล่องเงิน (planVoidCash · isPendingSettlementBill) · ไม่แตะค่าที่ผู้ใช้เลือก/พิมพ์ไว้
+  // (ล้างค่าเฉพาะตอนเปิดบิลใหม่ใน openTransactionEdit)
+  renderVoidMoneySection(tx) {
+    if (!tx) return;
+    const voidSel = document.getElementById('void-money-outcome');
+    if (voidSel) {
+      // ตรวจ 13 ต.ค. 2569 ข้อ 21: ป้ายตัวเลือก "คืนเงิน" ตามช่องทางของบิล — บิลบัตร/โอนไม่มีเงินออกจากลิ้นชัก
+      const opt = voidSel.querySelector ? voidSel.querySelector('option[value="refunded"]') : null;
+      if (opt) {
+        // ตรวจ 14 ต.ค. ข้อ 2: ป้ายคิดจาก planVoidCash ตัวเดียวกับกล่องยืนยัน (เดิมดูจาก tender — บิลที่แก้ช่องทางแล้วป้ายขัดกับกล่องยืนยัน)
+        const tv0 = this.tenderOf(tx);
+        const vp0 = tv0.valid ? this.planVoidCash(tx, 'refunded') : null;
+        const outSat0 = vp0 ? Math.round((vp0.inShift ? -vp0.cashEffect : vp0.paid) * 100) : 0;
+        const nonCash0 = (this.paymentPartsOf(tx) || []).some(x => x.method !== 'cash');
+        // ตรวจ 19 ต.ค. 2569 ข้อ 1: ป้ายถามว่า "เอาเงินของบิลนี้ออกจากยอดที่ควรมีไหม" (บิลซ้ำ/ออกบิลใหม่แทน = เอาออก)
+        // เดิมป้ายถามว่า "คืนเงินแล้วไหม" — บิลซ้ำไม่ได้คืนเงิน พนักงานจึงเลือกอีกข้อ แล้วปิดกะขาดเท่าเงินสดของบิล
+        opt.textContent = (outSat0 > 0 && nonCash0)
+          ? 'เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน) · ส่วนบัตร/โอนคืนทางเดิม'
+          : (tv0.valid && outSat0 === 0)
+            ? (nonCash0 ? 'เอาบิลนี้ออก (คืนทางบัตร/โอนแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน) — ไม่กระทบลิ้นชัก'
+              : 'เอาบิลนี้ออก (บิลซ้ำ · จะออกบิลใหม่แทน) — ไม่กระทบลิ้นชัก')
+            : 'เอาเงินของบิลนี้ออกจากยอดที่ควรมี (คืนเงินสดแล้ว · บิลซ้ำ · จะออกบิลใหม่แทน)';
+      }
+    }
+    const voidHint = document.getElementById('void-money-hint');
+    if (voidHint) {
+      // แยกบิลของกะนี้/กะก่อนด้วยตัวคำนวณเดียวกับตอนยกเลิกจริง (planVoidCash)
+      const p = this.planVoidCash(tx, 'none');
+      const baht = v => '฿' + Math.abs(Number(v) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      // ส่วนที่รูดบัตร (บิลบัตร/แบ่งจ่าย) — คืนเงินต้องยกเลิกที่เครื่องรูดบัตร (ดู planVoidCash)
+      const tv = this.tenderOf(tx);
+      const cardSat = tv.valid ? tv.parts.reduce((s, x) => s + (x.method === 'credit' ? Math.round(x.amount * 100) : 0), 0) : 0;
+      // ตรวจ 19 ต.ค. 2569 ข้อ 1: บอกตรง ๆ ว่าบิลซ้ำ/ออกบิลใหม่แทนต้องเลือกข้อไหน (บิลกะนี้ vs บิลกะก่อน คนละข้อ)
+      voidHint.innerText = (p.inShift
+        ? (Math.round(p.held * 100) > 0
+          ? `บิลนี้มีเงินสด ${baht(p.held)} นับอยู่ในลิ้นชักของกะที่เปิดอยู่ · บิลซ้ำ/ออกบิลใหม่แทน → เลือกข้อแรก ไม่งั้นปิดกะขาด ${baht(p.held)}`
+          : Math.round(p.held * 100) !== 0 ? `บิลนี้มีเงินสด ${baht(p.held)} นับอยู่ในลิ้นชักของกะที่เปิดอยู่` : 'บิลนี้ไม่ได้รับเป็นเงินสด')
+        : (Math.round(p.paid * 100) > 0
+          ? `บิลนี้ขายในกะก่อน · รับเงินสดสุทธิ ${baht(p.paid)} · บิลซ้ำของกะก่อน → เลือกข้อสอง (ไม่กระทบลิ้นชักกะนี้)`
+          : 'บิลนี้ขายในกะก่อน · ไม่ได้รับเงินสดสุทธิ')) +
+        (cardSat > 0 ? ` · ส่วนที่รูดบัตร ${baht(cardSat / 100)} ต้องยกเลิกที่เครื่องรูดบัตรเอง` : '') +
+        (this.isPendingSettlementBill(tx) ? ' · ⚠️ ต้องบันทึกส่วนต่างเงินในกล่อง "เงินที่รับจริงของบิลนี้" ก่อน จึงจะยกเลิกบิลได้' : '');   // ตรวจ 14 ต.ค. ข้อ 2
+    }
+  }
+
   renderEditMoneyBox(tx) {
+    // F02: ส่วนยกเลิกบิลต้องตรงกับกล่องเงินเสมอ — วาดคู่กันทุกครั้ง (ก่อน return ของกล่องเงิน)
+    try { this.renderVoidMoneySection(tx); } catch (e) { console.warn('[Edit] วาดส่วนยกเลิกบิลไม่สำเร็จ', e); }
     const box = document.getElementById('edit-tx-money-box');
     if (!box) return;
     const explicit = (tx.tender !== undefined && tx.tender !== null) || (tx.settlements !== undefined && tx.settlements !== null);
@@ -12532,6 +12760,8 @@ class PosApp {
       if (!await this._voidBillLocked(tx, { moneyOutcome: outcome, note: voidNote })) return;
 
       // ออนไลน์อยู่แล้วก็ส่ง outbox ทันที (ออฟไลน์จะค้างไว้ retry เอง)
+      // 22 ต.ค. 2569: Telegram แจ้งยกเลิกบิลส่งเส้นของตัวเอง — ไม่รองานชีตที่กำลังวิ่งอยู่ (เช่นไฟล์สำรองกำลังอัปโหลด)
+      this.kickTelegram();
       this.flushCloudOutbox();
 
       this.closeModal('modal-edit-transaction');
@@ -13107,8 +13337,9 @@ class PosApp {
     this._editTxDraft = null;
     this._checkoutAttempt = null;
     this.safeRender('ตะกร้า', () => this.renderCart());
-    this.updateUserRoleUI();
-    this.renderLoginOptions();
+    // 22 ต.ค. 2569: หน้าเข้าสู่ระบบต้องขึ้นเสมอ — งานวาดป้ายสิทธิ์/รายชื่อพังต้องไม่ทำให้ไม่มีหน้าล็อกอิน (ค้างหน้าเดิม ทั้งที่ออกจากระบบแล้ว)
+    this.safeRender('สิทธิ์ผู้ใช้', () => this.updateUserRoleUI());
+    this.safeRender('รายชื่อเข้าสู่ระบบ', () => this.renderLoginOptions());
     const pinEl = document.getElementById('login-pin-input');
     if (pinEl) pinEl.value = '';
     this.openModal('modal-login');
@@ -14168,9 +14399,43 @@ class PosApp {
     return true;
   }
 
+  // ── รหัสซ้ำ/ไม่มีรหัสในรายการตั้งค่า (พนักงาน/ลูกค้า/บริการ) ──────────────────────────────
+  // ตรวจ 21 ต.ค. 2569 (F05): ตัวซ่อมเดียวที่ใช้ทั้งตอนเปิดแอป (loadState) และตอนรับไฟล์สำรอง (sanitizeBackupData)
+  // เดิมซ่อมเฉพาะตอนเปิดแอปใหม่ — ระหว่างนำเข้าไฟล์ถึงรีโหลด กดการ์ด ฿900 ได้รายการ ฿300 (หยิบตัวแรกที่รหัสตรง)
+  // รายการแรกคงรหัสเดิม · ตัวถัดไปที่ซ้ำ/ไม่มีรหัส ได้ prefix + (เลขสูงสุดในรายการ + 1) · แก้ในที่ คืน [{ from, to, name }]
+  dedupeEntityIds(list, prefix) {
+    const changes = [];
+    if (!Array.isArray(list)) return changes;
+    // R3 (Codex 21 ต.ค.): เทียบแบบข้อความ — รหัสเลข 7 กับข้อความ "7" คือรหัสเดียวกันหลังทางกู้แปลงชนิด (fixIds)
+    // และปุ่มบนจอส่งรหัสเป็นข้อความเสมอ (เดิมมองว่าไม่ซ้ำ → กดการ์ด ฿900 ได้รายการ ฿300)
+    const seen = new Set();
+    list.forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      if (!item.id || seen.has(String(item.id))) {
+        let maxNum = 0;
+        list.forEach(x => {
+          const match = String((x && x.id) || '').match(new RegExp('^' + prefix + '(\\d+)$'));
+          if (match) { const num = parseInt(match[1], 10); if (num > maxNum) maxNum = num; }
+        });
+        const from = item.id;
+        item.id = `${prefix}${maxNum + 1}`;
+        changes.push({ from: from === undefined || from === null ? '' : String(from), to: item.id, name: String(item.name || '') });
+      }
+      seen.add(String(item.id));
+    });
+    return changes;
+  }
+
   // ── แปลงเป็นตัวเลขที่ใช้งานได้จริง ─────────────────────────────────────
   // คืน null เมื่อแปลงไม่ได้ — ตั้งใจไม่คืน 0 เพราะผู้เรียกต้องแยกให้ออกระหว่าง
   // "ยอดศูนย์บาท" กับ "ยอดหายไป" สองอย่างนี้ความหมายต่างกันคนละเรื่อง
+  // ตรวจ 21 ต.ค. 2569 (F07): ยอดเงินคืน/เก็บส่วนต่าง (cashAdjustments) — ติดลบได้ (เงินคืน) แต่ต้องไม่เกินเพดานบิลและลงตัวที่สตางค์
+  // กติกาเดียวกับค่าใช้จ่าย (ยกเว้นเครื่องหมาย) · ใช้ทั้งตอนรับไฟล์สำรองและในตัวคำนวณลิ้นชัก
+  isValidCashAdjustmentAmount(a) {
+    return typeof a === 'number' && Number.isFinite(a) && Math.abs(a) <= BILL_MAX_BAHT &&
+      Math.abs(Math.round(a * 100) - a * 100) < 1e-6;
+  }
+
   toFiniteNumber(v) {
     if (typeof v === 'number') return Number.isFinite(v) ? v : null;
     if (typeof v === 'string' && v.trim() !== '') {
@@ -14402,20 +14667,25 @@ class PosApp {
     // บิลยอดติดลบ/ช่องทางจ่ายมั่ว/ยอดบวกไม่ลงตัวจึงได้ผลว่า "สะอาด" แล้วถูกนำไปซิงก์
     // ตอนนี้ใช้ตัวตัดสินตัวเดียวกันเป๊ะ — สิ่งที่รายงานก่อนกดยืนยัน = สิ่งที่จะเกิดขึ้นจริง
     const saved = this._lastSanitizeQuarantine;
+    const savedIdRepairs = this._lastSanitizeIdRepairs;
     let records = [];
+    let idRepairs = [];
     try {
       const dry = JSON.parse(JSON.stringify({
         transactions: parsed.transactions, services: parsed.services, shift: parsed.shift, vatRate: parsed.vatRate,
+        staff: parsed.staff, customers: parsed.customers,   // F05: นับรหัสซ้ำของพนักงาน/ลูกค้าด้วย
         cardFeeRate: parsed.cardFeeRate,
         ...Object.fromEntries(BACKUP_TEXT_SETTINGS.map(k => [k, parsed[k]]))
       }));
       this.sanitizeBackupData(dry);
       records = Array.isArray(this._lastSanitizeQuarantine) ? this._lastSanitizeQuarantine : [];
+      idRepairs = Array.isArray(this._lastSanitizeIdRepairs) ? this._lastSanitizeIdRepairs : [];
     } catch (e) {
       // สำเนาไม่ได้ (ข้อมูลวนอ้างอิงกันเอง) = ตรวจไม่ได้ → ห้ามตอบว่าสะอาด
       records = [{ kind: 'transaction', id: '', reasons: ['unreadable'], message: 'อ่านข้อมูลบิลเพื่อตรวจไม่ได้' }];
     } finally {
       this._lastSanitizeQuarantine = saved;
+      this._lastSanitizeIdRepairs = savedIdRepairs;
     }
 
     const bad = { noId: [], badDate: [], badMoney: [], dupId: [] };
@@ -14494,7 +14764,11 @@ class PosApp {
       damagedIds,
       quarantine,
       problemSamples,
-      clean: quarantine === 0 && badLists === 0
+      dupEntityIds: idRepairs.length,
+      dupStaffIds: idRepairs.filter(c => c.list === 'staff').length,
+      dupCustomerIds: idRepairs.filter(c => c.list === 'customers').length,
+      idRepairSamples: idRepairs.slice(0, 5).map(c => `${c.label} "${c.name || '-'}": รหัส ${c.from || '(ไม่มี)'} → ${c.to}`),
+      clean: quarantine === 0 && badLists === 0 && idRepairs.length === 0
     };
   }
   // สรุปผลตรวจเป็นข้อความที่คนอ่านรู้เรื่อง (ใช้ในกล่องยืนยันก่อนเขียนทับ)
@@ -14512,6 +14786,11 @@ class PosApp {
     if (a.badActiveShift) lines.push(`• กะที่เปิดอยู่ในไฟล์ไม่มีเวลาเริ่มที่ใช้ได้ → กะนี้จะถูกปิดไว้ ต้องนับเงินเปิดกะใหม่ (ค่าเดิมเก็บไว้ตรวจสอบ)`);
     if (a.badSettings) lines.push(`• ${a.badSettings} ค่าตั้งค่าที่ผิดช่วงหรือผิดชนิด (เช่นอัตรา VAT/ค่าข้อความ) → คงค่าเดิมของเครื่องไว้`);
     if (a.badShifts)   lines.push(`• ${a.badShifts} รอบกะที่ "เงินเปิดร้าน" หายไป → แสดงเป็น 0 บาท (ไม่ใช่ยอดจริง — ค่าเดิมเก็บไว้ในรายการที่แยกตรวจสอบ)`);
+    if (a.dupEntityIds) lines.push(`• ${a.dupEntityIds} รายการบริการ/พนักงาน/ลูกค้าที่รหัสซ้ำกัน → ระบบตั้งรหัสใหม่ให้รายการหลัง (ชื่อ/ราคาไม่เปลี่ยน)` +
+      (a.idRepairSamples && a.idRepairSamples.length ? `\n  ${a.idRepairSamples.join('\n  ')}` : '') +
+      // ระบบไม่เดาว่าบิลเก่าที่อ้างรหัสร่วมเป็นของใคร (Codex 21 ต.ค.) — บอกให้เจ้าของตรวจเอง
+      (a.dupStaffIds ? `\n  ⚠️ พนักงานรหัสซ้ำ ${a.dupStaffIds} คน: บิลเก่าที่อ้างรหัสเดิมจะนับเป็นของคนแรก — ตรวจค่าคอม/รายงานพนักงานของช่วงนั้นเองก่อนใช้` : '') +
+      (a.dupCustomerIds ? `\n  ⚠️ ลูกค้ารหัสซ้ำ ${a.dupCustomerIds} คน: บิลเก่าที่อ้างรหัสเดิมผูกกับคนแรก (ยกเลิกบิลเหล่านั้นจะลดจำนวนครั้งที่มาของคนแรก)` : ''));
     const sample = (a.problemSamples && a.problemSamples.length)
       ? `\n\nตัวอย่าง:\n${a.problemSamples.slice(0, 5).join('\n')}` : '';
     return `⚠️ ไฟล์นี้มีข้อมูลเสียบางส่วน (จากบิลทั้งหมด ${a.txTotal} ใบ)\n\n${lines.join('\n')}${sample}\n\n` +
@@ -14528,6 +14807,9 @@ class PosApp {
     const quarantined = [];
     this._lastSanitizeQuarantine = quarantined;
     const stamp = Date.now();
+    // F05: รายการรหัสที่ซ่อม (ซ่อมจริงหลังแปลงชนิดรหัสด้านล่าง — ดู R3)
+    const idRepairs = [];
+    this._lastSanitizeIdRepairs = idRepairs;
     const copy = (v) => { try { return JSON.parse(JSON.stringify(v)); } catch (e) { return String(v); } };
     // ⚠️ ถ่ายสำเนาต้นฉบับของบิลทุกใบ "ก่อน" แตะอะไร — ถ้าบิลใบไหนต้องแยกไปตรวจ ต้องเก็บของเดิมเป๊ะ
     // ไม่ใช่เก็บของที่ผ่านการซ่อมไปครึ่งทางแล้ว (ตรวจย้อนกลับไม่ได้ว่าค่าเดิมคืออะไร)
@@ -14558,6 +14840,14 @@ class PosApp {
       if (q && typeof q === 'object') fixIds(q.services, ['staffId', 'id']);
     });
     if (idsFixed) { fixed += idsFixed; console.warn(`[Import] แปลงชนิดรหัสเป็นข้อความ ${idsFixed} จุด`); }
+    // F05 (21 ต.ค. 2569): รหัสซ้ำในรายการตั้งค่า — ซ่อมตั้งแต่รับไฟล์ (ตัวเดียวกับ loadState) ก่อนข้อมูลถูกใช้ขาย
+    // R3 (Codex 21 ต.ค.): ต้องทำ "หลัง" แปลงชนิดรหัส — เดิมทำก่อน รหัสเลข 7 กับข้อความ "7" จึงไม่ถูกนับว่าซ้ำ แล้วกลายเป็น "7" ทั้งคู่
+    // ไม่ปฏิเสธทั้งไฟล์ (ไฟล์สำรองใช้ตอนฉุกเฉิน) · ผลตรวจไฟล์ (auditBackupData) นับและบอกในกล่องยืนยัน
+    if (parsed && typeof parsed === 'object') {
+      [['services', 's', 'บริการ'], ['staff', 'st', 'พนักงาน'], ['customers', 'c', 'ลูกค้า']].forEach(([k, prefix, label]) => {
+        this.dedupeEntityIds(parsed[k], prefix).forEach(c => { idRepairs.push(Object.assign({ list: k, label }, c)); fixed++; });
+      });
+    }
 
     // ── ฟิลด์ซ้อนชั้นที่หน้าจอวนลูปใช้ ต้องเป็นอาเรย์เสมอ ────────────────
     // `queue[].services = null` ผ่านการตรวจโครงสร้างเดิมได้ (queue เป็นอาเรย์ของอ็อบเจกต์จริง)
@@ -14786,7 +15076,7 @@ class PosApp {
           shift.cashAdjustments = shift.cashAdjustments.filter(a => {
             if (a && typeof a === 'object') {
               convert(a, 'amount');
-              if (typeof a.amount === 'number' && Number.isFinite(a.amount)) return true;
+              if (this.isValidCashAdjustmentAmount(a.amount)) return true;   // F07: เพดาน + สตางค์ (เดิมแค่เป็นตัวเลข)
             }
             quarantined.push({ kind: 'shift', id: 'active', reasons: ['bad-cashAdjustment'],
               message: `รายการคืน/เก็บเงินส่วนต่าง (บิล ${String((a && a.billId) || '-').slice(0, 40)}) จำนวนเงินใช้ไม่ได้`,
@@ -14820,7 +15110,17 @@ class PosApp {
         });
       });
       const sc0 = this.toFiniteNumber(shift.startCash);
-      if (shift.startCash === undefined || shift.startCash === null) { shift.startCash = 0; }
+      if (shift.startCash === undefined || shift.startCash === null) {
+        // F06 (21 ต.ค. 2569): กะที่ "เปิดอยู่" ไม่มีเงินเปิดกะ = ไม่ทราบ ไม่ใช่ 0 — แยกตรวจ + ติดธงเหมือนค่าเสีย
+        // (เดิมเติม 0 เงียบ ไฟล์ตรวจผ่านว่าสะอาด ยอดที่ควรมีขาดไปเท่าเงินเปิดกะจริง) · กะที่ปิดแล้วไม่มีความหมาย = 0 ตามเดิม
+        if (shift.active === true) {
+          quarantined.push({ kind: 'shift', id: 'active', reasons: ['bad-startCash'],
+            message: 'เงินเปิดร้านของกะที่เปิดอยู่หายจากไฟล์ — แสดงเป็น 0 ซึ่งไม่ใช่ยอดจริง',
+            original: copy({ startCash: shift.startCash, startTime: shift.startTime }), quarantinedAt: stamp });
+          shift.startCashInvalid = true; fixed++;
+        }
+        shift.startCash = 0;
+      }
       else if (sc0 === null || sc0 < 0 || sc0 > BILL_MAX_BAHT) {   // ข้อ 14: ติดลบ/เกินเพดาน = ไม่ใช่เงินจริง
         quarantined.push({ kind: 'shift', id: 'active', reasons: ['bad-startCash'],
           message: 'เงินเปิดร้านของกะที่เปิดอยู่ใช้ไม่ได้ — แสดงเป็น 0 ซึ่งไม่ใช่ยอดจริง',
@@ -16539,7 +16839,9 @@ class PosApp {
       `• เงินสดที่ควรมีในลิ้นชัก: ฿${expectedCash.toLocaleString('th-TH')}\n` +
       (overspend > 0 ? `⚠️ ${escapeTelegram(this.overspendLabel(shiftLog.overspendCause))}: ฿${overspend.toLocaleString('th-TH')} (นับเป็นเงินขาด)\n` : '') +   // ตรวจ 14 ต.ค. ข้อ 14
       `• เงินสดที่นับได้จริง: ฿${countedCash.toLocaleString('th-TH')}\n` +
-      `• ส่วนต่าง (ขาด/เกิน): ${diff >= 0 ? '+' : ''}฿${diff.toLocaleString('th-TH')}\n` +
+      (shiftLog.startCashInvalid === true
+        ? `• ส่วนต่าง (ขาด/เกิน): ไม่ทราบ — เงินเปิดกะไม่ทราบ (กู้จากไฟล์สำรองที่ข้อมูลเสีย) · ตัวเลขที่บันทึก ${diff >= 0 ? '+' : ''}฿${diff.toLocaleString('th-TH')}\n`
+        : `• ส่วนต่าง (ขาด/เกิน): ${diff >= 0 ? '+' : ''}฿${diff.toLocaleString('th-TH')}\n`) +
       (closeNote ? `📝 <b>หมายเหตุปิดกะ:</b> ${escapeTelegram(closeNote)}\n` : '') +
       (unsettled ? `⚠️ บิลที่แก้ยอด/ช่องทางแล้วยังไม่บันทึกคืน/เก็บเงิน: ${unsettled} ใบ\n` : '') +
       (invalidBills ? `⚠️ บิลข้อมูลรับเงินเสีย (ไม่ได้นับในยอดที่ควรมี): ${invalidBills} ใบ\n` : '') +
@@ -16559,10 +16861,17 @@ class PosApp {
   }
 
   // ส่งข้อความ Telegram แล้วคืน true/false ว่าส่งถึงไหม (ใช้กับ outbox retry)
-  async postTelegram(message) {
-    if (!this.telegramToken || !this.telegramChatId) {
-      this._cloudFailReason = 'ยังไม่ได้ตั้ง Telegram Token / Chat ID ในหน้าตั้งค่า';
+  // out (ไม่บังคับ) = ที่ฝากเหตุผลเมื่อส่งไม่ถึง { reason } — เส้นส่ง Telegram ทันที (flushTelegramNow) ใช้ทางนี้เท่านั้น
+  // เพราะวิ่งพร้อมรอบส่งชีตได้แล้ว: ห้ามเขียน _cloudFailReason (ตัวแปรร่วมของรอบส่งชีต) ไม่งั้นเหตุผลของสองเส้นปนกัน
+  // ผู้เรียกแบบเดิม (ไม่ส่ง out) ได้เหตุผลทาง _cloudFailReason ตามเดิม
+  async postTelegram(message, out) {
+    const fail = (reason) => {
+      if (out && typeof out === 'object') out.reason = reason;
+      else this._cloudFailReason = reason;
       return false;
+    };
+    if (!this.telegramToken || !this.telegramChatId) {
+      return fail('ยังไม่ได้ตั้ง Telegram Token / Chat ID ในหน้าตั้งค่า');
     }
     try {
       const url = `https://api.telegram.org/bot${this.telegramToken}/sendMessage`;
@@ -16575,13 +16884,11 @@ class PosApp {
       try { d = await r.json(); } catch (e) { d = null; }
       if (d && d.ok) return true;
       // รอบตรวจ 5 ข้อ 3: เก็บเหตุผลที่ Telegram ปฏิเสธไว้ให้เจ้าของเห็น (เดิมทิ้ง description ไปเลย)
-      this._cloudFailReason = this.explainTelegramError(d, r && r.status);
       console.error('Telegram rejected:', d && d.description, r && r.status);
-      return false;
+      return fail(this.explainTelegramError(d, r && r.status));
     } catch (err) {
       console.error('Telegram post failed:', err);
-      this._cloudFailReason = 'ส่ง Telegram ไม่ได้: ' + this.explainCloudError(err);
-      return false;
+      return fail('ส่ง Telegram ไม่ได้: ' + this.explainCloudError(err));
     }
   }
 
@@ -16822,6 +17129,132 @@ class PosApp {
     });
   }
 
+  // ── ส่ง Telegram ที่ค้าง "ทันที" เส้นของตัวเอง (แก้ 22 ต.ค. 2569 — ร้านแจ้ง "ส่งสรุป Telegram ล่าช้า") ─────────────
+  // เดิม Telegram อยู่ในรอบส่งงานคลาวด์เดียวกับชีต (runCloudTask) และอยู่หลังงานอื่นทั้งหมด:
+  //   บิลที่ยังไม่ขึ้นชีต → ไฟล์สำรองระหว่างกะที่กำลังอัปโหลด → (งานก่อนหน้าในคิว) → สรุปวัน → สรุปเดือน → แล้วจึง Telegram
+  //   วัดในเบราว์เซอร์ด้วยเวลาตอบของ Apps Script จริงโดยประมาณ: ~54 วินาทีหลังกดปิดกะ
+  //   ระหว่างนั้นล็อกจอ/สลับแอป/ปัดแอปทิ้ง → iPad หยุดแอป → ข้อความออกตอนเปิดแอปครั้งหน้า (อาจเป็นวันรุ่งขึ้น)
+  // ตอนนี้: ส่งเส้นของตัวเอง ไม่ต่อคิวชีต — ปลายทางคนละเจ้ากับ Apps Script จึงไม่มีลำดับที่ต้องรักษา
+  //   (ข้อความถูกถ่ายเก็บไว้ตอนปิดกะแล้ว ไม่ต้องรอผลจากชีต) · ส่งทีละข้อความตามลำดับในคิว · รอบซ้อนกันต่อคิวกันเอง ไม่ส่งซ้ำ
+  // คืนจำนวนข้อความที่ส่งถึง (งานที่ไม่ใช่งานเงียบ) — รอบส่งงานคลาวด์ใช้รวมในข้อความ "ส่งสำเร็จแล้ว N รายการ"
+  flushTelegramNow() {
+    const run = () => this._doFlushTelegram();
+    const p = (this._telegramChain || Promise.resolve()).then(run, run);
+    this._telegramChain = p.then(() => {}, () => {});
+    return p;
+  }
+
+  // เรียกแบบไม่รอผล (ปิดกะ / ยกเลิกบิล / เปิดแอป / เน็ตกลับ) — ห้ามมี error หลุดเป็น unhandled rejection
+  kickTelegram() {
+    try { Promise.resolve(this.flushTelegramNow()).catch(e => console.warn('[Telegram] ส่งข้อความที่ค้างไม่สำเร็จ', e)); }
+    catch (e) { console.warn('[Telegram] ส่งข้อความที่ค้างไม่สำเร็จ', e); }
+  }
+
+  async _doFlushTelegram() {
+    if (!this.canWriteData()) return 0;   // หน้าต่างรอง/โหลดไม่สำเร็จ — หน้าต่างหลักส่งเอง (เหตุผลเดียวกับรอบส่งงานคลาวด์)
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return 0;   // ออฟไลน์ — ตัวปลุก 'online' ส่งต่อเอง
+    if (!Array.isArray(this.state.cloudOutbox) || !this.state.cloudOutbox.some(it => it && it.needTelegram)) return 0;
+    // อ่านรายการผ่านคิวงานบันทึก (เหตุผลเดียวกับรอบส่งงานคลาวด์ ตรวจ 19 ต.ค. ข้อ 6) — งานปิดกะที่บันทึกล้มถูกถอนออกก่อนถึงตรงนี้
+    const snap = await this.withMutation('อ่านข้อความ Telegram ที่ค้าง', () => ({
+      items: (Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : []).filter(it => it && it.needTelegram),
+      context: this.cloudContext()
+    }), { background: true });
+    if (!snap || !Array.isArray(snap.items) || !snap.items.length) return 0;
+    const context = snap.context;
+    const current = () => this.isCloudContextCurrent(context);
+    let delivered = 0, failed = 0;
+    for (const item of snap.items) {
+      if (!current()) break;   // ข้อมูลถูกแทนทั้งชุด/เปลี่ยนปลายทาง — งานของชุดเก่าไม่ส่งต่อ
+      if (!item.needTelegram || !this.cloudServiceReady(item, 'telegram', Date.now())) continue;
+      const out = {};
+      let ok = false;
+      try { ok = (await this.postTelegram(item.telegramMessage, out)) === true; }
+      catch (e) { ok = false; out.reason = out.reason || ((e && e.message) || String(e)); }
+      if (!current()) {
+        // ตรวจ 19 ต.ค. 2569 ข้อ 26 (กติกาเดิม): ส่งถึงแล้ว = ข้อความถึงคนอ่านแล้วจริง แม้ปลายทาง/ข้อมูลเปลี่ยนระหว่างรอ → นับว่าส่งแล้ว
+        // ส่งไม่ถึง = ผลของรอบเก่า ไม่นับ (ไม่บวกตัวนับลองใหม่ของงาน)
+        if (ok) {
+          this.noteCloudServiceResult(item, 'telegram', true, '');
+          item.needTelegram = false;
+          if (!item.quiet) delivered++;
+          await this._persistTelegramSent(item, current);
+        }
+        break;
+      }
+      this.noteCloudServiceResult(item, 'telegram', ok, ok ? '' : (out.reason || ''));
+      if (ok) {
+        item.needTelegram = false;
+        if (!item.quiet) delivered++;
+        await this._persistTelegramSent(item, current);
+      } else failed++;
+    }
+    // ส่งไม่ถึง: ตัวนับลองใหม่/เวลานัดถัดไปต้องลงเครื่องด้วย (ปิดแอปแล้วเปิดใหม่ต้องไม่ยิงรัวตั้งแต่ต้น — กติกาเดียวกับรอบส่งงานคลาวด์)
+    if (failed) {
+      try {
+        await this.withMutation('บันทึกผลส่ง Telegram', () =>
+          (current() && snap.items.some(it => (this.state.cloudOutbox || []).includes(it))) ? this.saveState() : false, { background: true });
+      } catch (e) { console.warn('[Telegram] บันทึกตัวนับลองใหม่ไม่สำเร็จ — จะบันทึกอีกครั้งรอบหน้า', e); }
+    }
+    // R1: ส่งถึงแล้วแต่บันทึก "ส่งแล้ว" ล้ม — ลองบันทึกอีกครั้งทันที (ที่เก็บข้อมูลมักล้มชั่วครู่)
+    // ยังไม่สำเร็จ = ตัวปลุกงานคลาวด์ลองต่อทุก 30 วินาทีขณะแอปเปิดอยู่ (scheduleCloudRetry) · บันทึกทั้งร้านครั้งไหนสำเร็จก็ล้างธงเอง (saveState)
+    if (this._telegramSentUnsaved) await this._retryTelegramSentSave();
+    if (failed || this._telegramSentUnsaved) this.scheduleCloudRetry();
+    try { this.renderExpiredCloudJobs(); } catch (e) { /* หน้าจอไม่พร้อม */ }
+    return delivered;
+  }
+
+  // ตรวจ 13 ต.ค. 2569 ข้อ 7: Telegram ส่งซ้ำไม่ได้ (คนอ่านเห็นปิดกะสองรอบ) — บันทึก "ส่งแล้ว" ลงเครื่องทันทีหลังส่งถึง
+  // ข้อ 26: ปลายทาง/ข้อมูลเปลี่ยนระหว่างส่ง — งานตัวเดิมยังอยู่ในคิว = บันทึกว่าส่งแล้ว · งานถูกแทนด้วยสำเนาที่การกู้พกไป
+  // (carriedFrom) = ทิ้งสำเนานั้น ไม่ส่งซ้ำ (ย้ายมาจากรอบส่งงานคลาวด์ 22 ต.ค. 2569 — เนื้อเดิมทุกบรรทัด)
+  // R1 (Codex ตรวจ 22 ต.ค. 2569): คืน true = สถานะ "ส่งแล้ว" ลงเครื่องแล้ว (หรือไม่มีอะไรต้องบันทึก — งานไม่อยู่ในชุดข้อมูลนี้แล้ว)
+  // false = บันทึกไม่สำเร็จ → ตั้งธง _telegramSentUnsaved ให้บันทึกซ้ำจนสำเร็จ
+  // เดิม saveState() "คืน false" เมื่อเขียนลงเครื่องไม่ได้ (ไม่ throw) แต่ไม่มีใครดูค่านี้ — ในหน่วยความจำส่งแล้ว ในเครื่องยังรอส่ง
+  // และรอบส่งงานคลาวด์ไม่บันทึกซ้ำถ้างานชีตของรอบนั้นยังไม่ถึงเวลาลองใหม่ → เปิดแอปใหม่ ข้อความเดิมถูกส่งซ้ำ
+  async _persistTelegramSent(item, current) {
+    let saved = false;
+    try {
+      saved = (await this.withMutation('บันทึกว่า Telegram ส่งแล้ว', async () => {
+        const list = Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [];
+        const keys = new Set([String(item.id || '')].concat(item.carriedFrom ? [String(item.carriedFrom)] : []).filter(Boolean));
+        const copies = list.filter(j => j && j !== item && j.needTelegram && j.carriedFrom && keys.has(String(j.carriedFrom)) &&
+          j.telegramMessage === item.telegramMessage);
+        if (copies.length) {
+          copies.forEach(j => { j.needTelegram = false; });
+          this.state.cloudOutbox = list.filter(j => !copies.includes(j) || j.needVoidDelete || j.needSummary || j.needBackup);
+          console.warn('[Outbox] Telegram ส่งถึงแล้วก่อนการกู้ — ทิ้งสำเนาที่การกู้พกไป', copies.map(j => j.id));
+        }
+        if (!(current() || list.includes(item) || copies.length)) return true;   // งานของชุดข้อมูลเก่า — ไม่มีอะไรต้องบันทึก
+        return (await this.saveState()) === true;
+      }, { background: true })) === true;
+    } catch (e) { saved = false; console.warn('[Outbox] บันทึกสถานะ Telegram ไม่สำเร็จ — จะบันทึกซ้ำ', e); }
+    if (!saved) this._telegramSentUnsaved = true;
+    return saved;
+  }
+
+  // R1: บันทึกซ้ำให้สถานะ "ส่งแล้ว" ลงเครื่อง — บันทึกทั้งร้าน (รวมคิวงานคลาวด์ในหน่วยความจำที่ปิดธงแล้ว)
+  // saveState() ที่สำเร็จครั้งไหนก็ล้างธงเอง (เช่นขายบิลถัดไป) · คืน true = ลงเครื่องแล้ว
+  async _retryTelegramSentSave() {
+    if (!this._telegramSentUnsaved) return true;
+    try {
+      await this.withMutation('บันทึกว่า Telegram ส่งแล้ว (ซ้ำ)', () => (this._telegramSentUnsaved ? this.saveState() : true), { background: true });
+    } catch (e) { console.warn('[Telegram] บันทึกสถานะส่งแล้วซ้ำไม่สำเร็จ — จะลองอีกครั้ง', e); }
+    return !this._telegramSentUnsaved;
+  }
+
+  // R1-A: ตัวปลุก/เปิดแอปลองบันทึกสถานะในเครื่องแยกจากเส้นส่งเครือข่าย
+  // withMutation ในตัวบันทึกกันงานซ้อนเอง; บันทึกสำเร็จแล้ว งานที่เข้าคิวตามมาจะไม่เขียนซ้ำ
+  kickTelegramSentSave() {
+    if (!this._telegramSentUnsaved || this.loadFailed || !this.canWriteData()) return;
+    const run = async () => {
+      try { await this._retryTelegramSentSave(); }
+      finally {
+        // ยังเขียนไม่ได้ต้องปลุกต่อ แม้ไม่มีเน็ต/ไม่มีงานคลาวด์อื่นค้าง
+        if (this._telegramSentUnsaved) this.scheduleCloudRetry();
+      }
+    };
+    run().catch(e => console.warn('[Telegram] บันทึกสถานะส่งแล้วไม่สำเร็จ — จะลองอีกครั้ง', e));
+  }
+
   // ส่ง outbox ที่ค้าง (เรียกตอนปิดกะ / เน็ตกลับ / เปิดแอป) — idempotent + กันยิงซ้อน
   async flushCloudOutbox() {
     return this.runCloudTask(() => this._doFlushCloudOutbox());
@@ -16830,7 +17263,10 @@ class PosApp {
   async _doFlushCloudOutbox() {
     if (!this.canWriteData()) return;   // ดูเหตุผลที่ canWriteData()
     if (this._flushingOutbox) return;
-    if (!Array.isArray(this.state.cloudOutbox) || this.state.cloudOutbox.length === 0) { this.scheduleCloudRetry(); return; }
+    if (!Array.isArray(this.state.cloudOutbox) || this.state.cloudOutbox.length === 0) {
+      if (this._telegramSentUnsaved) await this._retryTelegramSentSave();   // R1: งานหมดคิวแล้วแต่ "ส่งแล้ว" ยังไม่ลงเครื่อง
+      this.scheduleCloudRetry(); return;
+    }
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return; // ออฟไลน์ — ไว้ค่อยส่ง (ตัวปลุก 'online' ทำงานต่อเอง)
     this._flushingOutbox = true;
     let delivered = 0;
@@ -16871,6 +17307,10 @@ class PosApp {
       return ok;
     };
     let restoreJobSent = false;   // รอบตรวจ 6 ข้อ 2 — ส่งงานสรุปหลังกู้ได้รอบละ 1 เดือน
+    // 22 ต.ค. 2569: Telegram เริ่มส่งพร้อมกันเส้นของตัวเอง — ไม่รอลบแถว/สรุปวัน-เดือน/ไฟล์สำรองของรอบนี้ (ดู flushTelegramNow)
+    // ไม่ await ตรงนี้: ลำดับ/จังหวะของงานชีตต้องเหมือนเดิมทุกอย่าง (อ่านรายการงานในจังหวะเดิม) · รอผลตอนท้ายรอบ
+    // ผู้ที่รอ flushCloudOutbox() จึงยังได้ผล Telegram ครบเหมือนเดิม
+    const telegramRound = Promise.resolve(this.flushTelegramNow()).catch(e => { console.warn('[Telegram] ส่งข้อความที่ค้างไม่สำเร็จ', e); return 0; });
     try {
       // ตรวจ 19 ต.ค. 2569 ข้อ 6: อ่านรายการงาน "ผ่านคิวงานบันทึก" — งานยกเลิกบิล/ปิดกะ/ลบแถวจากหน้าตรวจ ถูกเพิ่มลงคิว "ก่อน" บันทึก
       // ถ้าอ่านตรง ๆ ระหว่างงานนั้นกำลังบันทึก แล้วบันทึกล้ม (ถอนงานออก) แถวบนชีตถูกลบ/Telegram แจ้งไปแล้วทั้งที่ในเครื่องไม่เกิด
@@ -16925,30 +17365,7 @@ class PosApp {
           });
         }
 
-        // 2) Telegram — ส่งข้อความที่ snapshot ไว้ตอนปิดกะ (ไม่ขึ้นกับการตั้งค่า Google Sheets)
-        if (item.needTelegram) {
-          if (await run(item, 'telegram', () => this.postTelegram(item.telegramMessage))) {
-            item.needTelegram = false;
-            // ตรวจ 13 ต.ค. 2569 ข้อ 7: Telegram ส่งซ้ำไม่ได้ (คนอ่านเห็นปิดกะสองรอบ) — บันทึก "ส่งแล้ว" ลงเครื่องทันที
-            // เดิมบันทึกตอนจบทั้งรอบ ซึ่งต้องรอไฟล์สำรองอัปโหลด (ถึง 2 นาที) — ปิดแอปช่วงนั้น = เปิดใหม่ส่งรายงานซ้ำ
-            // ข้อ 26: ปลายทาง/ข้อมูลเปลี่ยนระหว่างส่ง — งานตัวเดิมยังอยู่ในคิว = บันทึกว่าส่งแล้ว (เดิมไม่บันทึก → ส่งซ้ำรอบหน้า)
-            // งานถูกแทนด้วยสำเนาที่การกู้พกไป (carriedFrom) = ทิ้งสำเนานั้น ไม่ส่งซ้ำ
-            try {
-              await this.withMutation('บันทึกว่า Telegram ส่งแล้ว', () => {
-                const list = Array.isArray(this.state.cloudOutbox) ? this.state.cloudOutbox : [];
-                const keys = new Set([String(item.id || '')].concat(item.carriedFrom ? [String(item.carriedFrom)] : []).filter(Boolean));
-                const copies = list.filter(j => j && j !== item && j.needTelegram && j.carriedFrom && keys.has(String(j.carriedFrom)) &&
-                  j.telegramMessage === item.telegramMessage);
-                if (copies.length) {
-                  copies.forEach(j => { j.needTelegram = false; });
-                  this.state.cloudOutbox = list.filter(j => !copies.includes(j) || j.needVoidDelete || j.needSummary || j.needBackup);
-                  console.warn('[Outbox] Telegram ส่งถึงแล้วก่อนการกู้ — ทิ้งสำเนาที่การกู้พกไป', copies.map(j => j.id));
-                }
-                return (current() || list.includes(item) || copies.length) ? this.saveState() : false;
-              }, { background: true });
-            } catch (e) { console.warn('[Outbox] บันทึกสถานะ Telegram ไม่สำเร็จ — จะบันทึกอีกครั้งตอนจบรอบ', e); }
-          }
-        }
+        // 2) Telegram — ย้ายไปส่งเส้นของตัวเอง "ก่อน" ทุกงานของรอบนี้แล้ว (flushTelegramNow ด้านบน · แก้ 22 ต.ค. 2569)
 
         // 3) สำรองข้อมูลขึ้น Drive (หลังปิดกะ) — ใช้ข้อมูล "ล่าสุด" ตอนส่ง จึงมีงานสำรองค้างได้ทีละงานเดียวพอ
         //    ⚠️ เดิมลองครั้งเดียวตอนปิดกะ ล้มแล้วไม่มีงานค้างให้ลองใหม่ = คืนนั้นไม่มีไฟล์สำรองโดยไม่มีใครรู้
@@ -16962,6 +17379,8 @@ class PosApp {
         }
       }
 
+      delivered += Number(await telegramRound) || 0;
+
       // เก็บเฉพาะรายการที่ยังค้าง ที่เสร็จแล้วทิ้งออก — ทำ "ในคิวงานบันทึก"
       // ไม่งั้นอาจไปตัด outbox ระหว่างที่งานขาย/ยกเลิกกำลังรอเซฟอยู่ แล้วงานนั้นคืนค่าทับผลของเรา
       // ต้องเซฟเมื่อ "มีการลองยิง" ด้วย ไม่ใช่เฉพาะตอนมีงานสำเร็จ
@@ -16971,7 +17390,9 @@ class PosApp {
         if ((!current())) return;   // ชุดข้อมูลเปลี่ยนแล้ว — ผลของรอบนี้ไม่เกี่ยวกับชุดใหม่
         const before = this.state.cloudOutbox.length;
         this.state.cloudOutbox = this.state.cloudOutbox.filter(it => it.needVoidDelete || it.needSummary || it.needTelegram || it.needBackup);
-        if (attempted || anyOk || this.state.cloudOutbox.length !== before) await this.saveState();
+        // R1 (Codex ตรวจ 22 ต.ค. 2569): Telegram ส่งเส้นของตัวเองแล้ว จึงไม่นับใน attempted/anyOk — ถ้าบันทึก "ส่งแล้ว" ยังค้าง ต้องบันทึกตรงนี้ด้วย
+        // (เดิมก่อน 1.12.2 Telegram อยู่ในรอบนี้ การบันทึกตอนจบรอบจึงเก็บสถานะที่บันทึกล้มไว้ให้เสมอ)
+        if (attempted || anyOk || this.state.cloudOutbox.length !== before || this._telegramSentUnsaved) await this.saveState();
       }, { background: true });   // งานระบบ ไม่ใช่คำสั่งผู้ใช้ — ห้ามถูกปฏิเสธเพราะมีคนออกจากระบบ/กำลังดูแลข้อมูล (ตรวจรอบ Claude)
       if (current() && delivered > 0) this.showToast(`ส่งสรุป/แจ้งเตือนที่ค้างไว้สำเร็จแล้ว (${delivered} รายการ)`, 'success');
     } finally {
@@ -17165,6 +17586,8 @@ class PosApp {
     // รอบตรวจ 5 ข้อ 2: ส่งไม่ผ่านทั้งรอบติดกัน = เว้นห่างขึ้น 1 → 2 → 5 → 10 → 30 นาที (เดิมทุก 1 นาทีตายตัว)
     if ((Array.isArray(this.state.transactions) ? this.state.transactions : []).some(tx => this.isBillAwaitingSync(tx)) &&
         this.hasCloudSyncConfig()) next = Math.min(next, now + this.billRetryDelayMs());
+    // R1 (Codex ตรวจ 22 ต.ค. 2569): Telegram ส่งถึงแล้วแต่ "ส่งแล้ว" ยังไม่ลงเครื่อง — ปลุกมาบันทึกซ้ำแม้ไม่มีงานอื่นค้าง
+    if (this._telegramSentUnsaved) next = Math.min(next, now + 30e3);
     if (!isFinite(next)) return;
     const delay = Math.min(Math.max(next - now, 1000), 30 * 60 * 1000);
     this._cloudRetryTimer = setTimeout(() => { this._cloudRetryTimer = null; this.resumePendingCloudWork(); }, delay);

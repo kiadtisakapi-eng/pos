@@ -1608,6 +1608,17 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ── ตรวจ 21 ต.ค. 2569 (F01): แถบแดง "หน้าต่างนี้บันทึกอะไรไม่ได้" ลอยทับขอบล่างของจอ ─────────────
+ * แถบเป็น position:fixed สูง ~170px (app.js renderReadOnlyBanner) แต่กล่องคิดความสูงเต็มจอ
+ * → iPad แนวนอนเลื่อนกล่องสุดแล้วปุ่มยืนยันยังอยู่ใต้แถบ กดไม่ได้
+ * ตอนมีแถบ: หักความสูงแถบจริงออกจากพื้นที่ของหน้าต่าง (--ro-banner-h วัดจาก JS ทุกครั้งที่แถบขึ้น/จอหมุน)
+ * ⚠️ ห้ามแก้แค่เปิด overflow อีกชั้น — กล่องเลื่อนได้อยู่แล้ว ปัญหาคือพื้นที่ที่คิดไม่หักแถบ */
+body.ro-banner-on .modal-overlay { padding-bottom: calc(1.25rem + var(--ro-banner-h, 0px)); }
+body.ro-banner-on .modal-card {
+  max-height: calc(100vh - 2.5rem - var(--ro-banner-h, 0px));
+  max-height: calc(100dvh - 2.5rem - var(--ro-banner-h, 0px));
+}
+
 .modal-card::before {
   content: '';
   position: absolute;

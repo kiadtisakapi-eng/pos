@@ -43,6 +43,10 @@ files.push('test_fix_20261020_gas.js', 'test_fix_20261020_gas_index.js', 'test_f
 files.push('test_fix_20261020_deploy_assets.js', 'test_fix_20261020_deploy_gate.js');
 // ตรวจ 20 ต.ค. 2569: crypto ของ harness_db (กัน Dexie commit ก่อนเวลาแบบสุ่มตอนเครื่องหนัก — ต้นเหตุจริงของ test_batch6 P6 ที่ตกนาน ๆ ครั้ง)
 files.push('test_fix_20261020_harness_crypto.js');
+// แก้ตามผลตรวจซ้ำ 20–21 ต.ค. 2569 (Codex F01–F09 → Claude → Codex ทักท้วง): F01 F02 F03 F05 F06 F07
+files.push('test_fix_20261021_f01_f07.js');
+// ปัญหาจากการใช้งานจริง 22 ต.ค. 2569: ปิดกะแล้วค้างหน้าแดชบอร์ด · Telegram สรุปปิดกะล่าช้า
+files.push('test_fix_20261022_close_telegram.js');
 // ตัวตัดสินผ่าน/ไม่ผ่านอยู่ใน runner_judge.js (ใช้ร่วมกับ run-all-ui.js) — ต้องมีบรรทัดสรุป · อ่าน stderr · ค้างเกิน 5 นาที = ไม่ผ่าน
 const { runTestFile, parseArgs } = require('./runner_judge');
 const args = parseArgs((process.argv || []).slice(2));

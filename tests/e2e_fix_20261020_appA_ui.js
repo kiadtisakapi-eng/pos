@@ -121,6 +121,8 @@ const lastBill = (p) => p.evaluate(() => { const tx = app.state.transactions.at(
     await p.waitForFunction(() => document.getElementById('modal-payment').classList.contains('active'));
     await p.click('#pay-credit-btn');
     await p.waitForSelector('.card-fee-opt');
+    // รอแอนิเมชันเปิดกล่อง (posModalIn ย่อ 0.97 → 1 · 0.26 วิ) จบก่อนวัด — เดิมวัดกลางแอนิเมชันได้ 43px เป็นบางรอบ (เทสต์แกว่ง ไม่ใช่ปุ่มเตี้ย)
+    await p.evaluate(() => Promise.all(document.querySelector('#modal-payment .modal-card').getAnimations().map(a => a.finished.catch(() => {}))));
     const hs = await p.$$eval('.card-fee-opt', els => els.filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().height)));
     t('ปุ่มอัตราค่าธรรมเนียมสูงอย่างน้อย 44px', hs.length > 0 && hs.every(h => h >= 44), hs);
     await p.evaluate(() => { app.closeModal('modal-payment'); app.clearCart(); });
