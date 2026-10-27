@@ -240,7 +240,10 @@ function doGet(e)     { return ContentService.createTextOutput("Erotica POS API 
 function setupPosApiToken() {
   var props = PropertiesService.getScriptProperties();
   var token = String(props.getProperty(POS_API_TOKEN_PROPERTY) || "");
-  if (!token) {
+  // ตรวจ 26 ต.ค. 2569 ข้อ 10: ค่าที่แก้มือแล้วผิดรูปแบบ (มีช่องว่าง/สั้นกว่า 24 ตัว) เดิมถูกคืนกลับเหมือนเป็นรหัส
+  // แต่ doPost ถือว่า "ยังไม่ได้ตั้ง" แล้วบอกให้รันฟังก์ชันนี้อีก → ทางตัน · ตอนนี้สร้างรหัสใหม่แทนค่าที่ใช้ไม่ได้
+  if (!token || !/^[A-Za-z0-9_-]{24,200}$/.test(token)) {
+    if (token) Logger.log("รหัสเดิมผิดรูปแบบ (ต้องเป็น A-Z a-z 0-9 _ - ยาว 24-200 ตัว) — สร้างรหัสใหม่แทน");
     token = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
     props.setProperty(POS_API_TOKEN_PROPERTY, token);
   }

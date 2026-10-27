@@ -217,6 +217,8 @@ async function syncedSaleThenOfflineVoid() {
       app.openTransactionEdit(tx.id);
       env.document.getElementById('edit-tx-discount').value = '100';
       D.now = () => before + 24 * 3600e3;   // ยืนยันหลังเลยรอบวันทำการ (เวลาเดินหน้า ไม่ใช่นาฬิกาถอย)
+      // 26 ต.ค. 2569 ข้อ 3: บิลของกะที่ "ยังเปิดอยู่" ผู้จัดการแก้ได้แม้เลย 06:00 — ด่านนี้เป็นของบิลวันก่อนที่กะปิดไปแล้ว
+      app.state.shift.active = false;
       eq(app.billAccessFor(tx), 'none', 'control: bill is now a past-day bill for the manager');
       await app.saveTransactionEdit(); await settle(20);
       eq(tx.total, 500, 'manager edited a past-day bill');
@@ -235,6 +237,7 @@ async function syncedSaleThenOfflineVoid() {
       eq(tx.total, 400, 'control: owner edit');
       const D = vm.runInContext('Date', env.ctx), before = D.now();
       D.now = () => before + 24 * 3600e3;
+      app.state.shift.active = false;   // 26 ต.ค. ข้อ 3: กะของบิลนี้ปิดไปแล้ว (บิลของกะที่ยังเปิดอยู่ผู้จัดการแก้ได้)
       loginAs(app, 'manager');
       eq(app.billAccessFor(tx), 'settle-only', 'control: settle-only access');
       app.openTransactionEdit(tx.id);

@@ -1,5 +1,5 @@
 // ตรวจ 14 ต.ค. 2569 รอบ 2 (gx4) — เจ้าของตัดสินแล้ว
-//  ก. ค่าใช้จ่าย "จ่ายจากลิ้นชัก" เกิน 500 บาท ต้องใส่ PIN ของคนที่ลง (ผ่านฟอร์มจริง → addExpense)
+//  ก. ค่าใช้จ่าย "จ่ายจากลิ้นชัก" เกินเพดาน (1,000 บาทตั้งแต่ 27 ต.ค. 2569 · เดิม 500) ต้องใส่ PIN ของคนที่ลง (ผ่านฟอร์มจริง → addExpense)
 //  ข. ผู้จัดการไม่เห็นแถวบิลที่ไม่ใช่วันทำการนี้ในตาราง "แก้บิลย้อนหลัง" / "บิลที่ถูกยกเลิก"
 //  ป้ายบนชีต: ยอดเกินลิ้นชักจากเงินคืน ต้องไม่ขึ้นว่า "ค่าใช้จ่ายเกินลิ้นชัก" · Apps Script รุ่นเก่าต้องไม่พังกับ payload ใหม่
 // แอปจริง + Dexie จริงบน fake-indexeddb + Apps Script จริงในชีตจำลอง
@@ -82,16 +82,16 @@ async function refundOverspendDay(opts) {
     return R.done();
   }
 
-  // ═══ ก. PIN ค่าใช้จ่ายจากลิ้นชักเกิน 500 ═══
-  await R.t('ก: ผู้จัดการลงจ่ายจากลิ้นชัก 600 → ถาม PIN ของตัวเอง · PIN ถูก = บันทึก', async () => {
+  // ═══ ก. PIN ค่าใช้จ่ายจากลิ้นชักเกินเพดาน (500 → 1,000 เจ้าของปรับ 27 ต.ค. 2569) ═══
+  await R.t('ก: ผู้จัดการลงจ่ายจากลิ้นชัก 1,200 → ถาม PIN ของตัวเอง · PIN ถูก = บันทึก', async () => {
     const { env, app } = await makeShop({});
     try {
       await settle(); loginAs(app, 'manager');
       const asked = realStepUp(app, '222222');
-      fillExpense(env, 600); await submitExpense(app); await settle(20);
+      fillExpense(env, 1200); await submitExpense(app); await settle(20);
       eq(asked.length, 1, 'ไม่ถาม PIN');
       ok(/บี/.test(asked[0]), 'ไม่ได้ถาม PIN ของคนที่ลง: ' + asked[0]);
-      eq(expAmounts(app), [600], 'ไม่บันทึก');
+      eq(expAmounts(app), [1200], 'ไม่บันทึก');
       eq(env.document.getElementById('expense-amount').value, '', 'ฟอร์มไม่ล้างหลังบันทึก');
     } finally { env.dispose(); }
   });
@@ -101,10 +101,10 @@ async function refundOverspendDay(opts) {
     try {
       await settle(); loginAs(app, 'manager');
       const asked = realStepUp(app, null);
-      fillExpense(env, 600, 'drawer', 'ค่าน้ำแข็ง'); await submitExpense(app); await settle(20);
+      fillExpense(env, 1200, 'drawer', 'ค่าน้ำแข็ง'); await submitExpense(app); await settle(20);
       eq(asked.length, 1, 'ไม่ถาม PIN');
       eq(expAmounts(app), [], 'บันทึกทั้งที่ยกเลิก PIN');
-      eq([env.document.getElementById('expense-amount').value, env.document.getElementById('expense-note').value], ['600', 'ค่าน้ำแข็ง'], 'ฟอร์มถูกล้าง');
+      eq([env.document.getElementById('expense-amount').value, env.document.getElementById('expense-note').value], ['1200', 'ค่าน้ำแข็ง'], 'ฟอร์มถูกล้าง');
     } finally { env.dispose(); }
   });
 
@@ -113,31 +113,31 @@ async function refundOverspendDay(opts) {
     try {
       await settle(); loginAs(app, 'manager');
       realStepUp(app, '999999');
-      fillExpense(env, 600); await submitExpense(app); await settle(20);
+      fillExpense(env, 1200); await submitExpense(app); await settle(20);
       eq(expAmounts(app), [], 'บันทึกทั้งที่ PIN ผิด');
     } finally { env.dispose(); }
   });
 
-  await R.t('ก: 500 พอดี (จากลิ้นชัก) และ 600 จ่ายทางอื่น ไม่ถาม PIN', async () => {
+  await R.t('ก: 1,000 พอดี (จากลิ้นชัก) และ 1,200 จ่ายทางอื่น ไม่ถาม PIN', async () => {
     const { env, app } = await makeShop({});
     try {
       await settle(); loginAs(app, 'manager');
       const asked = realStepUp(app, '222222');
-      fillExpense(env, 500, 'drawer'); await submitExpense(app); await settle(20);
-      fillExpense(env, 600, 'other', 'โอน'); await submitExpense(app); await settle(20);
+      fillExpense(env, 1000, 'drawer'); await submitExpense(app); await settle(20);
+      fillExpense(env, 1200, 'other', 'โอน'); await submitExpense(app); await settle(20);
       eq(asked.length, 0, 'ถาม PIN ทั้งที่ไม่ถึงเกณฑ์/จ่ายทางอื่น');
-      eq(expAmounts(app), [500, 600]);
+      eq(expAmounts(app), [1000, 1200]);
     } finally { env.dispose(); }
   });
 
-  await R.t('ก: เจ้าของลง 600 จากลิ้นชัก — ตามด่าน PIN ซ้ำเดิม (เจ้าของไม่ถูกถาม) บันทึกได้', async () => {
+  await R.t('ก: เจ้าของลง 1,200 จากลิ้นชัก — ตามด่าน PIN ซ้ำเดิม (เจ้าของไม่ถูกถาม) บันทึกได้', async () => {
     const { env, app } = await makeShop({});
     try {
       await settle(); loginAs(app, 'owner');
       const asked = realStepUp(app, '246810');
-      fillExpense(env, 600); await submitExpense(app); await settle(20);
+      fillExpense(env, 1200); await submitExpense(app); await settle(20);
       eq(asked.length, 0);
-      eq(expAmounts(app), [600]);
+      eq(expAmounts(app), [1200]);
     } finally { env.dispose(); }
   });
 
@@ -147,15 +147,15 @@ async function refundOverspendDay(opts) {
       await settle(); loginAs(app, 'manager');
       let release; const gate = new Promise(r => { release = r; });
       const asked = realStepUp(app, async () => { await gate; return '222222'; });
-      fillExpense(env, 600);
+      fillExpense(env, 1200);
       const p1 = submitExpense(app); await settle(10);
       const p2 = submitExpense(app); await settle(10);              // แตะซ้ำ ฟอร์มเดิม
-      fillExpense(env, 700, 'drawer', 'อีกรายการ');
+      fillExpense(env, 1300, 'drawer', 'อีกรายการ');
       const p3 = submitExpense(app); await settle(10);              // รายการอื่นระหว่างกล่อง PIN เปิดอยู่
       eq(asked.length, 1, 'เปิดกล่อง PIN ซ้อน');
       release(); await Promise.all([p1, p2, p3]); await settle(30);
-      eq(expAmounts(app), [600], 'ลงซ้ำ/ลงรายการที่ไม่ได้ใส่ PIN');
-      eq(env.document.getElementById('expense-amount').value, '700', 'ฟอร์มรายการที่สองหาย');
+      eq(expAmounts(app), [1200], 'ลงซ้ำ/ลงรายการที่ไม่ได้ใส่ PIN');
+      eq(env.document.getElementById('expense-amount').value, '1300', 'ฟอร์มรายการที่สองหาย');
       ok(toasts.some(x => /PIN/.test(x.m) && /ก่อน/.test(x.m)), 'ไม่บอกว่าต้องทำรายการแรกให้จบก่อน');
     } finally { env.dispose(); }
   });

@@ -369,7 +369,7 @@ async function runSeed(seed) {
 
   async function doExpense(who) {
     login(app, who);
-    const amt = pick([45, 120, 300, 500, 501, 800, 1500]);
+    const amt = pick([45, 120, 300, 500, 501, 800, 1000, 1001, 1500]);
     let src = chance(0.7) ? 'drawer' : 'other';
     if (src === 'drawer' && amt > M.physical - 50) src = 'other';
     d.getElementById('expense-type').value = pick(['supply', 'other', 'staff']);
@@ -381,11 +381,20 @@ async function runSeed(seed) {
     await app.addExpense(); await settle();
     if (app.state.shift.expenses.length !== n0 + 1) { problem('expense', `not saved ${lastToast()}`); return; }
     const pinAsked = (app._stepUps || []).length - s0;
-    const wantPin = src === 'drawer' && amt > 500 ? 1 : 0;
+    // 26 ต.ค. 2569 ข้อ 2: PIN เมื่อรายการเดียวเกิน 500 หรือยอดลิ้นชักสะสมของบัญชีเดียวกันในกะนี้ (นับจากรายการที่ผ่าน PIN ล่าสุด) เกิน 500
+    // ตัวคำนวณอิสระ: ไล่จาก M.expLedger ที่เทสต์จดเอง (ไม่อ่านธงในแอป)
+    const uid = app.currentUser && app.currentUser.id;
+    const sh = curShift();
+    M.expLedger = M.expLedger || [];
+    let acc = 0;
+    M.expLedger.filter(x => !x.deleted && x.drawer && x.uid === uid && x.shift === sh).forEach(x => { acc = x.verified ? 0 : acc + x.amt; });
+    const LIM = 1000;   // เพดาน PIN (เจ้าของปรับ 500 → 1,000 · 27 ต.ค. 2569)
+    const wantPin = src === 'drawer' && (amt > LIM || acc + amt > LIM) ? 1 : 0;
     if (pinAsked !== wantPin) problem('expense-pin', `PIN step-up ${pinAsked} for ${amt} from ${src} (want ${wantPin})`);
     if (src === 'drawer') M.physical -= amt;
     const e = app.state.shift.expenses[app.state.shift.expenses.length - 1];
     M.expenses.set(e.id, { amt, src });
+    M.expLedger.push({ id: e.id, uid, amt, drawer: src === 'drawer', verified: wantPin === 1, shift: sh, deleted: false });
     note(`EXPENSE ${amt} ${src} by ${who}`);
     checkDrawer('expense');
   }
@@ -397,6 +406,7 @@ async function runSeed(seed) {
     await app.deleteExpense(e.id); if (app._confirmP) await app._confirmP; await settle();
     if (app.state.shift.expenses.some(x => x.id === e.id)) { problem('expense', 'delete failed'); return; }
     if (e.paidFrom !== 'other') M.physical += Number(e.amount);   // entered by mistake — the cash goes back
+    (M.expLedger || []).forEach(x => { if (x.id === e.id) x.deleted = true; });
     note(`DEL-EXPENSE ${e.amount} ${e.paidFrom}`);
     checkDrawer('delexp');
   }
@@ -802,7 +812,7 @@ if (require.main === module) (async () => {
     else if (/\] FIXCH/.test(l)) bump('payment channel corrected');
     else if (/\] EDIT-STAFF/.test(l)) bump('edit line staff');
     else if (/\] EDIT-NOTE/.test(l)) bump('edit note');
-    else if ((m = l.match(/\] EXPENSE (\d+) (\S+)/))) { bump('expense ' + m[2]); if (Number(m[1]) > 500 && m[2] === 'drawer') bump('expense drawer >500 (PIN)'); }
+    else if ((m = l.match(/\] EXPENSE (\d+) (\S+)/))) { bump('expense ' + m[2]); if (Number(m[1]) > 1000 && m[2] === 'drawer') bump('expense drawer >1000 (PIN)'); }
     else if (/\] DEL/.test(l)) bump('expense deleted');
     else if ((m = l.match(/\] VAT (ON|OFF) (\d+)%/))) bump('VAT switch ' + m[1] + ' ' + m[2] + '%');
     else if (/\] CATEGORY/.test(l)) bump('category VAT flag changed');

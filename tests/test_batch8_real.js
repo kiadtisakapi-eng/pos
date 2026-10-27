@@ -164,7 +164,8 @@ await section('[U]', async () => {
   app.askConfirm = async (m) => !/ตั้งค่าเงินในไฟล์ต่าง/.test(String(m));
   app.askTypedConfirm = async (m, k) => k === 'ใช้ค่าในไฟล์';
   await importFile(env, wrong);
-  await t('หลังนำเข้า: ได้ค่าจากไฟล์ (เครื่องว่างอยู่)', () => { eq(app.shopPromptPayId, '0899999999'); eq(app.telegramChatId, '777OTHERCHAT'); });
+  // 26 ต.ค. 2569 ข้อ 1: แชท Telegram (ปลายทางคลาวด์) ไม่รับจากไฟล์อีกแล้ว — พร้อมเพย์ยังรับตามที่เจ้าของพิมพ์ยืนยัน
+  await t('หลังนำเข้า: ได้พร้อมเพย์จากไฟล์ (เจ้าของยืนยัน) · แชท Telegram ไม่รับจากไฟล์', () => { eq(app.shopPromptPayId, '0899999999'); eq(app.telegramChatId, ''); });
   await app.undoLastRestore(); await app._confirmP; await settle(50);
   await t('หลังย้อน: พร้อมเพย์กลับเป็นว่าง (QR ไม่ชี้ไปบัญชีของไฟล์ผิด)', async () => {
     eq(app.shopPromptPayId, ''); eq(await env.raw('shopPromptPayId'), ''); });
@@ -225,7 +226,8 @@ await section('[T]', async () => {
   const s2 = await makeShop({ role: 'owner', rows: { telegramChatId: '' } });
   const f2 = JSON.parse(JSON.stringify(s2.app.buildBackupPayload())); f2.telegramChatId = '-100SHOP';
   await s2.app.applyBackupData(f2); await settle(30);
-  await t('เครื่องยังไม่ได้ตั้ง → ใช้ของในไฟล์', () => eq(s2.app.telegramChatId, '-100SHOP'));
+  // 26 ต.ค. 2569 ข้อ 1: เดิม "ใช้ของในไฟล์" — ไฟล์ที่ถูกแก้ส่งรายงานร้านไปกลุ่มของคนอื่นได้ · ตอนนี้เจ้าของพิมพ์เอง
+  await t('เครื่องยังไม่ได้ตั้ง → ไม่รับแชทจากไฟล์ (เจ้าของพิมพ์เอง)', () => eq(s2.app.telegramChatId, ''));
   s2.env.dispose();
 });
 

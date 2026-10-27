@@ -72,7 +72,8 @@ console.log('\n--- applyBackupData: เครื่องใหม่ยัง�
 app.googleSheetsUrl='';
 // ตรวจ 8 ต.ค. 2569 ข้อ 3: หลังกู้รอบแรกบิลทุกใบรอส่งซ้ำ (ยังไม่ขึ้นชีต) — กู้ซ้ำต้องยืนยันก่อน · เทสต์นี้ตรวจเรื่อง URL จึงส่งคำยืนยันไปด้วย
 await app.applyBackupData(goodBackup(), { acceptUnsynced: true });
-t('รับ URL จากไฟล์เมื่อเครื่องยังว่าง',()=>eq(app.googleSheetsUrl,'https://OLD-deployment/exec'));
+// 26 ต.ค. 2569 ข้อ 1: เดิมรับ URL จากไฟล์เมื่อเครื่องยังว่าง — ไฟล์ที่ถูกแก้ชี้รหัส/ข้อมูลร้านไปเซิร์ฟเวอร์อื่นได้
+t('ไม่รับ URL จากไฟล์แม้เครื่องยังว่าง (เจ้าของพิมพ์เอง)',()=>eq(app.googleSheetsUrl,''));
 
 console.log('\n--- applyBackupData: โหลดข้อมูลเดิมพัง ---');
 app.loadFailed=true; const before=saved;
