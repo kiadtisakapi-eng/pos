@@ -1553,7 +1553,7 @@ body {
   .cart-item-staff select { min-height: 44px; padding: 8px 10px; }
   /* ตรวจ 19 ต.ค. 2569 ข้อ 44: ปุ่มที่ยังเล็กกว่า 44px บน iPad — ปุ่มล็อก/สลับผู้ใช้ในแถบข้าง (แนวนอนกว้าง 16px) ·
      ปุ่มสลับธีมบนหัวจอ (32px) · ปุ่มเพิ่มลูกค้าด่วน (40px) · ป้ายสถานะคลาวด์ (สูง 29/37px — กดเพื่อส่งงานที่ค้าง) */
-  #btn-lock-sidebar, #btn-theme-toggle-mobile, .btn-add-customer-quick {
+  #btn-lock-sidebar, #btn-theme-toggle-mobile, #btn-lang-toggle-mobile, .btn-add-customer-quick {
     min-width: 44px;
     justify-content: center;
   }
@@ -1845,6 +1845,12 @@ body.ro-banner-on .modal-card {
 }
 .theme-toggle-side:hover { background: var(--gold-glow); border-color: var(--gold); color: var(--gold); }
 .theme-toggle-side:active { transform: scale(.97); }
+/* ปุ่มธีม + ปุ่มภาษา คู่กันแถวเดียว (5 พ.ย. 2569) — แถวเดียวเพื่อไม่ดันเมนูล่างสุดตกขอบจอเตี้ย */
+/* แถบข้าง 225px (iPad แนวนอน) เหลือที่ให้สองปุ่มรวม ~172px — ปุ่มภาษากว้างเท่าข้อความ (ไม่มีไอคอน) ที่เหลือให้ปุ่มธีม
+   (ตรวจ 5 พ.ย.: แบ่งครึ่งเท่ากันแล้ว "โหมดสว่าง" ต้องการ ~86px แต่ได้ 83px → ข้อความโดนตัด) */
+.side-toggle-row { display: flex; gap: 6px; margin: 4px 0 16px; }
+.side-toggle-row .theme-toggle-side { flex: 1 1 auto; min-width: 0; width: auto; margin: 0; padding: 10px 6px; gap: 6px; white-space: nowrap; overflow: hidden; }
+.side-toggle-row #btn-lang-toggle-side { flex: 0 0 auto; padding: 10px 12px; }
 
 /* Login Dialog elements */
 .login-user-btn {
@@ -2211,7 +2217,7 @@ html[data-theme="light"] .tab-count {
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
 }
-#btn-theme-toggle-mobile {
+#btn-theme-toggle-mobile, #btn-lang-toggle-mobile {
   background: rgba(255,255,255,0.03);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
@@ -2224,6 +2230,7 @@ html[data-theme="light"] .tab-count {
   cursor: pointer;
   flex-shrink: 0;
 }
+#btn-lang-toggle-mobile { font-family: var(--font); font-size: 0.7rem; font-weight: 700; padding: 0; }
 #global-role-label {
   font-weight: 600;
   color: var(--gold);
@@ -2262,4 +2269,17 @@ html[data-theme="light"] .tab-count {
 }
 #btn-close-store:active {
   transform: scale(0.97);
+}
+
+/* ── ปุ่มเปลี่ยนภาษา (5 พ.ย. 2569) ─────────────────────────────────────────────
+   แถบข้าง: คู่กับปุ่มธีม (.side-toggle-row) · หัวจอมือถือ/iPad แนวตั้ง: วงกลมข้างปุ่มธีม
+   มือถือจอแคบ ≤480px: หัวจอเดิมแน่นอยู่แล้ว (ป้ายคลาวด์ถูกบีบเป็น 4 บรรทัด) → ย้ายไปอยู่หัวหน้าขายแทน */
+.lang-toggle-inline {
+  display: none; align-items: center; gap: 6px; min-height: 44px; padding: 6px 14px;
+  background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 50px;
+  color: var(--text-secondary); font-family: var(--font); font-size: 0.8rem; font-weight: 700; cursor: pointer;
+}
+@media (max-width: 480px) {
+  #btn-lang-toggle-mobile { display: none; }
+  .lang-toggle-inline { display: inline-flex; }
 }

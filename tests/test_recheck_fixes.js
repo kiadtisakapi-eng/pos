@@ -209,7 +209,10 @@ function summaryRequests(s) { return s.gas.requests.filter(x => x.action === 'su
       const historicalRequests = g.requests.filter(x => x.action === 'transaction' && x.id === first.id).length;
       const emergencySale = await sale(s); assert.equal(emergencySale.emergencySale, true); await s.app.syncPendingTransactions(true);
       assert.equal(g.requests.filter(x => x.action === 'transaction' && x.id === first.id).length, historicalRequests);
-      assert.equal(g.sheet('10-2026')._grid.length, 4);
+      // แก้ 5 พ.ย. 2569: เดิมตรึงแท็บ '10-2026' — แต่บิลที่ขายในเทสต์ใช้วันที่ปัจจุบัน พอข้ามเดือนบิลไปอยู่แท็บเดือนใหม่
+      // เทสต์ตกทั้งที่โค้ดถูก (และ deploy.ps1 ไม่ยอมปล่อยของ) · นับแถวบิลรวมทุกแท็บที่เกี่ยวแทน: first + missing + emergencySale = 3
+      { const mk = s.app.getBusinessMonthKey(first.date), rowsOf = n => { const sh = g.sheet(n); return sh ? sh._grid.length - 1 : 0; };
+        assert.equal(mk === '10-2026' ? rowsOf(mk) : rowsOf('10-2026') + rowsOf(mk), 3); }
       await assert.rejects(s.app.applyBackupData ? s.app.applyBackupData(partial) : s.app.applyBackupSnapshot(partial));
       const local = s.app.state.transactions.map(tx => { const b = s.app.buildBillPayload(tx); return b; });
       assert.equal(g.post({ action: 'claim_primary', deviceId: DEV_B, ownerKey, bills: local }).code, 'RECOVERY_CONFIRMATION_REQUIRED');

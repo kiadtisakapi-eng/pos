@@ -90,7 +90,7 @@ function isAppsScriptExecUrl(u) {
 const BACKUP_SCHEMA_VERSION = 3;
 
 // เวอร์ชันแอป — บัมพ์ทุกครั้งที่ปล่อยอัปเดต (ควรให้สอดคล้องกับ CACHE_NAME ใน sw.js)
-const APP_VERSION = '1.12.3 (2026-10-28)';
+const APP_VERSION = '1.13.0 (2026-11-05)';
 
 // ═══ กติกาตัวเลข (เจ้าของสั่ง 26 ก.ย. 2569 — ห้ามแก้กลับ) ═══════════════════════════
 // ตัวเลขทุกตัวที่ "คนกรอก" ต้องเป็นจำนวนเต็มเท่านั้น ห้ามทศนิยมเด็ดขาด:
@@ -422,6 +422,195 @@ db.version(2).stores({
   state: 'key'
 });
 
+// ── ภาษาหน้าจอ ไทย / อังกฤษ (5 พ.ย. 2569 — เจ้าของสั่ง) ─────────────────────────────────────
+// ขอบเขต: แปลเฉพาะหน้าที่พนักงานใช้ขาย — หน้าขาย · ตะกร้า · คิว · หน้าชำระเงิน + เมนูนำทาง + ปุ่มธีม/ภาษา
+// ⚠️ ห้ามใช้ uiText() กับสิ่งที่ "บันทึก" หรือ "ส่งออกนอกหน้าจอ" — ต้องเป็นภาษาไทยเหมือนเดิมทุกตัวอักษร:
+//    ป้ายบนชีต (sheetPaymentLabel / sheetServicesOf ต้องตรงกับ payLabelFor_ ของ Apps Script) · รหัส/ชื่อหมวด
+//    ("ไม่ระบุหมวด" · CARD_FEE_LINE_NAME · "ทั่วไป") · customerName ที่เก็บในบิล · หัวคอลัมน์ชีต · ใบเสร็จ ·
+//    Telegram · toast / ข้อความ error · คำที่ต้องพิมพ์ยืนยัน · หน้าตั้งค่า / รายงาน
+//    uiText() ใช้ "ตอนวาดหน้าจอ" เท่านั้น — ข้อมูลในเครื่องและบนชีตไม่รู้ด้วยซ้ำว่าหน้าจอเป็นภาษาอะไร
+// กติกา: ภาษาไทยคือค่าเริ่มต้น · คีย์ของพจนานุกรมคือข้อความไทยตัวจริง · หาคำแปลไม่เจอ = แสดงภาษาไทย (ไม่มีวันขึ้นช่องว่าง)
+// ภาษาที่เลือกจำไว้ในเครื่องแยกตามบัญชี (localStorage) — ไม่อยู่ในข้อมูลร้าน ไม่อยู่ในไฟล์สำรอง ไม่ขึ้นชีต
+// ข้อความที่ซ้ำกันแต่ต้องแปลต่างกัน ใช้ "บริบท" นำหน้า เช่น 'nav|ลูกค้า' (เมนู) กับ 'ลูกค้า' (ช่องในตะกร้า)
+const UI_LANGS = Object.freeze(['th', 'en']);
+const UI_LANG_STORAGE_KEY = 'pos_ui_lang_by_user';
+const I18N_EN = Object.freeze({
+  // เมนูนำทาง (แถบข้าง + แถบล่าง)
+  'nav|แดชบอร์ด': 'Dashboard',
+  'nav|หน้าขาย POS': 'Sales (POS)',
+  'nav|จัดการคิวงาน': 'Queue',
+  'nav|ข้อมูลลูกค้า': 'Customers',
+  'nav|รายงานยอดขาย': 'Sales reports',
+  'nav|ตั้งค่าระบบ': 'Settings',
+  'nav|หน้าขาย': 'Sales',
+  'nav|คิวงาน': 'Queue',
+  'nav|ลูกค้า': 'Customers',
+  'nav|รายงาน': 'Reports',
+  'nav|ตั้งค่า': 'Settings',
+  // ปุ่มธีม
+  'โหมดมืด': 'Dark',
+  'โหมดสว่าง': 'Light',
+  'สลับโหมดสว่าง/มืด': 'Switch light/dark mode',
+  // หน้าขาย
+  'หน้าขาย / ชำระเงิน': 'Sales / Checkout',
+  'เลือกบริการและพนักงานเพื่อออกบิล': 'Choose services and staff to make a bill',
+  'บริการหรือสินค้า': 'Services or products',
+  'บริการ': 'Services',
+  'สินค้า': 'Products',
+  'card|สินค้า': 'Product',
+  'ค้นหาบริการ...': 'Search services...',
+  'ค้นหาบริการหรือสินค้า (ทุกหมวด)...': 'Search services or products (all categories)...',
+  'ทั้งหมด': 'All',
+  'บริการทั้งหมด': 'All services',
+  'สินค้าทั้งหมด': 'All products',
+  'ผลค้นหา "{q}" จากทุกหมวด · {n} รายการ': 'Results for "{q}" in all categories · {n} items',
+  'ล้างค้นหา': 'Clear search',
+  'ไม่พบ "{q}" ในบริการและสินค้าทุกหมวด': 'No service or product matches "{q}"',
+  'ไม่พบ "{q}" ในหมวดหมู่นี้': 'Nothing in this category matches "{q}"',
+  'ไม่พบสินค้าในหมวดหมู่นี้': 'No products in this category',
+  'ไม่พบรายการบริการในหมวดหมู่นี้': 'No services in this category',
+  '{n} นาที': '{n} min',
+  // ตะกร้า
+  'ตะกร้าบริการ (': 'Cart (',
+  'ล้างตะกร้า': 'Clear cart',
+  'เลือกบริการ/สินค้าเพื่อเริ่มออกบิล': 'Choose a service or product to start a bill',
+  'ลูกค้า': 'Customer',
+  'ลูกค้าของบิลนี้': 'Customer for this bill',
+  'เพิ่มลูกค้าด่วน': 'Quick add customer',
+  'ลูกค้าทั่วไป (Walk-in)': 'Walk-in customer',
+  'ลูกค้าทั่วไป (Google)': 'Walk-in (Google)',
+  'ลูกค้าเก่า': 'Returning customer',
+  'ราคารวม': 'Subtotal',
+  'ส่วนลด': 'Discount',
+  'บาท': 'THB',
+  'ส่วนลดของบิล (บาท)': 'Bill discount (THB)',
+  'ปัดเศษขึ้น': 'Rounding',
+  'ยอดที่ต้องชำระ': 'Total due',
+  'VAT {r}% (จาก ฿{base})': 'VAT {r}% (on ฿{base})',
+  'ไปที่หน้าชำระเงิน': 'Go to payment',
+  'พิมพ์ใบแจ้งยอดให้ลูกค้าดู': 'Print bill preview for customer',
+  'ขายหน้าร้าน · ไม่มีค่าคอม': 'Counter sale · no commission',
+  'คนขาย': 'Seller',
+  'ผู้ให้บริการ': 'Staff',
+  '— เลือกผู้ให้บริการใหม่ —': '— Choose new staff —',
+  '— เลือกคนขาย (มีค่าคอม) —': '— Choose seller (gets commission) —',
+  '— เลือกผู้ให้บริการ —': '— Choose staff —',
+  // คิว
+  'ระบบจัดการคิวบริการ': 'Service queue',
+  'ติดตามความคืบหน้าและการจัดคิวพนักงาน': 'Track progress and the staff queue',
+  'คิวที่กำลังรอรับบริการ (': 'Waiting (',
+  'กำลังให้บริการอยู่ (': 'In service (',
+  'ไม่มีคิวรอรับบริการ': 'No one is waiting',
+  'ไม่มีคิวที่กำลังให้บริการอยู่ในขณะนี้': 'No one is in service right now',
+  'รอประมาณ {n} นาที': 'About {n} min',
+  'พนักงาน: {name}': 'Staff: {name}',
+  'ยกเลิกคิว': 'Cancel',
+  'เริ่มบริการ': 'Start',
+  'เสร็จสิ้นงาน': 'Done',
+  'ให้บริการไปแล้ว {a}/{b} นาที': 'In service {a}/{b} min',
+  'ให้บริการอยู่ (ไม่ได้ตั้งระยะเวลา)': 'In service (no duration set)',
+  // หน้าชำระเงิน
+  'ขั้นตอนการชำระเงิน': 'Payment',
+  'เลือกช่องทางชำระเงิน': 'Choose payment method',
+  'เงินสด': 'Cash',
+  'แบ่งจ่าย': 'Split',
+  'สแกนด้วยแอปธนาคารเพื่อชำระเงิน': 'Scan with a banking app to pay',
+  'พร้อมเพย์ร้าน: {pp}': 'Shop PromptPay: {pp}',
+  'ระบบพร้อมรับรูดบัตรเครดิต': 'Ready to take the card',
+  'กรุณาดำเนินการแตะ/เสียบบัตรที่เครื่องรูดบัตร (EDC)': 'Tap or insert the card on the card machine (EDC)',
+  'ยอดที่ต้องรูดบัตร (รวมค่าธรรมเนียม):': 'Amount to charge (incl. fee):',
+  'ยอดที่ต้องรูดบัตร (รวมค่าธรรมเนียม)': 'Amount to charge on card (incl. fee)',
+  'เงินสดที่ลูกค้าจ่าย (บาท)': 'Cash paid by customer (THB)',
+  'กรอกยอดเงินสดที่ร้านเก็บจริง (ไม่รวมเงินทอน) · ส่วนที่เหลือรูดบัตร · ค่าธรรมเนียมคิดเฉพาะส่วนที่รูด · เงินสดส่วนนี้นับเข้าลิ้นชัก':
+    'Enter the cash the shop actually keeps (not including change) · the rest goes on the card · the fee is only on the card part · this cash counts toward the drawer',
+  'รวมทั้งบิล (เงินสด + บัตร)': 'Bill total (cash + card)',
+  'กรอกเงินสดที่ลูกค้าจ่าย แล้วระบบจะบอกยอดที่ต้องรูดบัตร': 'Enter the cash paid and the card amount will show here',
+  'ค่าบริการ': 'Service total',
+  'ยอดส่วนที่รูดบัตร (ก่อนค่าธรรมเนียม)': 'Card part (before fee)',
+  'ค่าธรรมเนียมบัตร': 'Card fee',
+  'กรอกเอง': 'Custom',
+  'ค่าธรรมเนียม': 'Fee',
+  'ไม่คิด': 'None',
+  '(ลดจาก {a}% เหลือ {b}%)': '(reduced from {a}% to {b}%)',
+  'รวม VAT': 'incl. VAT',
+  'รับเงินสดมา (บาท)': 'Cash received (THB)',
+  // ช่องเงินทอน — ขึ้นทุกครั้งที่พนักงานพิมพ์เงินที่รับยังไม่ครบ (ป้ายสถานะของหน้าชำระเงิน ไม่ใช่ toast)
+  'ยอดเงินสดไม่เพียงพอ': 'Not enough cash',
+  'ใส่จำนวนเต็มบาท (ไม่มีทศนิยม)': 'Whole baht only (no decimals)',
+  'จ่ายพอดี': 'Exact',
+  'เงินทอน': 'Change',
+  'หมายเหตุบิล': 'Bill note',
+  '(ไม่บังคับ · ไม่พิมพ์บนใบเสร็จ)': '(optional · not printed on the receipt)',
+  'เช่น ลูกค้าขอเปลี่ยนหมอ / แถมเวลา 15 นาที': 'e.g. customer changed therapist / 15 min extra',
+  'ย้อนกลับ': 'Back',
+  'ยืนยันการรับชำระเงิน': 'Confirm payment'
+});
+let UI_LANG = 'th';
+// ข้อความไทย → ข้อความตามภาษาที่เลือก · params แทนที่ {ชื่อ} รอบเดียว (ค่าที่แทนเข้าไปไม่ถูกแทนซ้ำ)
+// ⚠️ ค่าใน params ถูกวางลงหน้าจอตามที่ส่งมา — ผู้เรียกต้อง escapeHtml() เองเหมือนก่อนมีระบบนี้
+function uiText(th, params, ctx) {
+  if (typeof th !== 'string') return th;
+  const own = Object.prototype.hasOwnProperty;
+  let s = th;
+  if (UI_LANG === 'en') {
+    if (ctx && own.call(I18N_EN, ctx + '|' + th)) s = I18N_EN[ctx + '|' + th];
+    else if (own.call(I18N_EN, th)) s = I18N_EN[th];
+  }
+  if (params && typeof params === 'object') {
+    s = s.replace(/\{(\w+)\}/g, (m, k) => (own.call(params, k) ? String(params[k]) : m));
+  }
+  return s;
+}
+// แปลข้อความที่เขียนตายตัวใน index.html — เฉพาะ element ที่ติด data-i18n (ข้อความตรงของ element นั้น ไม่แตะไอคอน/ลูก)
+// และ data-i18n-attr="title,placeholder,aria-label" · เก็บข้อความไทยเดิมไว้ คืนเป็นไทยได้ตรงทุกตัวอักษร
+// ภาษาไทยและยังไม่เคยแปล = ไม่แตะ DOM เลย (หน้าจอภาษาไทยเหมือนก่อนมีระบบนี้ทุกประการ)
+const I18N_TEXT_ORIGINAL = (typeof WeakMap === 'function') ? new WeakMap() : null;
+function applyI18nDom(root) {
+  const scope = root || (typeof document !== 'undefined' ? document : null);
+  if (!scope || typeof scope.querySelectorAll !== 'function' || !I18N_TEXT_ORIGINAL) return 0;
+  let n = 0;
+  const els = scope.querySelectorAll('[data-i18n], [data-i18n-attr]') || [];
+  for (let i = 0; i < els.length; i++) {
+    const el = els[i];
+    if (!el || typeof el.getAttribute !== 'function') continue;
+    const ctx = el.getAttribute('data-i18n') || '';
+    if (typeof el.hasAttribute === 'function' && el.hasAttribute('data-i18n')) {
+      const kids = el.childNodes || [];
+      for (let j = 0; j < kids.length; j++) {
+        const node = kids[j];
+        if (!node || node.nodeType !== 3) continue;
+        let orig = I18N_TEXT_ORIGINAL.get(node);
+        if (orig === undefined) {
+          if (UI_LANG === 'th' || !/\S/.test(node.data)) continue;
+          orig = node.data;
+          I18N_TEXT_ORIGINAL.set(node, orig);
+        }
+        const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(orig);
+        const key = m[2].replace(/\s+/g, ' ');
+        const out = uiText(key, null, ctx);
+        const next = (UI_LANG === 'th' || out === key) ? orig : (m[1] + out + m[3]);
+        if (node.data !== next) node.data = next;
+        n++;
+      }
+    }
+    const attrs = String(el.getAttribute('data-i18n-attr') || '').split(',').map(a => a.trim()).filter(Boolean);
+    for (let k = 0; k < attrs.length; k++) {
+      const a = attrs[k];
+      if (!/^(title|placeholder|aria-label)$/.test(a)) continue;
+      const store = 'data-i18n-th-' + a;
+      let th = el.getAttribute(store);
+      if (th === null) {
+        th = el.getAttribute(a);
+        if (th === null || UI_LANG === 'th') continue;
+        el.setAttribute(store, th);
+      }
+      el.setAttribute(a, uiText(th, null, ctx));
+      n++;
+    }
+  }
+  return n;
+}
+
 class PosApp {
   constructor() {
     this.state = {
@@ -474,6 +663,7 @@ class PosApp {
     this.primaryStatus = null;    // เครื่องนี้เป็นเครื่องหลักที่ส่งสรุป/สำรองได้ไหม (ตามคำตอบล่าสุดของ Apps Script)
     this.currentRole = null;      // 'owner' | 'manager' | 'staff' | null (ยังไม่ล็อกอิน)
     this.currentUser = null;      // { id, name } ของผู้ที่ล็อกอินอยู่
+    this.uiLang = 'th';           // ภาษาหน้าจอที่ใช้อยู่ (ค่าจริงอยู่ที่ UI_LANG) — ดู applyUiLang
     this.loginSelectedId = null;  // ผู้ใช้ที่เลือกในหน้าล็อกอิน
     this.googleSheetsApiToken = ''; // รหัสต่อเครื่องสำหรับ Apps Script — ไม่ใส่ใน backup/export
     this._lastActivityTs = Date.now(); this._lastActivityMono = this.monoNow();  // เวลาที่แตะหน้าจอครั้งล่าสุด (ใช้กับ auto-logout ของเจ้าของร้าน)
@@ -4508,8 +4698,8 @@ class PosApp {
       } else {
         const nProd = allItems.filter(s => this.isProductService(s)).length;
         const kinds = [
-          { id: 'service', name: 'บริการ', icon: 'fa-spa', n: allItems.length - nProd },
-          { id: 'product', name: 'สินค้า', icon: 'fa-bag-shopping', n: nProd }
+          { id: 'service', name: uiText('บริการ'), icon: 'fa-spa', n: allItems.length - nProd },
+          { id: 'product', name: uiText('สินค้า'), icon: 'fa-bag-shopping', n: nProd }
         ];
         kindTabs.style.display = '';
         kindTabs.innerHTML = kinds.map(k => `
@@ -4519,7 +4709,7 @@ class PosApp {
       }
     }
     const searchBox = document.getElementById('pos-service-search');
-    if (searchBox && searchBox.setAttribute) searchBox.setAttribute('placeholder', hasProducts ? 'ค้นหาบริการหรือสินค้า (ทุกหมวด)...' : 'ค้นหาบริการ...');
+    if (searchBox && searchBox.setAttribute) searchBox.setAttribute('placeholder', uiText(hasProducts ? 'ค้นหาบริการหรือสินค้า (ทุกหมวด)...' : 'ค้นหาบริการ...'));
 
     // 1. Render Category Tabs
     const tabsContainer = document.getElementById('category-tabs');
@@ -4531,7 +4721,7 @@ class PosApp {
       this.state.selectedCategory = 'all';
     }
     const categories = [
-      { id: 'all', name: posKind === 'product' ? 'สินค้าทั้งหมด' : (posKind === 'service' ? 'บริการทั้งหมด' : 'ทั้งหมด'), icon: posKind === 'product' ? 'fa-bag-shopping' : 'fa-cubes' },
+      { id: 'all', name: uiText(posKind === 'product' ? 'สินค้าทั้งหมด' : (posKind === 'service' ? 'บริการทั้งหมด' : 'ทั้งหมด')), icon: posKind === 'product' ? 'fa-bag-shopping' : 'fa-cubes' },
       ...shownCats.map(c => ({
         id: c.id,
         name: c.name,
@@ -4564,12 +4754,12 @@ class PosApp {
     // ชื่อที่ไม่ใช่ข้อความ (ไฟล์นำเข้าที่ถูกแก้มือ) ต้องไม่ทำให้ทั้งหน้าพัง (ข้อ 8 ตรวจ 11 ต.ค. 2569)
     if (_q) filteredServices = (posKind ? allItems : filteredServices).filter(s => String(s.name == null ? '' : s.name).toLowerCase().includes(_q));
     const searchNote = (_q && posKind)
-      ? `<div class="pos-search-note" style="grid-column: 1 / -1;">ผลค้นหา "${escapeHtml(this.state.serviceSearch.trim())}" จากทุกหมวด · ${Number(filteredServices.length) || 0} รายการ
-          <button type="button" class="pos-search-clear" onclick="app.clearPosSearch()"><i class="fa-solid fa-xmark"></i> ล้างค้นหา</button></div>`
+      ? `<div class="pos-search-note" style="grid-column: 1 / -1;">${uiText('ผลค้นหา "{q}" จากทุกหมวด · {n} รายการ', { q: escapeHtml(this.state.serviceSearch.trim()), n: Number(filteredServices.length) || 0 })}
+          <button type="button" class="pos-search-clear" onclick="app.clearPosSearch()"><i class="fa-solid fa-xmark"></i> ${uiText('ล้างค้นหา')}</button></div>`
       : '';
     const emptyText = _q
-      ? `ไม่พบ "${this.state.serviceSearch.trim()}" ${posKind ? 'ในบริการและสินค้าทุกหมวด' : 'ในหมวดหมู่นี้'}`
-      : (posKind === 'product' ? 'ไม่พบสินค้าในหมวดหมู่นี้' : 'ไม่พบรายการบริการในหมวดหมู่นี้');
+      ? uiText(posKind ? 'ไม่พบ "{q}" ในบริการและสินค้าทุกหมวด' : 'ไม่พบ "{q}" ในหมวดหมู่นี้', { q: this.state.serviceSearch.trim() })
+      : uiText(posKind === 'product' ? 'ไม่พบสินค้าในหมวดหมู่นี้' : 'ไม่พบรายการบริการในหมวดหมู่นี้');
 
     if (filteredServices.length === 0) {
       servicesGrid.innerHTML = searchNote + `
@@ -4594,8 +4784,8 @@ class PosApp {
               <span class="service-name">${escapeHtml(s.name)}</span>
               <span class="service-duration">
                 ${!this.isProductService(s)
-                  ? `<i class="fa-regular fa-clock"></i> ${Number(s.duration) || 0} นาที`
-                  : `<i class="fa-solid fa-bag-shopping"></i> สินค้า`}
+                  ? `<i class="fa-regular fa-clock"></i> ${uiText('{n} นาที', { n: Number(s.duration) || 0 })}`
+                  : `<i class="fa-solid fa-bag-shopping"></i> ${uiText('สินค้า', null, 'card')}`}
               </span>
             </div>
             <div class="service-price">฿${s.price.toLocaleString('th-TH')}</div>
@@ -4610,9 +4800,9 @@ class PosApp {
     const currentVal = custSelect.value;
     
     let optionsHtml = `
-      <option value="">ลูกค้าทั่วไป (Walk-in)</option>
-      <option value="google">ลูกค้าทั่วไป (Google)</option>
-      <option value="returning">ลูกค้าเก่า</option>
+      <option value="">${uiText('ลูกค้าทั่วไป (Walk-in)')}</option>
+      <option value="google">${uiText('ลูกค้าทั่วไป (Google)')}</option>
+      <option value="returning">${uiText('ลูกค้าเก่า')}</option>
     `;
     this.state.customers.forEach(c => {
       optionsHtml += `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${escapeHtml(c.phone)})</option>`;
@@ -4663,7 +4853,7 @@ class PosApp {
       queueWaitingList.innerHTML = `
         <div class="empty-state">
           <i class="fa-solid fa-bed"></i>
-          <p>ไม่มีคิวรอรับบริการ</p>
+          <p>${uiText('ไม่มีคิวรอรับบริการ')}</p>
         </div>`;
     } else {
       queueWaitingList.innerHTML = waitingItems.map(q => {
@@ -4671,20 +4861,20 @@ class PosApp {
         return `
           <div class="queue-card waiting">
             <div class="queue-card-top">
-              <span class="queue-customer">${escapeHtml(q.customerName)}</span>
-              <span class="queue-time"><i class="fa-regular fa-clock"></i> รอประมาณ ${Number(totalMin) || 0} นาที</span>
+              <span class="queue-customer">${escapeHtml(uiText(q.customerName))}</span>
+              <span class="queue-time"><i class="fa-regular fa-clock"></i> ${uiText('รอประมาณ {n} นาที', { n: Number(totalMin) || 0 })}</span>
             </div>
             <div>
               ${(Array.isArray(q.services) ? q.services : []).map(s => `
                 <div style="margin-bottom: 4px;">
                   <span class="queue-service-badge"><i class="fa-solid fa-scissors" style="margin-right: 4px;"></i> ${escapeHtml(s.name)}</span>
-                  <span class="queue-staff-info"><i class="fa-solid fa-user-circle"></i> พนักงาน: ${escapeHtml(s.staffName)}</span>
+                  <span class="queue-staff-info"><i class="fa-solid fa-user-circle"></i> ${uiText('พนักงาน: {name}', { name: escapeHtml(s.staffName) })}</span>
                 </div>
               `).join('')}
             </div>
             <div class="queue-actions">
-              <button class="btn-small danger" onclick="app.removeQueue('${safeId(q.id)}')">ยกเลิกคิว</button>
-              <button class="btn-small primary" onclick="app.startQueue('${safeId(q.id)}')">เริ่มบริการ <i class="fa-solid fa-play"></i></button>
+              <button class="btn-small danger" onclick="app.removeQueue('${safeId(q.id)}')">${uiText('ยกเลิกคิว')}</button>
+              <button class="btn-small primary" onclick="app.startQueue('${safeId(q.id)}')">${uiText('เริ่มบริการ')} <i class="fa-solid fa-play"></i></button>
             </div>
           </div>
         `;
@@ -4696,7 +4886,7 @@ class PosApp {
       queueServingList.innerHTML = `
         <div class="empty-state">
           <i class="fa-solid fa-sparkles"></i>
-          <p>ไม่มีคิวที่กำลังให้บริการอยู่ในขณะนี้</p>
+          <p>${uiText('ไม่มีคิวที่กำลังให้บริการอยู่ในขณะนี้')}</p>
         </div>`;
     } else {
       queueServingList.innerHTML = servingItems.map(q => {
@@ -4706,14 +4896,14 @@ class PosApp {
         return `
           <div class="queue-card serving" id="queue-card-${escapeHtml(q.id)}" data-start="${Number(q.startTime) || 0}" data-duration="${Number(q.totalDuration) || 0}">
             <div class="queue-card-top">
-              <span class="queue-customer">${escapeHtml(q.customerName)}</span>
-              <span class="queue-time" id="time-elapsed-${escapeHtml(q.id)}">ให้บริการไปแล้ว ${Number(minutesElapsed) || 0}/${Number(q.totalDuration) || 0} นาที</span>
+              <span class="queue-customer">${escapeHtml(uiText(q.customerName))}</span>
+              <span class="queue-time" id="time-elapsed-${escapeHtml(q.id)}">${uiText('ให้บริการไปแล้ว {a}/{b} นาที', { a: Number(minutesElapsed) || 0, b: Number(q.totalDuration) || 0 })}</span>
             </div>
             <div>
               ${(Array.isArray(q.services) ? q.services : []).map(s => `
                 <div style="margin-bottom: 4px;">
                   <span class="queue-service-badge"><i class="fa-solid fa-spa" style="margin-right: 4px; color: var(--accent-massage);"></i> ${escapeHtml(s.name)}</span>
-                  <span class="queue-staff-info"><i class="fa-solid fa-user-circle"></i> พนักงาน: ${escapeHtml(s.staffName)}</span>
+                  <span class="queue-staff-info"><i class="fa-solid fa-user-circle"></i> ${uiText('พนักงาน: {name}', { name: escapeHtml(s.staffName) })}</span>
                 </div>
               `).join('')}
             </div>
@@ -4721,7 +4911,7 @@ class PosApp {
               <div class="queue-progress" id="progress-bar-${escapeHtml(q.id)}" style="width: ${Number(percent) || 0}%;"></div>
             </div>
             <div class="queue-actions">
-              <button class="btn-small secondary" onclick="app.completeQueue('${safeId(q.id)}')">เสร็จสิ้นงาน <i class="fa-solid fa-check"></i></button>
+              <button class="btn-small secondary" onclick="app.completeQueue('${safeId(q.id)}')">${uiText('เสร็จสิ้นงาน')} <i class="fa-solid fa-check"></i></button>
             </div>
           </div>
         `;
@@ -4752,9 +4942,9 @@ class PosApp {
 
       if (timeEl) {
         timeEl.innerText = hasDuration
-          ? `ให้บริการไปแล้ว ${minutesElapsed}/${duration} นาที`
+          ? uiText('ให้บริการไปแล้ว {a}/{b} นาที', { a: minutesElapsed, b: duration })
           // ข้อ 10 ตรวจ 11 ต.ค. 2569: สินค้าไม่เข้าคิวแล้ว — คิวที่ไม่มีเวลา = บริการที่ไม่ได้ตั้งระยะเวลา (เช่นจากไฟล์กู้)
-          : 'ให้บริการอยู่ (ไม่ได้ตั้งระยะเวลา)';
+          : uiText('ให้บริการอยู่ (ไม่ได้ตั้งระยะเวลา)');
       }
       if (progressEl) {
         progressEl.style.width = `${percent}%`;
@@ -5354,7 +5544,7 @@ class PosApp {
       cartList.innerHTML = `
         <div class="empty-state">
           <i class="fa-solid fa-shopping-cart"></i>
-          <p>เลือกบริการ/สินค้าเพื่อเริ่มออกบิล</p>
+          <p>${uiText('เลือกบริการ/สินค้าเพื่อเริ่มออกบิล')}</p>
         </div>`;
       document.getElementById('btn-checkout').disabled = true;
       const bq0 = document.getElementById('btn-print-quote');
@@ -5379,15 +5569,15 @@ class PosApp {
           </div>
           ${this.isFrontCounterLine(item) ? `
           <div class="cart-item-staff cart-item-staff--counter">
-            <i class="fa-solid fa-bag-shopping"></i> ขายหน้าร้าน · ไม่มีค่าคอม
+            <i class="fa-solid fa-bag-shopping"></i> ${uiText('ขายหน้าร้าน · ไม่มีค่าคอม')}
           </div>` : `
           <div class="cart-item-staff">
-            <i class="fa-solid fa-user-circle"></i> ${item.isProduct === true ? 'คนขาย' : 'ผู้ให้บริการ'}:
-            <select onchange="app.changeItemStaff('${safeId(item.uniqueCartId)}', this.value)" aria-label="${item.isProduct === true ? 'คนขาย' : 'ผู้ให้บริการ'}: ${escapeHtml(item.name)}">
+            <i class="fa-solid fa-user-circle"></i> ${uiText(item.isProduct === true ? 'คนขาย' : 'ผู้ให้บริการ')}:
+            <select onchange="app.changeItemStaff('${safeId(item.uniqueCartId)}', this.value)" aria-label="${uiText(item.isProduct === true ? 'คนขาย' : 'ผู้ให้บริการ')}: ${escapeHtml(item.name)}">
               ${this.state.staff.some(st => st.id === item.staffId) ? '' :
                 // ผู้ให้บริการของรายการนี้ถูกลบไปแล้ว — ต้องมีตัวเลือกว่างให้เห็นชัดและเลือกคนใหม่ได้ทุกคน
                 // (เดิมจอโชว์ชื่อคนแรกแต่รายการยังผูกคนที่ถูกลบ เลือกชื่อเดิมซ้ำไม่เกิด change → ชำระเงินไม่ได้)
-                `<option value="" selected disabled>${item.staffId ? '— เลือกผู้ให้บริการใหม่ —' : (item.isProduct === true ? '— เลือกคนขาย (มีค่าคอม) —' : '— เลือกผู้ให้บริการ —')}</option>`}
+                `<option value="" selected disabled>${uiText(item.staffId ? '— เลือกผู้ให้บริการใหม่ —' : (item.isProduct === true ? '— เลือกคนขาย (มีค่าคอม) —' : '— เลือกผู้ให้บริการ —'))}</option>`}
               ${this.state.staff.map(st => `
                 <option value="${escapeHtml(st.id)}" ${st.id === item.staffId ? 'selected' : ''}>${escapeHtml(st.name)}</option>
               `).join('')}
@@ -5584,7 +5774,7 @@ class PosApp {
     if (vatRow) {
       if (t.vatAmount > 0) {
         vatRow.style.display = '';
-        if (vatLbl) vatLbl.innerText = `VAT ${t.vatRate}% (จาก ฿${money(t.vatableBase)})`;
+        if (vatLbl) vatLbl.innerText = uiText('VAT {r}% (จาก ฿{base})', { r: t.vatRate, base: money(t.vatableBase) });
         if (vatVal) vatVal.innerText = `฿${money(t.vatAmount)}`;
       } else {
         vatRow.style.display = 'none';
@@ -5894,13 +6084,13 @@ class PosApp {
       opts.innerHTML = rates.map(r => {
         const on = !customOn && rate === r;
         return `<button type="button" class="btn-small ${on ? 'primary' : 'secondary'} card-fee-opt" data-rate="${r}" ` +
-          `style="min-height:44px;padding:4px 10px;font-size:0.8rem;" onclick="app.selectCardFeeRate(${r})">${r === 0 ? 'ไม่คิด' : r + '%'}</button>`;
+          `style="min-height:44px;padding:4px 10px;font-size:0.8rem;" onclick="app.selectCardFeeRate(${r})">${r === 0 ? uiText('ไม่คิด') : r + '%'}</button>`;
       }).join('');
     }
     setText('card-fee-service-label', svcTotal === null ? '—' : money(svcTotal));
     if (plan.ok) {
       setText('card-fee-base-label', money(plan.fee.base));
-      setText('card-fee-amount-label', `${money(plan.fee.amount)}${plan.fee.rate < plan.fee.baseRate ? ` (ลดจาก ${plan.fee.baseRate}% เหลือ ${plan.fee.rate}%)` : ` (${plan.fee.rate}%)`}${plan.fee.vatable ? ' รวม VAT' : ''}`);
+      setText('card-fee-amount-label', `${money(plan.fee.amount)}${plan.fee.rate < plan.fee.baseRate ? ' ' + uiText('(ลดจาก {a}% เหลือ {b}%)', { a: plan.fee.baseRate, b: plan.fee.rate }) : ` (${plan.fee.rate}%)`}${plan.fee.vatable ? ' ' + uiText('รวม VAT') : ''}`);
       setText('card-swipe-total-label', money(plan.cardAmount));
       setText('credit-total-label', money(plan.cardAmount));
       setText('split-bill-total-label', money(plan.totals.total));
@@ -5908,7 +6098,7 @@ class PosApp {
     } else {
       ['card-fee-base-label', 'card-fee-amount-label', 'card-swipe-total-label', 'credit-total-label', 'split-bill-total-label']
         .forEach(id => setText(id, '—'));
-      setText('card-fee-error', plan.error || '');
+      setText('card-fee-error', softErr ? uiText(plan.error || '') : (plan.error || ''));
     }
     const errEl = document.getElementById('card-fee-error');
     if (errEl && errEl.style) errEl.style.color = (!plan.ok && softErr) ? 'var(--text-muted)' : 'var(--color-danger)';
@@ -5949,7 +6139,7 @@ class PosApp {
     document.getElementById('qr-total-label').innerHTML = `
       ฿${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br>
       <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); margin-top: 4px; display: inline-block;">
-        พร้อมเพย์ร้าน: ${formattedPP}
+        ${uiText('พร้อมเพย์ร้าน: {pp}', { pp: formattedPP })}
       </span>
     `;
 
@@ -6022,7 +6212,7 @@ class PosApp {
     const checkoutCompleteBtn = document.getElementById('btn-complete-checkout');
     if (!changeEl || !checkoutCompleteBtn) return;
     if (String(input.value == null ? '' : input.value).trim() !== '' && parsed === null) {
-      changeEl.innerText = 'ใส่จำนวนเต็มบาท (ไม่มีทศนิยม)';
+      changeEl.innerText = uiText('ใส่จำนวนเต็มบาท (ไม่มีทศนิยม)');
       changeEl.style.color = 'var(--color-danger)';
       checkoutCompleteBtn.disabled = true;
     } else if (received <= 0) {   // (บิล 0 บาทออกไม่ได้แล้ว — เจ้าของตัดสิน 8 ต.ค. 2569 · ปุ่มจึงไม่เปิดเมื่อยังไม่รับเงิน)
@@ -6034,7 +6224,7 @@ class PosApp {
       changeEl.style.color = 'var(--accent-massage)';
       checkoutCompleteBtn.disabled = false;
     } else {
-      changeEl.innerText = 'ยอดเงินสดไม่เพียงพอ';
+      changeEl.innerText = uiText('ยอดเงินสดไม่เพียงพอ');
       changeEl.style.color = 'var(--color-danger)';
       checkoutCompleteBtn.disabled = true;
     }
@@ -10634,13 +10824,78 @@ class PosApp {
       document.documentElement.setAttribute('data-theme', t);
     }
     const iconClass = (t === 'light') ? 'fa-sun' : 'fa-moon';
-    const text = (t === 'light') ? 'โหมดสว่าง' : 'โหมดมืด';
+    const text = uiText((t === 'light') ? 'โหมดสว่าง' : 'โหมดมืด');
     // ปุ่มที่มีข้อความ (แถบข้าง) — ข้อ 67 (ตรวจ 19 ต.ค. 2569): ตัด #btn-theme-toggle ที่ไม่มีอยู่ในหน้าแล้วออก
     { const b = document.getElementById('btn-theme-toggle-side');
       if (b) b.innerHTML = `<i class="fa-solid ${iconClass}"></i> ${text}`; }
     // ปุ่มไอคอนอย่างเดียว (มือถือ/ไอแพด)
     const mb = document.getElementById('btn-theme-toggle-mobile');
     if (mb) mb.innerHTML = `<i class="fa-solid ${iconClass}"></i>`;
+  }
+
+  // ── ภาษาหน้าจอ ไทย / อังกฤษ (5 พ.ย. 2569) — กติกาอยู่ที่หัวข้อ I18N_EN ด้านบนไฟล์ ──────────────────
+  // จำแยกตามบัญชีในเครื่องนี้ (localStorage) — ไม่ผ่าน saveState / ไม่อยู่ในไฟล์สำรอง / ไม่ขึ้นชีต
+  // พังหรืออ่านไม่ได้ = ภาษาไทย (ไม่มีทางทำให้ขายของไม่ได้)
+  readUiLangPrefs() {
+    try {
+      const raw = (typeof localStorage !== 'undefined' && localStorage) ? localStorage.getItem(UI_LANG_STORAGE_KEY) : null;
+      const obj = raw ? JSON.parse(raw) : null;
+      return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+    } catch (e) { return {}; }
+  }
+  uiLangForUser(user) {
+    const id = (user && user.id != null) ? String(user.id) : '';
+    if (!id) return 'th';
+    const v = this.readUiLangPrefs()[id];
+    return UI_LANGS.includes(v) ? v : 'th';
+  }
+  saveUiLangForUser(user, lang) {
+    const id = (user && user.id != null) ? String(user.id) : '';
+    if (!id) return false;
+    try {
+      const prefs = this.readUiLangPrefs();
+      if (lang === 'en') prefs[id] = 'en'; else delete prefs[id];
+      localStorage.setItem(UI_LANG_STORAGE_KEY, JSON.stringify(prefs));
+      return true;
+    } catch (e) { console.warn('[ภาษา] จำภาษาไม่สำเร็จ (ใช้ได้เฉพาะรอบนี้)', e); return false; }
+  }
+  // นำภาษาไปใช้ทั้งหน้า · เปลี่ยนจริง = วาดหน้าที่เปิดอยู่ใหม่ (ข้อความในตะกร้า/คิวเป็นของที่โค้ดสร้าง)
+  applyUiLang(lang, opts) {
+    const next = UI_LANGS.includes(lang) ? lang : 'th';
+    const changed = next !== UI_LANG;
+    UI_LANG = next;
+    this.uiLang = next;
+    if (typeof document !== 'undefined') {
+      applyI18nDom(document);
+      this.updateUiLangButtons();
+    }
+    if (changed && !(opts && opts.render === false)) {
+      // วาดใหม่เฉพาะหน้าที่มีข้อความแปล (หน้าขาย/คิว) — หน้าอื่นไม่มีอะไรเปลี่ยน และไม่ไปวาดรายงาน/ตั้งค่าใหม่
+      // กลางทางล็อกอินของคนถัดไป (switchTab วาดหน้าขายให้ใหม่เสมอเมื่อกลับเข้าหน้าขาย)
+      const scr = this.state && this.state.activeScreen;
+      this.safeRender('ภาษาหน้าจอ', () => { this.applyTheme(); if (scr === 'pos' || scr === 'queue') this.renderAll(); });
+    }
+    return changed;
+  }
+  updateUiLangButtons() {
+    if (typeof document === 'undefined') return;
+    const en = UI_LANG === 'en';
+    const side = document.getElementById('btn-lang-toggle-side');
+    // ป้ายบอก "ภาษาที่จะเปลี่ยนไป" เขียนเป็นภาษานั้นเอง (คนอ่านไทยไม่ออกก็หาปุ่ม English เจอ)
+    if (side) side.innerHTML = `<span>${en ? 'ไทย' : 'English'}</span>`;   // ไม่มีไอคอน — แถบข้างแคบ (ดู .side-toggle-row)
+    const mob = document.getElementById('btn-lang-toggle-mobile');
+    if (mob) mob.textContent = en ? 'ไทย' : 'EN';
+    // มือถือจอแคบ (≤480px): หัวจอเดิมแน่นอยู่แล้ว ปุ่มภาษาจึงไปอยู่หัวหน้าขายแทน (style_v2.css ท้ายไฟล์)
+    const pos = document.getElementById('btn-lang-toggle-pos');
+    if (pos) pos.innerHTML = `<i class="fa-solid fa-language"></i> <span>${en ? 'ไทย' : 'English'}</span>`;
+    [side, mob, pos].forEach(b => { if (b && b.setAttribute) b.setAttribute('aria-pressed', en ? 'true' : 'false'); });
+  }
+  // ปุ่ม TH/EN — จำให้คนที่ล็อกอินอยู่ · ยังไม่มีคนล็อกอิน = เปลี่ยนเฉพาะรอบนี้
+  toggleUiLang() {
+    const next = UI_LANG === 'en' ? 'th' : 'en';
+    this.saveUiLangForUser(this.currentRole ? this.currentUser : null, next);
+    this.applyUiLang(next);
+    return next;
   }
 
   // อัปโหลดโลโก้ร้าน — ย่อขนาดอัตโนมัติแล้วเก็บเป็น data URL ใน IndexedDB
@@ -14023,6 +14278,9 @@ class PosApp {
     // 7. ปุ่มปิดร้าน/สรุปยอด — เฉพาะ manager ขึ้นไป (staff เปิดร้านได้ แต่ปิดไม่ได้)
     const closeStoreBtn = document.getElementById('btn-close-store');
     if (closeStoreBtn) closeStoreBtn.style.display = (role === 'owner' || role === 'manager') ? 'flex' : 'none';
+
+    // 8. ภาษาหน้าจอของคนที่ล็อกอินอยู่ (5 พ.ย. 2569) — คนละบัญชีคนละภาษา · ยังไม่มีคนล็อกอิน = ภาษาไทย
+    this.applyUiLang(this.uiLangForUser(role ? this.currentUser : null));
   }
 
   // ส่งออกข้อมูลเป็นไฟล์ JSON — คืน true เมื่อสั่งดาวน์โหลดได้สำเร็จ

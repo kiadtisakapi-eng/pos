@@ -49,6 +49,7 @@ files.push('test_fix_20261021_f01_f07.js');
 files.push('test_fix_20261022_close_telegram.js');
 files.push('test_fix_20261026.js');   // ผลตรวจทั้งระบบ 26 ต.ค. 2569 — 10 ข้อ
 files.push('test_fix_20261027_codex.js');   // ผลตรวจ Codex ต่อ 1.12.3 (27 ต.ค. 2569) — F01 PIN รายการไม่มี byId · F02 ประวัติไม่มีรหัสกะ
+files.push('test_i18n_20261105.js');   // ภาษาหน้าจอ ไทย/อังกฤษ (5 พ.ย. 2569) — คำแปลครบ · แปลเฉพาะหน้าจอ · ข้อมูล/ชีตยังเป็นไทย
 // ตัวตัดสินผ่าน/ไม่ผ่านอยู่ใน runner_judge.js (ใช้ร่วมกับ run-all-ui.js) — ต้องมีบรรทัดสรุป · อ่าน stderr · ค้างเกิน 5 นาที = ไม่ผ่าน
 const { runTestFile, parseArgs } = require('./runner_judge');
 const args = parseArgs((process.argv || []).slice(2));

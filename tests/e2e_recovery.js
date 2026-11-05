@@ -61,7 +61,11 @@ const server = http.createServer((q, s) => {
       return { accepted, backup, transactions: app.state.transactions.length, emergency: app.state.transactions[0].emergencySale };
     });
     assert.deepEqual(result, { accepted: true, backup: false, transactions: 1, emergency: true });
-    assert.equal(gas.sheet('10-2026')._grid.length, 3); assert.ok(gas.ctx.readPrimaryDevice_().recovery);
+    // แก้ 5 พ.ย. 2569: เดิมตรึงแท็บ '10-2026' — บิลที่ขายในเทสต์ใช้วันที่ปัจจุบัน ข้ามเดือนแล้วไปอยู่แท็บเดือนใหม่ (เทสต์ตกทั้งที่โค้ดถูก)
+    { const mk = await page.evaluate(() => app.getBusinessMonthKey(app.state.transactions[0].date));
+      const rowsOf = n => { const sh = gas.sheet(n); return sh ? sh._grid.length - 1 : 0; };
+      assert.equal(mk === '10-2026' ? rowsOf(mk) : rowsOf('10-2026') + rowsOf(mk), 2); }
+    assert.ok(gas.ctx.readPrimaryDevice_().recovery);
     await page.locator('#modal-receipt .modal-close').click();
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForFunction(() => app.state.transactions.length === 1 && app.primaryStatus && app.primaryStatus.recovery);

@@ -51,37 +51,41 @@
         </div>
       </div>
       
-      <button type="button" id="btn-theme-toggle-side" class="theme-toggle-side" onclick="app.toggleTheme()"><i class="fa-solid fa-moon"></i> <span>โหมดมืด</span></button>
+      <!-- ปุ่มธีม + ปุ่มภาษา วางคู่กันแถวเดียว (5 พ.ย. 2569) — ไม่เพิ่มความสูงแถบข้าง (จอเตี้ยเมนูล่างสุดต้องไม่ตกขอบ) -->
+      <div class="side-toggle-row">
+        <button type="button" id="btn-theme-toggle-side" class="theme-toggle-side" onclick="app.toggleTheme()"><i class="fa-solid fa-moon"></i> <span>โหมดมืด</span></button>
+        <button type="button" id="btn-lang-toggle-side" class="theme-toggle-side" onclick="app.toggleUiLang()" title="เปลี่ยนภาษา / Change language" aria-pressed="false"><span>English</span></button>
+      </div>
 
       <nav class="sidebar-nav">
         <ul class="nav-menu">
           <li class="nav-item active" data-screen="dashboard">
-            <span class="nav-link">
+            <span class="nav-link" data-i18n="nav">
               <i class="fa-solid fa-chart-pie"></i> แดชบอร์ด
             </span>
           </li>
           <li class="nav-item" data-screen="pos">
-            <span class="nav-link">
+            <span class="nav-link" data-i18n="nav">
               <i class="fa-solid fa-cash-register"></i> หน้าขาย POS
             </span>
           </li>
           <li class="nav-item" data-screen="queue">
-            <span class="nav-link">
+            <span class="nav-link" data-i18n="nav">
               <i class="fa-solid fa-clock-rotate-left"></i> จัดการคิวงาน
             </span>
           </li>
           <li class="nav-item" data-screen="customers">
-            <span class="nav-link">
+            <span class="nav-link" data-i18n="nav">
               <i class="fa-solid fa-users"></i> ข้อมูลลูกค้า
             </span>
           </li>
           <li class="nav-item" data-screen="reports">
-            <span class="nav-link">
+            <span class="nav-link" data-i18n="nav">
               <i class="fa-solid fa-chart-line"></i> รายงานยอดขาย
             </span>
           </li>
           <li class="nav-item" data-screen="settings">
-            <span class="nav-link">
+            <span class="nav-link" data-i18n="nav">
               <i class="fa-solid fa-sliders"></i> ตั้งค่าระบบ
             </span>
           </li>
@@ -108,32 +112,32 @@
     <!-- Bottom Navigation (Mobile) -->
     <nav class="bottom-nav">
       <div class="bottom-nav-item active" data-screen="dashboard">
-        <span class="bottom-nav-link">
+        <span class="bottom-nav-link" data-i18n="nav">
           <i class="fa-solid fa-chart-pie"></i> แดชบอร์ด
         </span>
       </div>
       <div class="bottom-nav-item" data-screen="pos">
-        <span class="bottom-nav-link">
+        <span class="bottom-nav-link" data-i18n="nav">
           <i class="fa-solid fa-cash-register"></i> หน้าขาย
         </span>
       </div>
       <div class="bottom-nav-item" data-screen="queue">
-        <span class="bottom-nav-link">
+        <span class="bottom-nav-link" data-i18n="nav">
           <i class="fa-solid fa-clock-rotate-left"></i> คิวงาน
         </span>
       </div>
       <div class="bottom-nav-item" data-screen="customers">
-        <span class="bottom-nav-link">
+        <span class="bottom-nav-link" data-i18n="nav">
           <i class="fa-solid fa-users"></i> ลูกค้า
         </span>
       </div>
       <div class="bottom-nav-item" data-screen="reports">
-        <span class="bottom-nav-link">
+        <span class="bottom-nav-link" data-i18n="nav">
           <i class="fa-solid fa-chart-line"></i> รายงาน
         </span>
       </div>
       <div class="bottom-nav-item" data-screen="settings">
-        <span class="bottom-nav-link">
+        <span class="bottom-nav-link" data-i18n="nav">
           <i class="fa-solid fa-sliders"></i> ตั้งค่า
         </span>
       </div>
@@ -149,7 +153,8 @@
           <span id="mobile-sync-text">คลาวด์ออฟไลน์</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <button type="button" id="btn-theme-toggle-mobile" onclick="app.toggleTheme()" title="สลับโหมดสว่าง/มืด"><i class="fa-solid fa-moon"></i></button>
+          <button type="button" id="btn-theme-toggle-mobile" onclick="app.toggleTheme()" title="สลับโหมดสว่าง/มืด" data-i18n-attr="title"><i class="fa-solid fa-moon"></i></button>
+          <button type="button" id="btn-lang-toggle-mobile" onclick="app.toggleUiLang()" title="เปลี่ยนภาษา / Change language" aria-pressed="false">EN</button>
           <div style="font-size: 0.75rem; background: rgba(255, 255, 255, 0.03); padding: 4px 10px; border-radius: 50px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 6px;">
             <span style="color: var(--text-secondary);">สิทธิ์ใช้งาน:</span>
             <span id="global-role-label">พนักงานทั่วไป 🔒</span>
@@ -326,16 +331,18 @@
       <section id="screen-pos" class="screen">
         <div class="screen-header">
           <div class="screen-title">
-            <h1>หน้าขาย / ชำระเงิน</h1>
-            <p>เลือกบริการและพนักงานเพื่อออกบิล</p>
+            <h1 data-i18n>หน้าขาย / ชำระเงิน</h1>
+            <p data-i18n>เลือกบริการและพนักงานเพื่อออกบิล</p>
           </div>
+          <!-- ปุ่มภาษาสำหรับมือถือจอแคบ (≤480px) — จอใหญ่กว่านั้นใช้ปุ่มบนหัวจอ/แถบข้าง (ซ่อนด้วย CSS) -->
+          <button type="button" id="btn-lang-toggle-pos" class="lang-toggle-inline" onclick="app.toggleUiLang()" title="เปลี่ยนภาษา / Change language" aria-pressed="false"><i class="fa-solid fa-language"></i> <span>English</span></button>
         </div>
         
         <div class="pos-layout">
           <!-- Left: Services List -->
           <div class="pos-services-section">
             <!-- บริการ | สินค้า (9 ต.ค. 2569) — app.renderPos แสดงเฉพาะเมื่อร้านมีสินค้า -->
-            <div id="pos-kind-tabs" class="pos-kind-tabs" role="group" aria-label="บริการหรือสินค้า" style="display: none;"></div>
+            <div id="pos-kind-tabs" class="pos-kind-tabs" role="group" aria-label="บริการหรือสินค้า" style="display: none;" data-i18n-attr="aria-label"></div>
             <!-- Category Tabs -->
             <div id="category-tabs" class="category-tabs">
               <!-- Rendered dynamically -->
@@ -356,10 +363,10 @@
           <!-- Right: Cart & Checkout (Static on Tablet/Desktop, Modal/Drawer on mobile) -->
           <div class="glass-card pos-cart-panel" id="cart-panel">
             <div class="cart-header">
-              <span class="cart-title">
+              <span class="cart-title" data-i18n>
                 <i class="fa-solid fa-shopping-basket"></i> ตะกร้าบริการ (<span id="cart-count">0</span>)
               </span>
-              <button class="clear-cart-btn" id="btn-clear-cart">ล้างตะกร้า</button>
+              <button class="clear-cart-btn" id="btn-clear-cart" data-i18n>ล้างตะกร้า</button>
             </div>
             
             <!-- Cart Items Scroll -->
@@ -372,14 +379,14 @@
             
             <!-- Customer Select -->
             <div class="cart-customer-section">
-              <span class="form-label" style="margin-bottom: 4px; display: block;">ลูกค้า</span>
+              <span class="form-label" style="margin-bottom: 4px; display: block;" data-i18n>ลูกค้า</span>
               <div class="customer-select-wrapper">
-                <select class="customer-select" id="cart-customer-select" aria-label="ลูกค้าของบิลนี้">
+                <select class="customer-select" id="cart-customer-select" aria-label="ลูกค้าของบิลนี้" data-i18n-attr="aria-label">
                   <option value="">ลูกค้าทั่วไป (Walk-in)</option>
                   <option value="google">ลูกค้าทั่วไป (Google)</option>
                   <option value="returning">ลูกค้าเก่า</option>
                 </select>
-                <button class="btn-add-customer-quick" id="btn-add-customer-quick" title="เพิ่มลูกค้าด่วน">
+                <button class="btn-add-customer-quick" id="btn-add-customer-quick" title="เพิ่มลูกค้าด่วน" data-i18n-attr="title">
                   <i class="fa-solid fa-user-plus"></i>
                 </button>
               </div>
@@ -388,14 +395,14 @@
             <!-- Cart calculations -->
             <div class="cart-summary">
               <div class="summary-row">
-                <span>ราคารวม</span>
+                <span data-i18n>ราคารวม</span>
                 <span id="summary-subtotal">฿0.00</span>
               </div>
               <div class="summary-row">
-                <span>ส่วนลด</span>
+                <span data-i18n>ส่วนลด</span>
                 <div class="discount-wrapper">
-                  <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="discount-input" id="cart-discount" value="0" aria-label="ส่วนลดของบิล (บาท)">
-                  <span>บาท</span>
+                  <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="discount-input" id="cart-discount" value="0" aria-label="ส่วนลดของบิล (บาท)" data-i18n-attr="aria-label">
+                  <span data-i18n>บาท</span>
                 </div>
               </div>
               <div class="summary-row" id="summary-vat-row" style="display: none;">
@@ -403,20 +410,20 @@
                 <span id="summary-vat">฿0.00</span>
               </div>
               <div class="summary-row" id="summary-rounding-row" style="display: none;">
-                <span>ปัดเศษขึ้น</span>
+                <span data-i18n>ปัดเศษขึ้น</span>
                 <span id="summary-rounding">฿0.00</span>
               </div>
               <div class="summary-row total">
-                <span>ยอดที่ต้องชำระ</span>
+                <span data-i18n>ยอดที่ต้องชำระ</span>
                 <span id="summary-total">฿0.00</span>
               </div>
             </div>
             
             <!-- Checkout Action -->
-            <button class="checkout-btn" id="btn-checkout" disabled>
+            <button class="checkout-btn" id="btn-checkout" disabled data-i18n>
               <i class="fa-solid fa-credit-card"></i> ไปที่หน้าชำระเงิน
             </button>
-            <button class="btn-small secondary" id="btn-print-quote" disabled
+            <button class="btn-small secondary" id="btn-print-quote" disabled data-i18n
                     style="width: 100%; min-height: 44px; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;">
               <i class="fa-solid fa-print"></i> พิมพ์ใบแจ้งยอดให้ลูกค้าดู
             </button>
@@ -428,15 +435,15 @@
       <section id="screen-queue" class="screen">
         <div class="screen-header">
           <div class="screen-title">
-            <h1>ระบบจัดการคิวบริการ</h1>
-            <p>ติดตามความคืบหน้าและการจัดคิวพนักงาน</p>
+            <h1 data-i18n>ระบบจัดการคิวบริการ</h1>
+            <p data-i18n>ติดตามความคืบหน้าและการจัดคิวพนักงาน</p>
           </div>
         </div>
         
         <div class="queue-grid">
           <!-- Waiting List Column -->
           <div class="glass-card">
-            <div class="queue-column-title waiting">
+            <div class="queue-column-title waiting" data-i18n>
               <i class="fa-solid fa-user-clock"></i> คิวที่กำลังรอรับบริการ (<span id="count-waiting">0</span>)
             </div>
             <div class="queue-list" id="queue-waiting-list">
@@ -446,7 +453,7 @@
           
           <!-- Serving List Column -->
           <div class="glass-card">
-            <div class="queue-column-title serving">
+            <div class="queue-column-title serving" data-i18n>
               <i class="fa-solid fa-person-circle-check"></i> กำลังให้บริการอยู่ (<span id="count-serving">0</span>)
             </div>
             <div class="queue-list" id="queue-serving-list">
@@ -1438,14 +1445,14 @@
   <div class="modal-overlay" id="modal-payment">
     <div class="modal-card" style="max-width: 420px;">
       <div class="modal-header">
-        <h2 class="modal-title">ขั้นตอนการชำระเงิน</h2>
+        <h2 class="modal-title" data-i18n>ขั้นตอนการชำระเงิน</h2>
         <button class="modal-close" onclick="app.closeModal('modal-payment')">&times;</button>
       </div>
       
       <div class="form-group">
-        <label class="form-label">เลือกช่องทางชำระเงิน</label>
+        <label class="form-label" data-i18n>เลือกช่องทางชำระเงิน</label>
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
-          <button type="button" class="btn-small secondary" id="pay-cash-btn" style="height: 52px; font-size: 0.75rem; padding: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;" onclick="app.selectPaymentMethod('cash')">
+          <button type="button" class="btn-small secondary" id="pay-cash-btn" data-i18n style="height: 52px; font-size: 0.75rem; padding: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;" onclick="app.selectPaymentMethod('cash')">
             <i class="fa-solid fa-wallet" style="font-size: 1.1rem;"></i> เงินสด
           </button>
           <button type="button" class="btn-small secondary" id="pay-credit-btn" style="height: 52px; font-size: 0.75rem; padding: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;" onclick="app.selectPaymentMethod('credit')">
@@ -1455,7 +1462,7 @@
             <i class="fa-solid fa-qrcode" style="font-size: 1.1rem;"></i> Scan
           </button>
           <!-- แบ่งจ่าย: เงินสด + บัตร ในบิลเดียว (ค่าธรรมเนียมบัตรคิดเฉพาะส่วนที่รูด) -->
-          <button type="button" class="btn-small secondary" id="pay-split-btn" style="height: 52px; font-size: 0.75rem; padding: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;" onclick="app.selectPaymentMethod('split')">
+          <button type="button" class="btn-small secondary" id="pay-split-btn" data-i18n style="height: 52px; font-size: 0.75rem; padding: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;" onclick="app.selectPaymentMethod('split')">
             <i class="fa-solid fa-coins" style="font-size: 1.1rem;"></i> แบ่งจ่าย
           </button>
         </div>
@@ -1468,7 +1475,7 @@
           <div class="payment-qr-image" id="dynamic-qr-box">
             <!-- Render QR SVG inside here -->
           </div>
-          <p style="font-size: 0.75rem; color: var(--text-secondary); text-align: center;">
+          <p style="font-size: 0.75rem; color: var(--text-secondary); text-align: center;" data-i18n>
             สแกนด้วยแอปธนาคารเพื่อชำระเงิน <br>
             <strong style="color: var(--accent-barber); font-size: 1rem;" id="qr-total-label">฿0.00</strong>
           </p>
@@ -1479,10 +1486,10 @@
       <div id="payment-credit-panel" style="display: none;">
         <div class="payment-qr-container">
           <i class="fa-solid fa-credit-card" style="font-size: 2.5rem; color: var(--accent-massage); margin-bottom: 8px;"></i>
-          <p style="font-size: 0.8rem; color: var(--text-primary); text-align: center; font-weight: 600;">
+          <p style="font-size: 0.8rem; color: var(--text-primary); text-align: center; font-weight: 600;" data-i18n>
             ระบบพร้อมรับรูดบัตรเครดิต
           </p>
-          <p style="font-size: 0.75rem; color: var(--text-secondary); text-align: center; margin-top: 4px;">
+          <p style="font-size: 0.75rem; color: var(--text-secondary); text-align: center; margin-top: 4px;" data-i18n>
             กรุณาดำเนินการแตะ/เสียบบัตรที่เครื่องรูดบัตร (EDC) <br>
             ยอดที่ต้องรูดบัตร (รวมค่าธรรมเนียม): <strong style="color: var(--accent-barber); font-size: 1rem;" id="credit-total-label">฿0.00</strong>
           </p>
@@ -1492,34 +1499,34 @@
       <!-- แบ่งจ่าย: กรอกเงินสดที่ลูกค้าจ่าย → ระบบบอกยอดที่ต้องรูดบัตร (app.renderCardPaymentPanel) -->
       <div id="payment-split-panel" style="display: none;">
         <div class="form-group" style="margin-bottom: 8px;">
-          <label class="form-label" for="split-cash-amount">เงินสดที่ลูกค้าจ่าย (บาท)</label>
+          <label class="form-label" for="split-cash-amount" data-i18n>เงินสดที่ลูกค้าจ่าย (บาท)</label>
           <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" style="font-size: 1.25rem; font-weight: 700; text-align: right;" id="split-cash-amount" placeholder="0">
-          <p style="font-size: 0.72rem; color: var(--text-muted); margin: 4px 0 0; line-height: 1.5;">กรอกยอดเงินสดที่ร้านเก็บจริง (ไม่รวมเงินทอน) · ส่วนที่เหลือรูดบัตร · ค่าธรรมเนียมคิดเฉพาะส่วนที่รูด · เงินสดส่วนนี้นับเข้าลิ้นชัก</p>
+          <p style="font-size: 0.72rem; color: var(--text-muted); margin: 4px 0 0; line-height: 1.5;" data-i18n>กรอกยอดเงินสดที่ร้านเก็บจริง (ไม่รวมเงินทอน) · ส่วนที่เหลือรูดบัตร · ค่าธรรมเนียมคิดเฉพาะส่วนที่รูด · เงินสดส่วนนี้นับเข้าลิ้นชัก</p>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-top: 6px;">
-          <span style="color: var(--text-secondary);">ยอดที่ต้องรูดบัตร (รวมค่าธรรมเนียม)</span>
+          <span style="color: var(--text-secondary);" data-i18n>ยอดที่ต้องรูดบัตร (รวมค่าธรรมเนียม)</span>
           <strong style="color: var(--accent-barber); font-size: 1.15rem;" id="card-swipe-total-label">—</strong>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; margin-top: 2px;">
-          <span style="color: var(--text-secondary);">รวมทั้งบิล (เงินสด + บัตร)</span>
+          <span style="color: var(--text-secondary);" data-i18n>รวมทั้งบิล (เงินสด + บัตร)</span>
           <span id="split-bill-total-label">—</span>
         </div>
       </div>
 
       <!-- ค่าธรรมเนียมบัตร (บัตร/แบ่งจ่าย) — ลดได้ ไม่ต้องใส่ PIN แต่บันทึกชื่อคนลด + แจ้งใน Telegram ปิดกะ -->
       <div id="payment-card-fee-block" style="display: none; margin-top: 10px; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); font-size: 0.8rem;">
-        <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-secondary);">ค่าบริการ</span><span id="card-fee-service-label">—</span></div>
-        <div style="display: flex; justify-content: space-between; margin-top: 2px;"><span style="color: var(--text-secondary);">ยอดส่วนที่รูดบัตร (ก่อนค่าธรรมเนียม)</span><span id="card-fee-base-label">—</span></div>
-        <div style="margin: 8px 0 4px; font-weight: 600;">ค่าธรรมเนียมบัตร</div>
+        <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-secondary);" data-i18n>ค่าบริการ</span><span id="card-fee-service-label">—</span></div>
+        <div style="display: flex; justify-content: space-between; margin-top: 2px;"><span style="color: var(--text-secondary);" data-i18n>ยอดส่วนที่รูดบัตร (ก่อนค่าธรรมเนียม)</span><span id="card-fee-base-label">—</span></div>
+        <div style="margin: 8px 0 4px; font-weight: 600;" data-i18n>ค่าธรรมเนียมบัตร</div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
           <div id="card-fee-options" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
           <span style="display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;">
-            <label for="card-fee-custom" style="font-size: 0.78rem; color: var(--text-secondary); margin-left: 4px;">กรอกเอง</label>
+            <label for="card-fee-custom" style="font-size: 0.78rem; color: var(--text-secondary); margin-left: 4px;" data-i18n>กรอกเอง</label>
             <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" id="card-fee-custom" placeholder="—" style="width: 64px; height: 40px; padding: 4px 8px; text-align: right;">
             <span>%</span>
           </span>
         </div>
-        <div style="display: flex; justify-content: space-between; margin-top: 6px;"><span style="color: var(--text-secondary);">ค่าธรรมเนียม</span><span id="card-fee-amount-label" style="font-weight: 600;">—</span></div>
+        <div style="display: flex; justify-content: space-between; margin-top: 6px;"><span style="color: var(--text-secondary);" data-i18n>ค่าธรรมเนียม</span><span id="card-fee-amount-label" style="font-weight: 600;">—</span></div>
       </div>
       <div id="card-fee-error" style="color: var(--color-danger); font-size: 0.78rem; margin-top: 6px; line-height: 1.5;"></div>
       
@@ -1527,21 +1534,21 @@
       <div id="payment-cash-panel" style="display: none;">
         <!-- ตรวจ 13 ต.ค. 2569 ข้อ 21: ยอดที่ต้องรับ (เดิมหน้าเงินสดไม่บอกยอด ตะกร้าข้างหลังถูกเบลอ) — app.selectPaymentMethod -->
         <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <span style="font-size: 0.85rem; color: var(--text-secondary);">ยอดที่ต้องชำระ</span>
+          <span style="font-size: 0.85rem; color: var(--text-secondary);" data-i18n>ยอดที่ต้องชำระ</span>
           <span style="font-size: 1.25rem; font-weight: 700;" id="cash-amount-due">฿0.00</span>
         </div>
         <div class="form-group">
-          <label class="form-label">รับเงินสดมา (บาท)</label>
+          <label class="form-label" data-i18n>รับเงินสดมา (บาท)</label>
           <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" class="form-input" style="font-size: 1.25rem; font-weight: 700; text-align: right;" id="cash-received" placeholder="0">
           <div class="quick-cash-row">
             <button type="button" class="quick-cash-btn" onclick="app.quickCash(100)">฿100</button>
             <button type="button" class="quick-cash-btn" onclick="app.quickCash(500)">฿500</button>
             <button type="button" class="quick-cash-btn" onclick="app.quickCash(1000)">฿1,000</button>
-            <button type="button" class="quick-cash-btn exact" onclick="app.quickCash('exact')">จ่ายพอดี</button>
+            <button type="button" class="quick-cash-btn exact" onclick="app.quickCash('exact')" data-i18n>จ่ายพอดี</button>
           </div>
         </div>
         <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-          <span style="font-size: 0.85rem; color: var(--text-secondary);">เงินทอน</span>
+          <span style="font-size: 0.85rem; color: var(--text-secondary);" data-i18n>เงินทอน</span>
           <span style="font-size: 1.25rem; font-weight: 700; color: var(--accent-massage);" id="cash-change">฿0.00</span>
         </div>
       </div>
@@ -1549,13 +1556,13 @@
       <!-- หมายเหตุบิล (เจ้าของสั่ง 14 ต.ค. 2569) — ข้อความภายในให้เจ้าของดู · ไม่พิมพ์บนใบเสร็จลูกค้า · ไม่บังคับ
            app.processCheckout อ่านแบบ "หาไม่เจอ = ไม่มีหมายเหตุ" (ไม่ใช่ช่องเงิน) · ล้างเองหลังขาย/ล้างตะกร้า (app.resetCartState) -->
       <div class="form-group" style="margin-top: 12px; margin-bottom: 0;">
-        <label class="form-label" for="checkout-bill-note">หมายเหตุบิล <span style="font-weight: normal; color: var(--text-muted);">(ไม่บังคับ · ไม่พิมพ์บนใบเสร็จ)</span></label>
-        <input type="text" class="form-input" id="checkout-bill-note" maxlength="200" autocomplete="off" placeholder="เช่น ลูกค้าขอเปลี่ยนหมอ / แถมเวลา 15 นาที">
+        <label class="form-label" for="checkout-bill-note" data-i18n>หมายเหตุบิล <span style="font-weight: normal; color: var(--text-muted);" data-i18n>(ไม่บังคับ · ไม่พิมพ์บนใบเสร็จ)</span></label>
+        <input type="text" class="form-input" id="checkout-bill-note" maxlength="200" autocomplete="off" placeholder="เช่น ลูกค้าขอเปลี่ยนหมอ / แถมเวลา 15 นาที" data-i18n-attr="placeholder">
       </div>
 
       <div class="modal-footer" style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;">
-        <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-payment')">ย้อนกลับ</button>
-        <button type="button" class="btn-small primary" id="btn-complete-checkout" disabled onclick="app.processCheckout()">
+        <button type="button" class="btn-small secondary" onclick="app.closeModal('modal-payment')" data-i18n>ย้อนกลับ</button>
+        <button type="button" class="btn-small primary" id="btn-complete-checkout" disabled onclick="app.processCheckout()" data-i18n>
           ยืนยันการรับชำระเงิน <i class="fa-solid fa-circle-check"></i>
         </button>
       </div>
